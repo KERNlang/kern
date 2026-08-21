@@ -1,10 +1,12 @@
 # KERN 5.0 Completion Goal
 
-**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0-F3 COMPLETE
+**Status:** KERN 5 IN PROGRESS; F0-F3 INTERNAL SUBSTRATE COMPLETE; F4 CANDIDATE
+AWAITING ACCEPTANCE
 
 **Goal confidence:** 0.96
 
-**Current public version:** `4.5.0`
+**Current public version:** `4.5.0` (current `origin/main`)
+**Unmerged source candidate:** `4.6.0` (local candidate only; not public)
 **Authoritative spec:**
 `.Codex/specs/kern-5-post-m4-171-completion/spec.md`
 
@@ -84,7 +86,7 @@ remain absent until an implementation slice promotes each with its complete
 binary oracle. The machine-readable authority is
 `scripts/kern-5-remaining-gates-v1.json`.
 
-| Gate | Current state after frontend F0 |
+| Gate | Current state after frontend F3 |
 | --- | --- |
 | `pnpm test:kern-checker` | current |
 | `pnpm test:kern-formatter` | current |
@@ -98,6 +100,61 @@ binary oracle. The machine-readable authority is
 `pnpm test:kern-ir` remains current. KIR v1 becomes shipped/canonical only
 when the final call chain actually consumes it. Keep KIR private by default;
 public export is a separate consumer-contract decision, not a KERN 5 blocker.
+
+## Current state — 2026-08-21
+
+- **[K5-CS1 VERIFIED]** `origin/main` remains the public `4.5.0` baseline.
+  The isolated `feat/kern-5-f2-frontend` worktree contains an unmerged `4.6.0`
+  source candidate. Candidate source, focused gates, and scoped reviews are not
+  a merge, release, tag, or publication claim.
+- **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form the completed
+  internal frontend substrate. Their authenticated KERN composition remains
+  `internal-oracle`; it does not promote the terminal frontend gate or replace
+  the TypeScript production path.
+- **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
+  review-clean *candidate* (declarations, expression evidence, request verdict,
+  path/ID, resource-prefix, and UTF-8 slices). It is neither accepted nor
+  promoted: F4-A1 through F4-A11, canonical C15 graph ordering, and the
+  full-scale closure remain open. The F4 specification is authoritative for
+  slice-level status; no candidate result changes the terminal-gate ledger.
+- **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
+  rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
+  (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
+  cutover, packed-release). Therefore the promoted prerequisite count remains
+  `2 / 8` terminal rows and `59 / 65` all prerequisite gates; neither count is
+  evidence that an unmerged candidate is shippable.
+- **[K5-CS5 DECIDED]** Retain the directional 54–64% completion heuristic. It
+  weighs the still-open ownership/cutover gates rather than the 59/65 row count;
+  it is not a repository metric or publication forecast.
+
+### Authority boundary
+
+- **[K5-CS6 DECIDED]** Integration/merge authority is separate from technical
+  acceptance: only an explicit project-owner instruction may select a target
+  branch and authorize integration after the relevant candidate gates and
+  independent review are recorded.
+- **[K5-CS7 DECIDED]** Publication authority is separate again. This goal
+  authorizes **no push, tag, release, package publication, or deployment**.
+  Those actions require a later explicit authorization after a merged,
+  reproducible release candidate satisfies M7 below.
+
+## Bounded remaining-work milestones (M0–M7)
+
+This map supersedes the broad remaining-work ordering for execution planning;
+the historical Phase 0–7 record below is retained as provenance. A milestone is
+not complete until every listed acceptance gate is green on its candidate and
+its stated dependency is complete.
+
+| Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
+| --- | --- | --- |
+| **M0 — candidate integration** | Reconcile the local F4/4.6 candidate against current `origin/main`; dependency: K5-CS1. | Clean, reviewable candidate provenance; `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force` recorded. No terminal-gate promotion. |
+| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
+| **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
+| **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
+| **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
+| **M5 — F6/F7 frontend promotion** | Complete adversarial frontend closure and promote the terminal frontend gate only after F0–F6 converge; dependency: M4. | `pnpm test:kern-frontend` is added, current, and green; the ledger, policy, support matrix, and release train promote atomically. |
+| **M6 — remaining canonical ownership** | Complete compiler, fixed-point, interpreter-shadow, and canonical-cutover ownership serially; dependency: M5. | In order: `pnpm test:kern-compiler`, `pnpm test:selfhost-fixed-point`, `pnpm test:kern-interpreter-shadow`, and `pnpm test:kern-canonical-cutover` are each current and green. |
+| **M7 — exact packed RC** | Build and independently reproduce the accepted packed release candidate; dependency: M6. | `pnpm test:packed-release` is current and green, including recovery walls and exact artifact identity. Completion grants only technical acceptance; K5-CS7 still forbids publication without explicit authority. |
 
 ## Execution Phases
 
