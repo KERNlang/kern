@@ -1,16 +1,16 @@
 # KERN 5 F2 Cache Diagnostics History Re-Anchor
 
-**Status:** IN PROGRESS
+**Status:** IMPLEMENTED / CURRENT-GATED CANDIDATE — CUMULATIVE RECEIPT AND ACCEPTANCE REVIEW PENDING
 **Date:** 2026-08-20
 **Confidence:** 0.96
 
 ## Executive Summary
 
-The F2 structural-cache scaling proof now observes two dimensionally separate cache-key costs while the historical `cacheKeyLength` receipt remains unchanged. Commit `6f92fe7a316f42bed9b74bdddff1f13bc20f08ae` is therefore the new authenticated successor of the runner-call-cache boundary. Re-anchor the existing transition from the unchanged predecessor `5e3bebd283a43e916b014d1406f025bd5bc14bb6` to that successor without changing frozen M4.145 or pre-M4.135 identities.
+The F2 structural-cache scaling proof now observes two dimensionally separate cache-key costs while the historical `cacheKeyLength` receipt remains unchanged. Commit `6f92fe7a316f42bed9b74bdddff1f13bc20f08ae` is the authenticated successor of the runner-call-cache boundary. The live transition now re-anchors the unchanged predecessor `5e3bebd283a43e916b014d1406f025bd5bc14bb6` to that successor without changing frozen M4.145 or pre-M4.135 identities.
 
 ## Current State / Root Cause
 
-- **VERIFIED:** the transition currently pins successor `a54e70aa4fa376a83c4b302c5a889b5407f29ce4` (`scripts/kern-canonicalizer/runner-call-cache-historical-transition.mjs:4-18`).
+- **VERIFIED:** the transition currently pins successor `6f92fe7a316f42bed9b74bdddff1f13bc20f08ae` (`scripts/kern-canonicalizer/runner-call-cache-historical-transition.mjs:4-18`).
 - **VERIFIED:** its tests authenticate the exact successor Git blobs, compiled inventory, retained-owner reconstructions, added cache module, and frozen historical digests (`scripts/kern-canonicalizer/runner-call-cache-historical-transition.test.mjs:54-131`).
 - **VERIFIED:** commit `6f92fe7a316f42bed9b74bdddff1f13bc20f08ae` adds two observational fields at the helper-prepare boundary without changing cache lookup or eviction (`packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts:112-123`).
 - **VERIFIED:** the diagnostic union retains `cacheKeyLength` and adds terminal-code-unit and outer-string-path dimensions (`packages/core/src/ir/semantics/internal-effect-machine-diagnostics.ts:1-12`).
@@ -26,15 +26,19 @@ The structural cache implementation, legacy observer-length compatibility, F2 pa
 
 | Field / Behavior | Type | Evidence | Tag |
 |---|---|---|---|
-| `cacheKeyLength` | `number | null` | `internal-effect-machine-diagnostics.ts:8-9`; focused legacy/structural diagnostic test | VERIFIED |
-| `cacheTerminalCodeUnits` | `number | null` | `internal-effect-machine-diagnostics.ts:4-5`; `internal-effect-machine-helper-runtime.ts:119` | VERIFIED |
-| `cacheOuterStringPathSteps` | `number | null` | `internal-effect-machine-diagnostics.ts:6-7`; `internal-effect-machine-helper-runtime.ts:118` | VERIFIED |
+| `cacheKeyLength` | `number \| null` | `internal-effect-machine-diagnostics.ts:8-9`; focused legacy/structural diagnostic test | VERIFIED |
+| `cacheTerminalCodeUnits` | `number \| null` | `internal-effect-machine-diagnostics.ts:4-5`; `internal-effect-machine-helper-runtime.ts:119` | VERIFIED |
+| `cacheOuterStringPathSteps` | `number \| null` | `internal-effect-machine-diagnostics.ts:6-7`; `internal-effect-machine-helper-runtime.ts:118` | VERIFIED |
 | Historical predecessor | commit SHA | `runner-call-cache-historical-transition.mjs:4` | VERIFIED |
 | New historical successor | commit SHA | `git rev-parse HEAD` after signed commit returned `6f92fe7a316f42bed9b74bdddff1f13bc20f08ae` | VERIFIED |
 
 ## Implementation Plan
 
-There is one non-strawman option: regenerate the existing authenticated edge from the unchanged predecessor and the new committed successor, then update its exact tests and current coverage receipts. Adding a second transition only for additive diagnostics would duplicate the same cache boundary and complicate ordering; rebaselining frozen historical digests would erase evidence and is forbidden.
+The implemented repair regenerated the existing authenticated edge from the
+unchanged predecessor and the committed successor, then updated its exact tests
+and current coverage receipts. Adding a second transition only for additive
+diagnostics would duplicate the same cache boundary and complicate ordering;
+rebaselining frozen historical digests remains forbidden.
 
 1. Prove the existing focused transition is RED at the new successor for exact retained-owner drift.
 2. Regenerate source/compiled reconstruction rows and endpoint identities only from the two pinned commits.
@@ -46,10 +50,10 @@ There is one non-strawman option: regenerate the existing authenticated edge fro
 
 | File | Action | Reason |
 |---|---|---|
-| `runner-call-cache-historical-transition.mjs` | regenerate exact edge | bind the new committed successor |
-| `runner-call-cache-historical-transition.test.mjs` | update exact successor assertion | reject stale or fabricated endpoints |
-| current coverage receipt files | regenerate if live digest changes | authenticate the present compiled tree only |
-| dependent transition tests | update only if exact current endpoint propagation requires it | preserve ordered historical reconstruction |
+| `runner-call-cache-historical-transition.mjs` | regenerated exact edge | binds the committed successor |
+| `runner-call-cache-historical-transition.test.mjs` | updated exact successor assertion | rejects stale or fabricated endpoints |
+| current coverage receipt files | regenerated | authenticate the present compiled tree only |
+| dependent transition tests | updated where endpoint propagation required it | preserve ordered historical reconstruction |
 
 ## Acceptance Criteria
 
@@ -72,7 +76,9 @@ None. All inputs needed to regenerate the transition are committed and locally v
 
 ## Deploy Order
 
-The diagnostics implementation commit precedes the transition-data commit in one local branch and one final push. There is no mixed-version runtime window because transition files are build/test evidence and both commits land together.
+The diagnostics implementation and transition-data commits are both present in
+the current candidate. There is no mixed-version runtime window because
+transition files are build/test evidence and both commits move together.
 
 ## Corrections Log
 
@@ -80,4 +86,4 @@ The diagnostics implementation commit precedes the transition-data commit in one
 |---|---|---|
 | One combined structural-key length was sufficient. | Terminal code units and outer-string path steps have different units and must remain separate. | Agon tribunal changed the diagnostic contract and tests before source edits. |
 | Each `identityText` call emits one prepare event. | Resumable replay emits three identical preparation events in the exercised path. | The test now authenticates consistency across repeats instead of uniqueness. |
-| The existing cache-history spec covered the final F2 diagnostics boundary. | It explicitly stopped at the earlier cache/observer successor. | This addendum records the new committed endpoint before transition regeneration. |
+| The existing cache-history spec covered the final F2 diagnostics boundary. | It explicitly stopped at the earlier cache/observer successor. | This addendum records the re-anchored committed endpoint. |

@@ -1,7 +1,7 @@
 # KERN 5.0 Completion Goal
 
-**Status:** KERN 5 IN PROGRESS; F0-F3 INTERNAL SUBSTRATE COMPLETE; F4 CANDIDATE
-AWAITING ACCEPTANCE
+**Status:** KERN 5 IN PROGRESS; F0-F3 CURRENT-GATED CANDIDATE SUBSTRATE; F4
+CANDIDATE AWAITING ACCEPTANCE
 
 **Goal confidence:** 0.96
 
@@ -107,10 +107,12 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   The isolated `feat/kern-5-f2-frontend` worktree contains an unmerged `4.6.0`
   source candidate. Candidate source, focused gates, and scoped reviews are not
   a merge, release, tag, or publication claim.
-- **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form the completed
-  internal frontend substrate. Their authenticated KERN composition remains
-  `internal-oracle`; it does not promote the terminal frontend gate or replace
-  the TypeScript production path.
+- **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form an implemented,
+  current-gated *candidate* internal frontend substrate. Their authenticated
+  KERN composition remains `internal-oracle`; it does not promote the terminal
+  frontend gate or replace the TypeScript production path. F1 cumulative-wall
+  and F2 acceptance-review evidence remain explicitly pending in their slice
+  specifications.
 - **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
   review-clean *candidate* (declarations, expression evidence, request verdict,
   path/ID, resource-prefix, and UTF-8 slices). It is neither accepted nor

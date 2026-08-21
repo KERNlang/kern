@@ -1,6 +1,6 @@
 # KERN 5 F2 Private Scalar Constructor
 
-**Status:** READY TO BUILD — TRIBUNAL AND NERO RESOLVED
+**Status:** IMPLEMENTED / CURRENT-GATED F2 PREREQUISITE — ACCEPTANCE REVIEW PENDING
 
 **Date:** 2026-08-16
 
@@ -14,6 +14,11 @@
 
 **Confidence:** 0.94 after rejecting both deferred code-point tape and
 `Json.parse` reuse
+
+**Implementation status:** The private scalar bridge landed with the F2
+candidate. The unchecked criteria remain open until their focused evidence and
+independent review are reconciled; this status does not create a public Text
+operation or promote the terminal frontend gate.
 
 ## Problem and evidence
 

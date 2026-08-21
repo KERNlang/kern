@@ -1,6 +1,6 @@
 # KERN 5 F1 Production Physical Scanner
 
-**Status:** VERIFIED F1 SCAN GATE — CUMULATIVE WALL PENDING F2
+**Status:** IMPLEMENTED / CURRENT-GATED F1 SCAN — CUMULATIVE FITNESS RECEIPT PENDING
 
 **Date:** 2026-08-16
 
@@ -162,7 +162,8 @@ continuation without a preceding open composite.
   segment has `CONTINUATION|CLOSER`; a same-line composite has
   `OPENER|CLOSER`.
 - Both single- and double-quoted strings continue symmetrically. Backslash
-  escapes the next scalar inside either quote form.
+  escapes the next scalar inside either quote form except CR or LF, which remain
+  independent physical records.
 - `{{...}}` expression depth is nested-pair and quote aware. F1 does not parse
   the expression body.
 - `{...}` style spans are line-local, close only on an unquoted `}`, and cover
@@ -222,8 +223,8 @@ empty tape, zero events, and seal `failure`.
 
 1. host/runtime text admission rejects ill-formed UTF-16;
 2. `SOURCE_LIMIT` rejects more than 65,536 Unicode scalars before scanning;
-3. a line-local style still open at newline returns `UNCLOSED_STYLE` at its
-   opener span;
+3. a line-local style still open at an LF, CRLF, or lone-CR boundary returns
+   `UNCLOSED_STYLE` at its opener span;
 4. at EOF, the earliest still-open outer composite wins:
    `UNCLOSED_STRING`, `UNCLOSED_EXPR`, or `UNEXPECTED_TOKEN` for a fence.
 
@@ -330,6 +331,10 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
       green; runtime envelope, source-runner convergence, canonicalizer,
       checker, formatter, and the full promoted KERN 5 fitness wall must be
       rerun on the final F2 candidate before promotion.
+      The 2026-08-21 candidate wall reached the final formatter gate after its
+      preceding current gates, but that formatter child hit its 300-second
+      wrapper timeout. This segmented evidence is not an uninterrupted green
+      `pnpm fitness:kern-5` receipt, so this criterion remains open.
 - [x] **[F1S-A10]** `test:kern-frontend-f1-scan` is current and
       `internal-oracle`; `test:kern-frontend` remains absent/planned and all six
       terminal ownership gates remain open.

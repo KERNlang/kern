@@ -1,9 +1,20 @@
 # KERN 5 F2 Runner Cache Historical Transition
 
-**Status:** READY TO BUILD
+**Status:** SUPERSEDED HISTORICAL PLAN — INITIAL 60d BOUNDARY PRESERVED
 
 **Date:** 2026-08-17
 **Confidence:** 0.93
+
+## Supersession
+
+This plan preserves the initial authenticated boundary
+`5e3bebd -> 60d7382`. The committed history is linear:
+`5e3bebd -> 60d7382 -> a54e70aa -> 6f92fe7`; the live production transition
+therefore pins `5e3bebd -> 6f92fe7` in
+`runner-call-cache-historical-transition.mjs`. The final re-anchor and its
+current acceptance record belong to
+`kern-5-f2-cache-diagnostics-history/spec.md`. This retained plan does not
+assert that `60d7382` is the current live successor.
 
 ## Objective
 
@@ -12,7 +23,7 @@ Authenticate the exact compiled-core and runtime-source delta introduced by stru
 ## Pinned Boundary
 
 - **VERIFIED — predecessor commit:** `5e3bebd283a43e916b014d1406f025bd5bc14bb6`
-- **VERIFIED — successor commit:** `60d7382a004b5112962e0cefe9087d6b234a1af0`
+- **VERIFIED — initial successor commit:** `60d7382a004b5112962e0cefe9087d6b234a1af0`
 - **VERIFIED — added source:** `packages/core/src/ir/semantics/runner-call-cache.ts`
 - **VERIFIED — added compiled path:** `ir/semantics/runner-call-cache.js`
 - **VERIFIED — successor compiled inventory:** 318 paths, digest `601fce8b504c09757523253d616fbaf118b1b17064d7b1ae9f91d3395fa32d93`
@@ -46,6 +57,10 @@ Authenticate the exact compiled-core and runtime-source delta introduced by stru
 - Read Git or the working tree dynamically from runtime transition data.
 
 ## Acceptance Criteria
+
+This historical checklist is preserved as provenance for the initial boundary;
+the unchecked boxes are not claims that the current candidate lacks the
+implemented re-anchor.
 
 - [ ] The dedicated transition tests pass from the successor tree.
 - [ ] The live compiled-core digest remains sensitive to the new module and retained owners.

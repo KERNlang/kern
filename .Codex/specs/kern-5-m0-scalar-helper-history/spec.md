@@ -1,6 +1,6 @@
 # M0 — Scalar-Helper History Closure for Text.utf8Length
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED / CURRENT-GATED CANDIDATE — ACCEPTANCE REVIEW PENDING
 **Date:** 2026-08-21
 **Confidence:** 0.97
 
@@ -111,7 +111,7 @@ namespace shadowing, and TS/Python helper injection. Evidence:
 | Existing owners | `internal-effect-machine-helper-runtime.js` and `portable-reference-evaluator.js` remain runner-call-cache reconstructions; `internal-text-code-point-cache.js` remains runtime-text-cache/inventory history; `runner-call-cache.js` remains a removal transition; diagnostics, types, semantic-env ownership, and semantic-env are excluded because compiled bytes are unchanged. | `runner-call-cache-historical-transition.mjs:23,35-49`; `runtime-text-cache-historical-transition.mjs:12-22`; pinned 8a/current byte probe in M0-SH5b | **VERIFIED** |
 | Stage acceptance | Each stage accepts only exact successor bytes, applies only unique literal replacement text, and yields its exact predecessor digest. No regex, normalization, fuzzy match, or fallback is legal. | `historical-transition-chain.mjs:69-87`; `historical-source.mjs:19-44` | **VERIFIED** |
 | Composition and terminal | The scalar and companion path sets are disjoint, so their application order is observationally commutative; the only historical acceptance point is the composed 305-path M4.145 digest. A companion path bypasses the old scalar stage unchanged. | tribunal `agy-output.txt:22-29,43-45`; `scalar-helper-history-transition.mjs:106-116`; M0-SH5b | **DECIDED** |
-| Old edge | The original eight-row scalar transition's data identity is immutable. The five-row scalar 4.6 transition is specified/pinned by b425988d and generated in the current uncommitted coherent patch; companion repair must not alter either stage's claim, endpoints, rows, digests, or replacement bytes. Validator/test hardening is permitted. | `scalar-helper-history-transition.mjs:62-92`; `scalar-helper-history-4-6-transition-module.mjs:115-133`; tribunal `agy-output.txt:9-16,68-72` | **VERIFIED** |
+| Old edge | The original eight-row scalar transition's data identity is immutable. The five-row scalar 4.6 transition is specified/pinned by b425988d and is committed in the current `c8fb6a96` candidate; companion repair must not alter either stage's claim, endpoints, rows, digests, or replacement bytes. Validator/test hardening is permitted. | `scalar-helper-history-transition.mjs:62-92`; `scalar-helper-history-4-6-transition-module.mjs:115-133`; tribunal `agy-output.txt:9-16,68-72` | **VERIFIED** |
 | Historical receipt | M4.145 compiled-core digest remains `29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2`; `combined-headroom-m4-145.json` remains byte-identical. | `coverage-integrity.test.mjs:358-400`; `combined-headroom-m4-145.json:50`; `combined-headroom-m4-145.test.mjs:29-38` | **VERIFIED** |
 | Current summaries | Current compiled identity is regenerated from the rebuilt 4.6 core; it is not backdated to M4.145. The present stale pin is `ddd0992e...`; the live probe is `0d1c4eaa6dbe30baafaed48c9561c194e045dc1ee46af7910394a10eb671fff4`. | `coverage-summary.json:138`; `coverage-prerequisite-summary.json:7`; `coverage-dependencies.mjs:871-903`; M0-SH5 probe | **VERIFIED** |
 
@@ -131,9 +131,9 @@ ten-substitution closure is instead bound by M0-SH5 plus M0-SH5b and the
 ## Decided Design
 
 **[M0-SH9 DECIDED]** Preserve the b425988d-pinned scalar 4.6 *transition data
-identity* generated in the current uncommitted coherent patch: claim, endpoint
-commits, path order, row and endpoint digests, blob identities, and replacement
-bytes are immutable. Validator and test sources may be hardened. Add one
+identity* committed in the current candidate: claim, endpoint commits, path
+order, row and endpoint digests, blob identities, and replacement bytes are
+immutable. Validator and test sources may be hardened. Add one
 companion module/data/test pair for the five M0-SH5b
 paths, with claim `kern.compiler.host-companion-history-4-6.r0`. It
 reconstructs those current compiled files to their exact `8a453a44` bytes and

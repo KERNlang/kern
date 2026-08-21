@@ -1,8 +1,13 @@
 # KERN 5 F2 Structural Helper Cache Keys
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED / CURRENT-GATED F2 PREREQUISITE — ACCEPTANCE REVIEW PENDING
 **Date:** 2026-08-17
 **Confidence:** 0.92
+
+**Implementation status:** The shared `runner-call-cache` owner is present in
+the current candidate. The unchecked acceptance list remains open until its
+claim-level evidence and independent review are reconciled; this status does
+not change cache capacity or promote any terminal frontend gate.
 
 ## Executive Summary
 

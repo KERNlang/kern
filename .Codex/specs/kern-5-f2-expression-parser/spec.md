@@ -1,6 +1,6 @@
 # KERN 5 F2 Production Expression Parser
 
-**Status:** READY TO BUILD — TRIBUNAL CORRECTIONS APPLIED
+**Status:** IMPLEMENTED / CURRENT-GATED CANDIDATE — ACCEPTANCE REVIEW PENDING
 
 **Date:** 2026-08-16
 
@@ -17,6 +17,12 @@
 
 **Confidence:** 0.98 after the tribunal corrections, repeated contract review,
 and a final review with no verified blockers
+
+**Implementation status:** The production F2 assets and
+`test:kern-frontend-f2-expression` gate are present in this candidate. The
+unchecked acceptance criteria below remain the authoritative record until their
+claim-to-oracle evidence and final independent review are reconciled; this
+status change does not promote `test:kern-frontend`.
 
 ## Executive Summary
 
@@ -379,7 +385,10 @@ KIR projection and canonical record ordering into F2. Rejected.
 This follows the bootstrap shape but violates F0's iterative requirement and
 creates nesting-depth/stack risks at the F1 source ceiling. Rejected.
 
-## Blast Radius
+## Historical Implementation Blast Radius
+
+The table records the implementation work that landed in the current candidate;
+its `add` and `edit` verbs are not pending work.
 
 | File | Action | Reason |
 |---|---|---|
@@ -469,12 +478,13 @@ F5 consumption, the explicit F1 raw-boundary rule, and the narrowed seam
 criterion. Any later ledger/schema contradiction reopens this section and
 blocks implementation.
 
-## Deploy Order
+## Historical Deploy Order
 
 1. Challenge and correct this spec; derive discriminating RED fixtures from the
    resolved acceptance criteria.
 2. Land F2 as a private non-terminal gate only after focused, cumulative, full
-   fitness, and independent review pass.
+   fitness, and independent review pass. The implementation landed as a
+   current-gated candidate; its final acceptance evidence remains pending.
 3. Start F3 from the landed `origin/main` and consume the exact F1/F2 formats.
 4. F5 alone emits canonical KIR; F7 alone exposes the terminal frontend gate.
 
