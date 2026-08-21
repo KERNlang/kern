@@ -6,7 +6,7 @@ import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
 import { type IRNode, isExprObject } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
-import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
+import { assertNoOptionalKernStdlibCall, assertNoOptionalKernStdlibMember, isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
 import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
 import {
   classifyRegexLiteralIndexReadFailClose,
@@ -181,6 +181,7 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       for (const expr of node.expressions) validateValueIR(expr, scope);
       return;
     case 'member': {
+      assertNoOptionalKernStdlibMember(node, (name) => isUserBinding(scope, name));
       // Slice 2 — `/x/.source` / `/x/.flags`: a bare property READ on a regex
       // LITERAL launders the pattern/flags to a string. Routed through the SHARED
       // classifier (via the ValueIR adapter) so this site agrees with the TS/
@@ -234,11 +235,10 @@ function validateValueIR(node: ValueIR, scope: ValidationScope): void {
       return;
     }
     case 'call': {
+      assertNoOptionalKernStdlibCall(node, (name) => isUserBinding(scope, name));
       validateCallCallee(node.callee, scope);
-      // BLOCKING fix — a DOTTED regex-literal method call (`/x/.test(s)`,
-      // `/x/.exec(s)`, `/x/.compile(y)`) is classified by the SHARED classifier
-      // here, the SAME decision the TS-emit (`lowerRegexCallTS`) + Python-emit
-      // (`lowerRegexCallPython`) legs and the closure walk make. Without this, the
+      // A dotted regex-literal method call is classified by the shared classifier here,
+      // matching TS/Python emit and the closure walk. Without this, the
       // blanket `validateValueIR(node.callee)` below re-validated the callee as a
       // bare member READ and threw `REGEX_HOST_REGEXP_FAILCLOSE` on the COMMON
       // portable `/x/.test(s)` — an internal divergence from emit (which accepts

@@ -1,5 +1,5 @@
 /** TEXT first-class member — shared contract for KERN's `Text.*` string-ops
- *  surface (`Text.length`/`charAt`/`slice`/`indexOf`/`startsWith`), single-
+ *  surface (`Text.length`/`utf8Length`/`charAt`/`slice`/`indexOf`/`startsWith`), single-
  *  sourced across the THREE legs, mirroring the Decimal contract split
  *  (`decimal-contract.ts`):
  *    - the ReferenceRunner (`ir/semantics/portable-string.ts`) imports the
@@ -16,7 +16,8 @@
  *  CONTRACT (tribunal-locked, run tribunal-1782979476717-1d9547): a KERN
  *  string is a sequence of Unicode CODE POINTS on all three legs.
  *  `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
- *  and `Text.startsWith(prefix)` all operate on CODE-POINT indices — NOT
+ *  and `Text.startsWith(prefix)` all operate on CODE-POINT indices, while
+ *  `Text.utf8Length` returns the RFC 3629 byte count of that scalar sequence — NOT
  *  JS's native UTF-16 code-UNIT indices, which diverge from Python's
  *  code-point indices for any character outside the Basic Multilingual
  *  Plane (BMP): a surrogate PAIR is two UTF-16 code units but ONE Unicode
@@ -116,6 +117,7 @@ export function codePointIndexOf(hay: readonly string[], needle: readonly string
 //    helpers make (shared message, hand-duplicated arithmetic guard). ────────
 
 export const TEXT_MALFORMED_SURROGATE_FAILCLOSE = 'contains a malformed (lone or reversed) UTF-16 surrogate';
+export const TEXT_REQUIRES_STRING_FAILCLOSE = 'requires a string';
 
 export function textMalformedSurrogateFailMessage(label: string): string {
   return (
@@ -152,7 +154,7 @@ export const KERN_INTERNAL_TEXT_STDLIB = Object.freeze({
 /** TS-leg helper functions for the code-point-indexed Text ops, rendered
  *  into the file-level KERN-stdlib preamble (see `stdlib-preamble.ts`'s
  *  `usage.textOps` gate) exactly once per generated module — mirroring
- *  `decimalOpsHelpersTS`. `Text.length/charAt/slice/indexOf/startsWith`
+ *  `decimalOpsHelpersTS`. `Text.length/utf8Length/charAt/slice/indexOf/startsWith`
  *  lower to calls into these (`__kern_text_*`). Generated output cannot
  *  `import` this compiler-internal module, so the well-formedness scan and
  *  code-point walk are hand-mirrored here from {@link isWellFormedText} /
@@ -174,7 +176,8 @@ export function textOpsHelpersTS(): string {
     '  }',
     '  return true;',
     '}',
-    'function __kern_text_require_well_formed(s: string, label: string): string {',
+    'function __kern_text_require_well_formed(s: unknown, label: string): string {',
+    `  if (typeof s !== 'string') throw new Error('portable: ' + label + ' ' + ${JSON.stringify(TEXT_REQUIRES_STRING_FAILCLOSE)});`,
     '  if (!__kern_text_well_formed(s)) {',
     `    throw new Error('portable: ' + label + ' ' + ${JSON.stringify(TEXT_MALFORMED_SURROGATE_FAILCLOSE)});`,
     '  }',
@@ -191,6 +194,18 @@ export function textOpsHelpersTS(): string {
     '}',
     'function __kern_text_length(s: string): number {',
     "  return __kern_text_code_points(__kern_text_require_well_formed(s, 'Text.length')).length;",
+    '}',
+    'function __kern_text_utf8_length(s: string): number {',
+    "  s = __kern_text_require_well_formed(s, 'Text.utf8Length');",
+    '  let bytes = 0;',
+    '  for (let i = 0; i < s.length; i += 1) {',
+    '    const unit = s.charCodeAt(i);',
+    '    if (unit <= 0x7f) bytes += 1;',
+    '    else if (unit <= 0x7ff) bytes += 2;',
+    '    else if (unit >= 0xd800 && unit <= 0xdbff) { bytes += 4; i += 1; }',
+    '    else bytes += 3;',
+    '  }',
+    '  return bytes;',
     '}',
     'function __kern_text_char_at(s: string, i: number): string {',
     "  const cps = __kern_text_code_points(__kern_text_require_well_formed(s, 'Text.charAt'));",
@@ -248,6 +263,7 @@ export const KERN_TEXT_OPS_HELPER_PY = [
   '    return True',
   '',
   'def _kern_text_require_well_formed(s, label):',
+  `    if not isinstance(s, str): raise Exception('portable: ' + label + ' ' + ${pyStr(TEXT_REQUIRES_STRING_FAILCLOSE)})`,
   '    if not _kern_text_well_formed(s):',
   `        raise Exception('portable: ' + label + ' ' + ${pyStr(TEXT_MALFORMED_SURROGATE_FAILCLOSE)})`,
   '    return s',
@@ -289,6 +305,21 @@ export const KERN_TEXT_OPS_HELPER_PY = [
   '',
   'def _kern_text_length(s):',
   "    return len(_kern_text_require_well_formed(s, 'Text.length'))",
+  '',
+  'def _kern_text_utf8_length(s):',
+  "    s = _kern_text_require_well_formed(s, 'Text.utf8Length')",
+  '    total = 0',
+  '    for ch in s:',
+  '        scalar = ord(ch)',
+  '        if scalar <= 0x7f:',
+  '            total += 1',
+  '        elif scalar <= 0x7ff:',
+  '            total += 2',
+  '        elif scalar <= 0xffff:',
+  '            total += 3',
+  '        else:',
+  '            total += 4',
+  '    return total',
   '',
   'def _kern_text_char_at(s, i):',
   "    s = _kern_text_require_well_formed(s, 'Text.charAt')",

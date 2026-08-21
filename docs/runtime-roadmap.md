@@ -47,23 +47,19 @@ The preview surface is the documented, tested subset used by the smoke gate:
   string keys and portable-scalar values (`Map.set` only inside `do`,
   the same functional-rebind mutation model as array append; `Map.get` on a
   missing key fails closed — use `Map.has` to probe first)
-- `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
-  and `Text.startsWith(prefix)`, under the tribunal-locked Unicode
-  code-point contract (Option D, decided 2026-07-02), for BMP-SAFE strings
-  only (no character outside U+0000..U+FFFF, no surrogate-range code unit
-  in the receiver or any string argument) — a deliberate risk-valve
-  narrowing (see `packages/core/src/ir/semantics/portable-string.ts`): a
-  well-formed non-BMP character (emoji, rare CJK extension characters) is
-  NOT yet supported and fails closed identically to a malformed surrogate,
-  pending a follow-up slice with full code-point-index emulation.
+- `Text.length`, `Text.utf8Length`, `Text.charAt(i)`, `Text.slice(a, b)`,
+  `Text.indexOf(needle)`, and `Text.startsWith(prefix)`, under the
+  tribunal-locked Unicode scalar contract. The `utf8Length` and astral-text
+  behavior below is current in the unmerged `4.6.0` source candidate only; it
+  is not yet part of the published `4.5.0` contract. In that candidate,
+  well-formed astral characters are supported on the ReferenceRunner and
+  generated TypeScript/Python legs; malformed lone/reversed surrogate
+  sequences fail closed. `utf8Length` returns the exact RFC 3629 byte count
+  without normalization or replacement.
   `charAt`/`slice` fail closed on out-of-bounds/negative indices (a
   deliberately stricter bounds policy than JS's/Python's native silent
   clamping); `indexOf` returns a code-point offset or `-1` (not an error).
-  This slice reaches the REFERENCE RUNNER ONLY — the production TS/Python
-  codegen legs (`kern build`/`kern compile`) do not yet lower `Text.charAt`/
-  `Text.slice`/`Text.indexOf`, and `Text.length`'s existing UTF-16-based
-  lowering is UNCHANGED on those two legs; wiring the shared preamble/helper
-  injection needed for 3-leg parity is deferred to a follow-up slice.
+  All six operations use the shared Text helper family in generated targets.
 - flat record-literal binding with scalar dot-field reads
 - pure KERN helper functions returning portable scalars, including explicit
   `use path="..."` imports from host-resolved `.kern` modules, and same-file

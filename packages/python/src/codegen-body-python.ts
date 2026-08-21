@@ -44,6 +44,8 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  assertNoOptionalKernStdlibCall,
+  assertNoOptionalKernStdlibMember,
   assertNoDecimalOperator,
   assertNotPortablePowerHelperBinding,
   assertPortablePowerOperand,
@@ -4230,6 +4232,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     };
   }
   // node.kind === 'call'
+  assertNoOptionalKernStdlibCall(node, (name) => isProvenUserBinding(ctx, name));
   if (node.optional) {
     throw new Error(
       "Optional call '?.()' is not yet supported on Python target. " +
@@ -4262,15 +4265,12 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       };
     }
   }
-  // Slice 2a — KERN-stdlib dispatch must run on a top-level Module.method
-  // call BEFORE we descend into the callee chain, so `Number.floor(x)`
-  // doesn't degrade into a non-stdlib `Number.floor(x)` Python emit.
+  // KERN-stdlib dispatch runs before descending so known calls cannot degrade to raw Python.
   const regex = lowerRegexCallPython(node, ctx);
   if (regex !== null) return { guard: null, expr: regex };
   const stdlib = applyStdlibLoweringPython(node, ctx);
   if (stdlib !== null) return { guard: null, expr: stdlib };
-  // Lambda-bearing array methods (`map`/`filter`/`some`/`every`) lower to a
-  // call-by-name comprehension. Peeked BEFORE the portable-array shim because
+  // Lambda-bearing array methods lower to a call-by-name comprehension before the portable-array shim because
   // none of these four are in that shim's set; gating here keeps the two paths
   // independent and lets a non-matching shape fall through unchanged.
   const lambdaArray = lowerLambdaArrayCallPython(node, ctx);
@@ -5295,10 +5295,10 @@ function applyStdlibPropertyLoweringPython(
   member: Extract<ValueIR, { kind: 'member' }>,
   ctx: BodyEmitContext,
 ): string | null {
-  if (member.optional) return null;
+  assertNoOptionalKernStdlibMember(member, (name) => isProvenUserBinding(ctx, name));
   if (member.object.kind !== 'ident') return null;
   const moduleName = member.object.name;
-  if (moduleName === 'List' && isProvenUserBinding(ctx, moduleName)) return null;
+  if ((moduleName === 'List' || moduleName === 'Text') && isProvenUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const propertyName = member.property;
   const entry = lookupStdlibProperty(moduleName, propertyName);
@@ -5316,7 +5316,7 @@ function applyStdlibPropertyLoweringPython(
 }
 
 function rejectKnownStdlibIndexPython(root: string, member: string, ctx: BodyEmitContext): void {
-  if (root === 'List' && isProvenUserBinding(ctx, root)) return;
+  if ((root === 'List' || root === 'Text') && isProvenUserBinding(ctx, root)) return;
   if (!KERN_STDLIB_MODULES.has(root)) return;
   throwUnknownStdlibMemberPython(root, member);
 }
@@ -5326,7 +5326,7 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   if (callee.kind !== 'member') return null;
   if (callee.object.kind !== 'ident') return null;
   const moduleName = callee.object.name;
-  if (moduleName === 'List' && isProvenUserBinding(ctx, moduleName)) return null;
+  if ((moduleName === 'List' || moduleName === 'Text') && isProvenUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
   const entry = lookupStdlibCall(moduleName, methodName);

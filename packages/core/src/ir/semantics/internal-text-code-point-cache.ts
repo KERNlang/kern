@@ -186,6 +186,13 @@ export function internalTextScalarLength(owner: object | undefined, value: strin
   return acquireTextScalarIndex(owner, value, label).scalarLength;
 }
 
+/** Exact RFC 3629 byte length from the same validated scan/cache used by the
+ * scalar-indexed Text operations. Malformed UTF-16 fails before a value is
+ * returned, and repeated effect-machine reads reuse the retained scan. */
+export function internalTextUtf8Length(owner: object | undefined, value: string, label: string): number {
+  return acquireTextScalarIndex(owner, value, label).utf8Bytes;
+}
+
 export function internalTextScalarAt(
   owner: object | undefined,
   value: string,

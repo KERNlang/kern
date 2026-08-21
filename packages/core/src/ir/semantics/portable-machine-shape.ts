@@ -9,7 +9,7 @@ import { isInternalMachineHelperCall } from './internal-effect-machine-helper-co
 import { isDecimalExpression } from './portable-decimal-evaluator.js';
 import { assertPortableRecordEntry } from './portable-record-evaluator.js';
 import { isPortableBindingName, isSafeIntegerLiteralIndex } from './portable-scalar-domain.js';
-import type { SemanticEnv } from './semantic-env.js';
+import { hasBinding, type SemanticEnv } from './semantic-env.js';
 
 const SCALAR_BINARY_OPS = new Set<BinaryOp>([
   '+',
@@ -38,6 +38,7 @@ const TEXT_ARITY: Readonly<Record<string, number>> = Object.freeze({
   length: 1,
   slice: 3,
   startsWith: 2,
+  utf8Length: 1,
 });
 
 type ScalarHelperCall = (name: string, arity: number, env: SemanticEnv) => boolean;
@@ -104,6 +105,7 @@ function assertScalarCallShape(
     return;
   }
   if (namespace === 'Text') {
+    if (env && hasBinding(env, 'Text')) fail('Text call');
     if (TEXT_ARITY[method] !== node.args.length) fail('Text call');
     for (const argument of node.args) {
       assertPortableMachineScalarShape(argument, env, scalarHelperCall, portableHelperCall);

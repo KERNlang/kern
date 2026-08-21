@@ -61,8 +61,11 @@ export {
   KERN_DECIMAL_OPS_HELPER_PY,
 } from './codegen/decimal-contract.js';
 export {
+  assertNoOptionalKernStdlibCall,
+  assertNoOptionalKernStdlibMember,
   HOST_NAMESPACE_EXEMPT_ROOTS,
   isHostNamespaceRoot,
+  OPTIONAL_KERN_STDLIB_ACCESS_FAILCLOSE,
   unmappedHostNamespaceMessage,
 } from './codegen/host-namespace.js';
 export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './codegen/kern-stdlib.js';
@@ -95,10 +98,7 @@ export {
 export type { ReactHookDep } from './codegen/react-hook-imports.js';
 export { detectReactHookDeps, injectReactHookImports } from './codegen/react-hook-imports.js';
 export type { RegexCaptureMeta, RegexIFoldFailReason, RegexIFoldResult } from './codegen/regex-normalize.js';
-// Milestone C, Slices 1 + /i — shared regex emission-normalization, consumed by
-// the TS emitter (here in core) and the Python emitter (@kernlang/python) so the
-// `\d \w \s` class transform AND the non-ASCII `/i` fold-class expansion are
-// byte-identical across both targets.
+// Shared regex normalization keeps TS and Python classes/folds byte-identical.
 export {
   // Milestone C, Slice 2 — SHARED ValueIR adapters for the regex-literal-access
   // classifier. Every ValueIR consumer (TS-emit core, Python-emit, IR-validate)
@@ -192,8 +192,8 @@ export {
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
 } from './codegen/stdlib-preamble.js';
-// KERN 4.5.0 item 3 — TEXT shared contract (single-sourced across the
-// ReferenceRunner + TS emitter + Python emitter — see that module's doc).
+// TEXT shared contract, including public Text.utf8Length in KERN 4.6.0
+// (single-sourced across ReferenceRunner + TS emitter + Python emitter).
 export {
   codePointIndexOf,
   isWellFormedText,

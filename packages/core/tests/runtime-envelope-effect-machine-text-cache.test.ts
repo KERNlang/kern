@@ -29,6 +29,7 @@ describe('internal effect-machine Text code-point cache', () => {
     const machine = state(64);
 
     expect(evaluate('Text.length(source)', source, machine)).toBe(4);
+    expect(evaluate('Text.utf8Length(source)', source, machine)).toBe(13);
     expect(evaluate('Text.charAt(source, 0)', source, machine)).toBe('😀');
     expect(evaluate('Text.charAt(source, 1)', source, machine)).toBe('a');
     expect(evaluate('Text.charAt(source, 2)', source, machine)).toBe('𐐀');
@@ -44,6 +45,7 @@ describe('internal effect-machine Text code-point cache', () => {
     const second = '𐐀'.repeat(128);
 
     expect(evaluate('Text.charAt(source, 127)', first, machine)).toBe('😀');
+    expect(evaluate('Text.utf8Length(source)', first, machine)).toBe(512);
     expect(evaluate('Text.charAt(source, 127)', second, machine)).toBe('𐐀');
     expect(evaluate('Text.charAt(source, 127)', first, machine)).toBe('😀');
   });
@@ -51,6 +53,7 @@ describe('internal effect-machine Text code-point cache', () => {
   test('rejects malformed UTF-16 before insertion', () => {
     const machine = state(1024);
     expect(() => evaluate('Text.length(source)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(() => evaluate('Text.utf8Length(source)', '\udc00', machine)).toThrow(/malformed.*UTF-16/u);
     expect(() => evaluate('Text.length(source)', '\udc00', machine)).toThrow(/malformed.*UTF-16/u);
     expect(() => evaluate('Text.length(source)', '\ud800\ud800', machine)).toThrow(/malformed.*UTF-16/u);
     expect(evaluate('Text.length(source)', 'a', machine)).toBe(1);

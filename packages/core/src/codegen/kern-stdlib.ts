@@ -70,14 +70,14 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // must be 3, not 4). They now lower to the shared `__kern_text_*` (TS) /
     // `_kern_text_*` (Python) helpers single-sourced in `text-contract.ts`,
     // which both walk CODE POINTS and fail closed on a malformed (lone or
-    // reversed) UTF-16 surrogate — byte-identical fail-close set to the
-    // runner. `charAt`/`slice`/`indexOf` were previously RUNNER-ONLY (not in
+    // reversed) UTF-16 surrogate — byte-identical fail-close set to the runner.
+    // `charAt`/`slice`/`indexOf` were previously RUNNER-ONLY (not in
     // this table at all); this slice lowers them into both codegen legs for
     // the first time. See `text-contract.ts`'s module doc for the full
-    // three-leg architecture and `stdlib-preamble.ts` (`usage.textOps`) /
-    // `registerStdlibRequirementPython` (`'text-ops'`) for the per-leg helper
-    // injection wiring.
+    // three-leg architecture and the per-leg helper wiring in `stdlib-preamble.ts`
+    // and `registerStdlibRequirementPython`. KERN 4.6.0 adds exact RFC 3629 `utf8Length`.
     length: { arity: 1, ts: '__kern_text_length($0)', py: '_kern_text_length($0)', requires: { py: 'text-ops' } },
+    utf8Length: { arity: 1, ts: '__kern_text_utf8_length($0)', py: '_kern_text_utf8_length($0)', requires: { py: 'text-ops' } },
     charAt: {
       arity: 2,
       ts: '__kern_text_char_at($0, $1)',

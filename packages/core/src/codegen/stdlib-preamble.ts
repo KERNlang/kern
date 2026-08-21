@@ -135,16 +135,16 @@ export function emittedCodeUsesLooseEq(code: string): boolean {
 
 /** KERN 4.5.0 item 3 — matches {@link emittedCodeUsesLooseEq}'s "detection ==
  *  emission" pattern for the Text code-point-ops helper block: any of the
- *  five reserved-prefix `__kern_text_*(` CALL tokens in the emitted TS output
- *  means `kernStdlibPreamble` must render {@link textOpsHelpersTS}'s
- *  definitions. Scanning for the call sites (not just the shared
- *  `__kern_text_well_formed(` sub-helper) keeps this independent of the
+ *  reserved-prefix `__kern_text_*(` CALL tokens in emitted TS mean
+ *  `kernStdlibPreamble` must render {@link textOpsHelpersTS}'s
+ *  definitions. Scanning call sites, not the shared `__kern_text_well_formed(` helper,
  *  helper block's own internal shape. The `__kern_`-reserved prefix makes a
  *  false-positive (a user STRING literal containing this exact token) harmless
  *  and astronomically unlikely, mirroring the loose-eq precedent. */
 const TEXT_OPS_CALL_TOKENS = [
   '__kern_text_from_scalar(',
   '__kern_text_length(',
+  '__kern_text_utf8_length(',
   '__kern_text_char_at(',
   '__kern_text_slice(',
   '__kern_text_index_of(',

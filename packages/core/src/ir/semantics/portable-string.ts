@@ -39,7 +39,7 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
-import { TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE } from '../../codegen/text-contract.js';
+import { TEXT_REQUIRES_STRING_FAILCLOSE, TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   copyInternalEffectMachineState,
@@ -51,13 +51,14 @@ import {
   internalTextScalarLength,
   internalTextScalarSlice,
   internalTextStartsWith,
+  internalTextUtf8Length,
 } from './internal-text-code-point-cache.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
 import { hasBinding, type SemanticEnv } from './semantic-env.js';
 
 function requireString(value: PortableScalar, label: string): string {
-  if (typeof value !== 'string') throw new Error(`portable: ${label} requires a string`);
+  if (typeof value !== 'string') throw new Error(`portable: ${label} ${TEXT_REQUIRES_STRING_FAILCLOSE}`);
   return value;
 }
 
@@ -78,6 +79,7 @@ const STRING_OP_ARITY: Readonly<Record<string, number>> = Object.freeze({
   slice: 3,
   indexOf: 2,
   startsWith: 2,
+  utf8Length: 1,
 });
 
 /**
@@ -132,6 +134,10 @@ export function evalStringOpCall(
     case 'length': {
       const receiver = requireString(receiverValue, label);
       return internalTextScalarLength(executionOwner(env), receiver, label);
+    }
+    case 'utf8Length': {
+      const receiver = requireString(receiverValue, label);
+      return internalTextUtf8Length(executionOwner(env), receiver, label);
     }
     case 'charAt': {
       const indexValue = evaluateIndexArg(node.args[1], env, evaluate);

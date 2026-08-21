@@ -15,6 +15,46 @@
  * lowerings (see `REGEX_HOST_REGEXP_FAILCLOSE` in regex-normalize.ts).
  */
 import { KERN_STDLIB_MODULES } from './kern-stdlib.js';
+import type { ValueIR } from '../value-ir.js';
+
+export const OPTIONAL_KERN_STDLIB_ACCESS_FAILCLOSE =
+  'is optional, but KERN stdlib namespaces are compile-time authorities rather than nullable runtime objects';
+
+function isShadowedStdlibRoot(root: string, isUserBinding: (name: string) => boolean): boolean {
+  return (root === 'List' || root === 'Text') && isUserBinding(root);
+}
+
+function assertNoOptionalKernStdlibAccess(
+  root: string,
+  member: string,
+  optional: boolean,
+  isUserBinding: (name: string) => boolean,
+): void {
+  if (!optional || !KERN_STDLIB_MODULES.has(root) || isShadowedStdlibRoot(root, isUserBinding)) return;
+  throw new Error(`portable: optional KERN-stdlib access '${root}.${member}' ${OPTIONAL_KERN_STDLIB_ACCESS_FAILCLOSE}`);
+}
+
+export function assertNoOptionalKernStdlibMember(
+  node: Extract<ValueIR, { kind: 'member' }>,
+  isUserBinding: (name: string) => boolean,
+): void {
+  if (node.object.kind !== 'ident') return;
+  assertNoOptionalKernStdlibAccess(node.object.name, node.property, node.optional, isUserBinding);
+}
+
+export function assertNoOptionalKernStdlibCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  isUserBinding: (name: string) => boolean,
+): void {
+  const callee = node.callee;
+  if (callee.kind !== 'member' || callee.object.kind !== 'ident') return;
+  assertNoOptionalKernStdlibAccess(
+    callee.object.name,
+    callee.property,
+    node.optional || callee.optional,
+    isUserBinding,
+  );
+}
 
 export const HOST_NAMESPACE_EXEMPT_ROOTS: ReadonlySet<string> = new Set<string>([
   // (empty) — every host root that is not a KERN stdlib module is reserved and

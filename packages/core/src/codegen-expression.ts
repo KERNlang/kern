@@ -9,7 +9,7 @@ import {
   decimalBareConstructionFailMessage,
   decimalNonStringLiteralFailMessage,
 } from './codegen/decimal-contract.js';
-import { isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
+import { assertNoOptionalKernStdlibCall, assertNoOptionalKernStdlibMember, isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
 import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
 import {
   applyTemplate,
@@ -432,8 +432,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           )}(${node.args.map((arg) => emitExpression(arg, ctx)).join(', ')})`;
         }
       }
-      // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`
-      // and `Module` is a known stdlib module, route through the per-target
+      // Slice 2a — when the callee is a known `Module.method`, route through the per-target
       // lowering table instead of the default emit path.
       const stdlib = applyStdlibLoweringTS(node, ctx);
       if (stdlib !== null) return stdlib;
@@ -980,10 +979,10 @@ function applyStdlibPropertyLoweringTS(
   member: Extract<ValueIR, { kind: 'member' }>,
   ctx?: ExprEmitContext,
 ): string | null {
-  if (member.optional) return null;
+  assertNoOptionalKernStdlibMember(member, (name) => isUserBinding(ctx, name));
   if (member.object.kind !== 'ident') return null;
   const moduleName = member.object.name;
-  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return null;
+  if ((moduleName === 'List' || moduleName === 'Text') && isUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const entry = lookupStdlibProperty(moduleName, member.property);
   if (entry === null) {
@@ -1001,18 +1000,19 @@ function applyStdlibPropertyLoweringTS(
 function rejectKnownStdlibIndexTS(index: Extract<ValueIR, { kind: 'index' }>, ctx?: ExprEmitContext): void {
   if (index.object.kind !== 'ident') return;
   const moduleName = index.object.name;
-  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return;
+  if ((moduleName === 'List' || moduleName === 'Text') && isUserBinding(ctx, moduleName)) return;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return;
   const member = index.index.kind === 'strLit' ? index.index.value : '[computed]';
   throwUnknownStdlibMember(moduleName, member);
 }
 
 function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: ExprEmitContext): string | null {
+  assertNoOptionalKernStdlibCall(call, (name) => isUserBinding(ctx, name));
   const callee = call.callee;
   if (callee.kind !== 'member') return null;
   if (callee.object.kind !== 'ident') return null;
   const moduleName = callee.object.name;
-  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return null;
+  if ((moduleName === 'List' || moduleName === 'Text') && isUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
   const entry = lookupStdlibCall(moduleName, methodName);

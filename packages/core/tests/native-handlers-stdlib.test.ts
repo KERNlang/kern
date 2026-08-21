@@ -5,10 +5,12 @@
  *  the same KERN source emits idiomatic TS via `emitExpression` and the
  *  per-target lowering table picks the right shape (method / prop / freeFn). */
 
-import { KERN_STDLIB_MODULES, lookupStdlib, suggestStdlibMethod } from '../src/codegen/kern-stdlib.js';
+import { KERN_STDLIB, KERN_STDLIB_MODULES, lookupStdlib, suggestStdlibMethod } from '../src/codegen/kern-stdlib.js';
 import { emittedCodeUsesTextOps } from '../src/codegen/stdlib-preamble.js';
+import { beginIRHostNamespacesValidatedTS, endIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
+import type { IRNode } from '../src/types.js';
 
 describe('KERN_STDLIB table — Text module slice 2a', () => {
   test('Text module is registered as known stdlib module', () => {
@@ -44,6 +46,49 @@ describe('KERN_STDLIB table — Text module slice 2a', () => {
 });
 
 describe('emitExpression — TS — KERN-stdlib dispatch', () => {
+  test.each([
+    'Text?.utf8Length("x")',
+    'Text.utf8Length?.("x")',
+    'Number?.floor(1)',
+  ])('optional known-stdlib access fails closed before lowering: %s', (source) => {
+    expect(() => emitExpression(parseExpression(source))).toThrow(/optional KERN-stdlib access/u);
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'return', props: { value: source } }],
+    };
+    expect(() => beginIRHostNamespacesValidatedTS(handler)).toThrow(/optional KERN-stdlib access/u);
+  });
+
+  test('optional user-shadowed Text access remains authored code', () => {
+    const ctx = { isUserBinding: (name: string) => name === 'Text' };
+    expect(emitExpression(parseExpression('Text?.utf8Length("x")'), ctx)).toBe('Text?.utf8Length("x")');
+    expect(emitExpression(parseExpression('Text.utf8Length?.("x")'), ctx)).toBe('Text.utf8Length?.("x")');
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'return', props: { value: 'Text?.utf8Length("x")' } }],
+    };
+    const began = beginIRHostNamespacesValidatedTS(handler, { userBindings: new Set(['Text']) });
+    endIRHostNamespacesValidatedTS(handler, began);
+  });
+
+  test('every registered stdlib call entry shares the optional-access fence', () => {
+    for (const [moduleName, entries] of Object.entries(KERN_STDLIB)) {
+      for (const [methodName, entry] of Object.entries(entries)) {
+        if (entry.kind === 'property') continue;
+        const arity = entry.arity ?? entry.minArity ?? 0;
+        const args = Array.from({ length: arity }, () => 'x').join(', ');
+        expect(() => emitExpression(parseExpression(`${moduleName}?.${methodName}(${args})`))).toThrow(
+          /optional KERN-stdlib access/u,
+        );
+        expect(() => emitExpression(parseExpression(`${moduleName}.${methodName}?.(${args})`))).toThrow(
+          /optional KERN-stdlib access/u,
+        );
+      }
+    }
+  });
+
   test('Text.upper(s) lowers to TS s.toUpperCase()', () => {
     expect(emitExpression(parseExpression('Text.upper(s)'))).toBe('s.toUpperCase()');
   });
