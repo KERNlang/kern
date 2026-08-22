@@ -185,7 +185,7 @@ test('F4B C19 oracle: one F4A .1 receipt fails atomically before graph work', ()
   assert.equal(result.documents.length, VALID_MODULE_SET.length);
 });
 
-test('F4B .3 identity tape exposes every F4A receipt seal as enumerable identity data', () => {
+test('F4B .4 identity tape exposes every F4A receipt seal as enumerable identity data', () => {
   const result = runModuleSet(VALID_MODULE_SET);
   const { receipt } = result;
   assert.deepEqual(receipt.header.inputIdentityTape, result.documents.map(({ receipt: document }) => ({
@@ -198,10 +198,10 @@ test('F4B .3 identity tape exposes every F4A receipt seal as enumerable identity
     assert.deepEqual(Object.keys(identity), ['moduleId', 'format', 'status', 'seal']);
     assert.match(JSON.stringify(identity), /"seal":"[0-9a-f]{64}"/u);
   }
-  assert.equal(receipt.header.format, 'kern.frontend.f4-module-set.3');
+  assert.equal(receipt.header.format, 'kern.frontend.f4-module-set.4');
 });
 
-test('F4B .3 treats a valid-shaped external seal as an identity commitment, not authentication', () => {
+test('F4B .4 treats a valid-shaped external seal as an identity commitment, not authentication', () => {
   const baseline = runModuleSet(QUARANTINE_MODULE_SET).receipt;
   const changed = __test.runModuleSetWithReceiptMutation(
     QUARANTINE_MODULE_SET,
@@ -213,7 +213,7 @@ test('F4B .3 treats a valid-shaped external seal as an identity commitment, not 
   assert.equal(changed.status, 'rejected');
   assert.ok(changed.header.inputIdentityTape.some((row) =>
     row.moduleId === 'blocked.kern' && row.seal === 'a'.repeat(64)));
-  assert.equal(changed.header.format, 'kern.frontend.f4-module-set.3');
+  assert.equal(changed.header.format, 'kern.frontend.f4-module-set.4');
 });
 
 test('F4B rejects malformed F4A seal shapes atomically before graph work', () => {

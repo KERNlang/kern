@@ -90,11 +90,14 @@ function assertDecoderRejects(fields, context, label) {
   assert.throws(() => decodeModuleSet(fields, context), /identity|input|fatal|witness|terminal|fact|field/u, label);
 }
 
-test('RP9 decoder accepts a real full .3 result then rejects each sealed full identity coordinate', async (t) => {
+test('RP9 decoder accepts a real full .4 result, rejects .3, then rejects each sealed identity coordinate', async (t) => {
   const { modules, result } = fullResult();
-  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.3');
+  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.4');
   const context = identityContext(result, modules.map(({ moduleId }) => moduleId), 'full', '');
   assert.doesNotThrow(() => decodeModuleSet(result.fields, context));
+  const legacy = [...result.fields];
+  legacy[0] = 'kern.frontend.f4-module-set.3';
+  assertDecoderRejects(legacy, context, 'legacy .3 identity');
   const coordinates = ['moduleId', 'format', 'status', 'seal'];
   for (const [index, coordinate] of coordinates.entries()) {
     await t.test(coordinate, () => {
@@ -111,7 +114,7 @@ test('RP9 decoder accepts a real full .3 result then rejects each sealed full id
 
 test('RP8/RP9 decoder accepts a real compact proof then rejects proof-only field and terminal drift', async (t) => {
   const { modules, result, f4bArguments } = proofResult();
-  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.3');
+  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.4');
   const context = {
     ...identityContext(result, modules.map(({ moduleId }) => moduleId), 'resource-prefix', 'maxModules'),
     f4bArguments,

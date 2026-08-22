@@ -126,7 +126,7 @@ function rows(value) {
 function assertProofFields(fields, { kind, modules, prefix, priorSymbols, priorBindings, crossingSymbols, crossingBindings }) {
   assert.equal(fields.length, 10);
   const mapped = oneBased(fields);
-  assert.equal(mapped[1], 'kern.frontend.f4-module-set.3');
+  assert.equal(mapped[1], 'kern.frontend.f4-module-set.4');
   assert.equal(mapped[2], 'fatal');
   for (const index of [3, 4, 6, 7, 8]) assert.equal(mapped[index], '', `proof field ${index}`);
   assert.deepEqual(rows(mapped[5]).map(([code]) => code), ['F4_LIMIT']);
@@ -139,16 +139,16 @@ function assertProofFields(fields, { kind, modules, prefix, priorSymbols, priorB
   assert.equal(mapped[10], `module-set:fatal:${modules}:0:0:1:0:0:0:${Array.from(mapped[9]).length}:${kind}:closed`);
 }
 
-test('public ordinary full calls target a sealed .3 result and cannot fork through a private argument shape', () => {
+test('public ordinary full calls target a sealed .4 result and cannot fork through a private argument shape', () => {
   const result = runModuleSet(VALID_MODULE_SET);
-  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.3');
+  assert.equal(result.receipt.header.format, 'kern.frontend.f4-module-set.4');
   assert.equal(result.moduleSetRuntimeInvocations, 1);
 });
 
-test('RP1 policy pins .4, the 18-slot F4B ABI, result .3, and closed mode vocabulary', () => {
+test('RP1 policy pins .4, the 18-slot F4B ABI, result .4, and closed mode vocabulary', () => {
   const { policy } = loadPolicy();
   assert.equal(policy.format, 'kern.frontend.f4-declarations-policy.4');
-  assert.equal(policy.moduleSetResultFormat, 'kern.frontend.f4-module-set.3');
+  assert.equal(policy.moduleSetResultFormat, 'kern.frontend.f4-module-set.4');
   assert.deepEqual(Object.keys(policy.moduleSetPrivateAbi), [
     'arity', 'argumentOrder', 'argumentTypes', 'modes', 'resourceKinds',
   ]);
@@ -291,12 +291,12 @@ test('RP5 full overflow is invalid-request rather than a retroactive resource pr
   atomicFatal(run.result.receipt, 'F4_INVALID_REQUEST');
 });
 
-test('RP8/RP9 expose only the one-based ten-field .3 full and proof shapes from real execution', () => {
+test('RP8/RP9 expose only the one-based ten-field .4 full and proof shapes from real execution', () => {
   const full = candidate([{ moduleId: 'earth🌍.kern', source: '' }]);
-  assert.equal(full.error, undefined, `full .3 receipt must be produced: ${full.error?.message ?? ''}`);
+  assert.equal(full.error, undefined, `full .4 receipt must be produced: ${full.error?.message ?? ''}`);
   assert.equal(full.result.fields.length, 10);
   const mapped = oneBased(full.result.fields);
-  assert.equal(mapped[1], 'kern.frontend.f4-module-set.3');
+  assert.equal(mapped[1], 'kern.frontend.f4-module-set.4');
   assert.equal(mapped[2], 'linked');
   assert.match(mapped[8], /🌍/u, 'astral scalar must participate in the actual identity tape');
   assert.equal(mapped[9], '');
@@ -312,14 +312,16 @@ test('RP8/RP9 expose only the one-based ten-field .3 full and proof shapes from 
   }).header.inputIdentityTape.map(({ moduleId }) => moduleId), ['earth🌍.kern']);
 });
 
-test('RP9 fences a frozen nine-field .2 receipt while the public .3 path remains decodable', () => {
+test('RP9 fences a frozen nine-field .2 receipt while the public .4 path remains decodable', () => {
   assert.equal(FROZEN_MODULE_SET_2_FIELDS.length, 9, 'legacy .2 fixture must remain genuinely nine-field');
   assert.throws(() => decodeModuleSet(FROZEN_MODULE_SET_2_FIELDS, {
     moduleCount: 0, moduleIds: [], mode: 'full', resourceKind: '', inputSeal: '', inputIdentities: [],
   }), /module-set field shape/u);
 
-  const current = runModuleSet(VALID_MODULE_SET);
-  assert.equal(current.receipt.header.format, 'kern.frontend.f4-module-set.3');
+  const run = candidate(VALID_MODULE_SET);
+  assert.equal(run.error, undefined);
+  const current = run.result;
+  assert.equal(current.receipt.header.format, 'kern.frontend.f4-module-set.4');
   assert.doesNotThrow(() => decodeModuleSet(current.fields, {
     moduleCount: VALID_MODULE_SET.length,
     moduleIds: VALID_MODULE_SET.map(({ moduleId }) => moduleId), mode: 'full', resourceKind: '',
@@ -330,6 +332,7 @@ test('RP9 fences a frozen nine-field .2 receipt while the public .3 path remains
       status: receipt.status,
       seal: receipt.seal,
     })),
+    f4bArguments: f4bArgs(run),
   }));
   assert.ok(current.documents.every(({ receipt }) => receipt.header.format === 'kern.frontend.f4-document.2'));
 });
@@ -383,7 +386,7 @@ test('RP10 policy rejects one byte below the actual minimal non-proof fatal floo
   const floor = encodedBytes(overflow.result.fields);
   const state = policyWith({ maxEncodedBytes: floor - 1 });
   state.policy.format = 'kern.frontend.f4-declarations-policy.4';
-  state.policy.moduleSetResultFormat = 'kern.frontend.f4-module-set.3';
+  state.policy.moduleSetResultFormat = 'kern.frontend.f4-module-set.4';
   state.policy.moduleSetPrivateAbi = {
     arity: 18, argumentOrder: ABI_NAMES, argumentTypes: ABI_TYPES,
     modes: ['full', 'resource-prefix'], resourceKinds: ['maxModules', 'maxSymbols', 'maxBindings'],
