@@ -10,6 +10,8 @@ import { __test, loadPolicy, runDocument, validatePolicy } from './worker.mjs';
 const HELPERS = readFileSync(
   new URL('../../examples/kern-frontend/f4-declarations-helpers.kern', import.meta.url), 'utf8');
 const POLICY_VALIDATION = readFileSync(new URL('./policy-validation.mjs', import.meta.url), 'utf8');
+const constitution = JSON.parse(readFileSync(
+  new URL('../kir-structural/constitution.json', import.meta.url), 'utf8'));
 const NODE_KEYS = ['nodeIds', 'nodeSchemaStatuses', 'nodeAllowedModes', 'nodeChildTapes', 'nodePropertyStarts', 'nodePropertyCounts'];
 const PROPERTY_KEYS = ['propertyNodes', 'propertyNames', 'propertyKinds', 'propertyRequired', 'propertyValueTapes', 'propertyDispositions', 'propertyReasonIds'];
 
@@ -35,6 +37,13 @@ function quoted(count) {
 function context(moduleId, source, result) {
   return {
     moduleId, sourceScalars: Array.from(source).length, sourceSha256: sha256(source),
+    propertyAuthority: {
+      nodeKinds: constitution.properties.map((row) => row.nodeKind),
+      propertyNames: constitution.properties.map((row) => row.propertyName),
+      schemaKinds: constitution.properties.map((row) => row.schemaKind),
+      required: constitution.properties.map((row) => row.required ? 'true' : 'false'),
+      dispositions: constitution.properties.map((row) => row.disposition),
+    },
     sourcePoints: Array.from(source), f2Policy: loadF2Policy(),
     f2bSegments: result.prerequisites.batch?.receipt.segments ?? [],
     f2bExpressions: result.prerequisites.batch?.expressions ?? [],

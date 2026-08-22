@@ -1,9 +1,23 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { loadPolicy as loadF2Policy } from '../kern-frontend-f2-expression/decoder.mjs';
 import { decodeDocument, sha256 } from './decoder.mjs';
 import { __test, loadPolicy, runDocument, validatePolicy } from './worker.mjs';
+
+const constitution = JSON.parse(readFileSync(
+  new URL('../kir-structural/constitution.json', import.meta.url), 'utf8'));
+
+function propertyAuthority() {
+  return {
+    nodeKinds: constitution.properties.map((row) => row.nodeKind),
+    propertyNames: constitution.properties.map((row) => row.propertyName),
+    schemaKinds: constitution.properties.map((row) => row.schemaKind),
+    required: constitution.properties.map((row) => row.required ? 'true' : 'false'),
+    dispositions: constitution.properties.map((row) => row.disposition),
+  };
+}
 
 function withLimits(overrides) {
   const policy = structuredClone(loadPolicy().policy);
@@ -25,6 +39,7 @@ function contextFor(moduleId, source, result) {
     moduleId,
     sourceScalars: Array.from(source).length,
     sourceSha256: sha256(source),
+    propertyAuthority: propertyAuthority(),
     sourcePoints: Array.from(source),
     f2Policy: loadF2Policy(),
     f2bSegments: result.prerequisites.batch.receipt.segments,

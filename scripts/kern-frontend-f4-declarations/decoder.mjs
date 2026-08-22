@@ -149,6 +149,58 @@ function decodePresence(fields) {
   };
 }
 
+const PROPERTY_AUTHORITY_KEYS = [
+  'nodeKinds', 'propertyNames', 'schemaKinds', 'required', 'dispositions',
+];
+const CONSTITUTION_PROPERTY_ROWS = 1_149;
+
+function propertyKey(ownerLogicalOrdinal, propertyName) {
+  return JSON.stringify([ownerLogicalOrdinal, propertyName]);
+}
+
+function validatePropertyContract(occurrences, presenceRows, context) {
+  const authority = context.propertyAuthority;
+  if (!authority || typeof authority !== 'object' || Array.isArray(authority) ||
+      Object.keys(authority).sort().join('|') !== [...PROPERTY_AUTHORITY_KEYS].sort().join('|') ||
+      PROPERTY_AUTHORITY_KEYS.some((key) => !Array.isArray(authority[key])) ||
+      PROPERTY_AUTHORITY_KEYS.some((key) => authority[key].length !== authority.nodeKinds.length) ||
+      authority.nodeKinds.length !== CONSTITUTION_PROPERTY_ROWS) fail('property authority shape');
+  const lastOccurrenceByKey = new Map();
+  let previousStart = -1;
+  for (const occurrence of occurrences) {
+    const catalogOrdinal = occurrence.catalogOrdinal;
+    if (catalogOrdinal >= authority.nodeKinds.length ||
+        occurrence.ownerKind !== authority.nodeKinds[catalogOrdinal] ||
+        occurrence.propertyName !== authority.propertyNames[catalogOrdinal] ||
+        occurrence.schemaKind !== authority.schemaKinds[catalogOrdinal] ||
+        occurrence.required !== (authority.required[catalogOrdinal] === 'true') ||
+        occurrence.disposition !== authority.dispositions[catalogOrdinal]) {
+      fail('property authority binding');
+    }
+    if (occurrence.startScalar < previousStart) fail('occurrence order');
+    previousStart = occurrence.startScalar;
+    if ((occurrence.disposition === 'excluded-host-expression' ||
+        occurrence.disposition === 'excluded-host-type' ||
+        occurrence.disposition === 'excluded-raw-block') && occurrence.value !== '') {
+      fail('excluded property payload');
+    }
+    lastOccurrenceByKey.set(propertyKey(occurrence.ownerLogicalOrdinal, occurrence.propertyName),
+      occurrence.ordinal);
+  }
+  const seenPresence = new Set();
+  for (const presence of presenceRows) {
+    const key = propertyKey(presence.ownerLogicalOrdinal, presence.propertyName);
+    if (seenPresence.has(key)) fail('property presence duplicate');
+    seenPresence.add(key);
+    const expected = lastOccurrenceByKey.get(key);
+    if (expected === undefined ? presence.effectiveOccurrenceOrdinal !== -1 :
+      presence.effectiveOccurrenceOrdinal !== expected) fail('property presence binding');
+  }
+  for (const key of lastOccurrenceByKey.keys()) {
+    if (!seenPresence.has(key)) fail('property presence missing');
+  }
+}
+
 function decodeAttachment(fields) {
   if (fields.length !== 3) fail('attachment field count');
   if (fields[2] !== 'attached' && fields[2] !== 'detached-local') fail('attachment disposition');
@@ -293,6 +345,8 @@ export function decodeDocument(fields, context) {
   }
   const occurrences = rows(fields[5], 'occurrence').map((row, index) =>
     decodeOccurrence(row, index, sourceScalars));
+  const propertyPresence = rows(fields[6], 'presence').map(decodePresence);
+  if (fields[1] !== 'fatal') validatePropertyContract(occurrences, propertyPresence, context);
   const expressionEvidence = rows(fields[14], 'expression evidence').map((row, index) =>
     decodeExpressionEvidence(row, index, sourceScalars, context, occurrences));
   const sealParts = fields[16].split(':');
@@ -310,7 +364,7 @@ export function decodeDocument(fields, context) {
     status: fields[1],
     declarations: rows(fields[4], 'declaration').map((row, index) => decodeDeclaration(row, index, sourceScalars)),
     propertyOccurrences: occurrences,
-    propertyPresence: rows(fields[6], 'presence').map(decodePresence),
+    propertyPresence,
     attachments: rows(fields[7], 'attachment').map(decodeAttachment),
     decorators: rows(fields[8], 'decorator').map((row) => decodeDecorator(row, sourceScalars)),
     symbols: rows(fields[9], 'symbol').map(decodeSymbol),

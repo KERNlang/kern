@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { decodeDocument, listTape, sha256 } from './decoder.mjs';
@@ -6,6 +7,8 @@ import { VALID_MODULE_SET } from './fixtures.mjs';
 import { runDocument } from './worker.mjs';
 
 const item = (value) => `i${Array.from(value).length}:${value}`;
+const constitution = JSON.parse(readFileSync(
+  new URL('../kir-structural/constitution.json', import.meta.url), 'utf8'));
 const fatalDiagnostic = item([
   'F4_LIMIT', 'error', '0', '0', '-1',
 ].map(item).join(''));
@@ -19,6 +22,13 @@ function context(moduleId, source) {
     moduleId,
     sourceScalars: Array.from(source).length,
     sourceSha256: sha256(source),
+    propertyAuthority: {
+      nodeKinds: constitution.properties.map((row) => row.nodeKind),
+      propertyNames: constitution.properties.map((row) => row.propertyName),
+      schemaKinds: constitution.properties.map((row) => row.schemaKind),
+      required: constitution.properties.map((row) => row.required ? 'true' : 'false'),
+      dispositions: constitution.properties.map((row) => row.disposition),
+    },
   };
 }
 

@@ -310,6 +310,13 @@ function runPrepared(prepared, mutation, testPhaseKeyMutation = '', suppliedInpu
     sourceScalars: Array.from(prepared.source).length,
     sourceSha256: sha256(prepared.source),
     sourcePoints: Array.from(prepared.source),
+    propertyAuthority: {
+      nodeKinds: prepared.authorities.propertyNodes,
+      propertyNames: prepared.authorities.propertyNames,
+      schemaKinds: prepared.authorities.propertyKinds,
+      required: prepared.authorities.propertyRequired,
+      dispositions: prepared.authorities.propertyDispositions,
+    },
     f2Policy: prepared.loaded.f2Policy,
     f2bSegments: prepared.prerequisiteOutcome.batch?.receipt.segments ?? [],
     f2bExpressions: prepared.prerequisiteOutcome.batch?.expressions ?? [],
