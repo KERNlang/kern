@@ -1389,7 +1389,13 @@ rather than a new host-owned F4 semantic path:
   matrix invokes real F4 once per mutated row and retains structural loop canaries.
 - **[F4-A3 PROPOSED]** Every closed keyword/source form has positive, malformed,
   fallback, multiline, quoted, astral, and trailing-property evidence where
-  applicable, with exact parity to hand-authored expectations.
+  applicable, with exact parity to hand-authored expectations. The A3a
+  dependency is implemented and locally verified: one receipt-neutral KERN
+  normalization kernel now owns the existing 52-case source-form decisions,
+  while the legacy shadow adapter retains the exact pre-extraction receipt
+  digest. A3 remains proposed until A3b projects those writes through the real
+  F1 -> F3 -> one-root-F4 property path and closes its resource/occurrence
+  contract; no F4 production or format bytes changed in A3a.
 - **[F4-A4 IMPLEMENTED | VERIFIED]** The public-path A4 matrix covers plain
   multi-decorator runs, the independent export-prefixed control, EOF and
   indentation orphans, equal-F3 non-`fn` substitution, malformed syntax,

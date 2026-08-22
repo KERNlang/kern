@@ -105,7 +105,8 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 ## Current state — 2026-08-22
 
 - **[K5-CS1 VERIFIED]** The integrated `4.6.0` source baseline contains M0,
-  M1.1 eligibility, C13-LOCAL, and the A6 detached-subtree closure;
+  M1.1 eligibility, C13-LOCAL, the A6 detached-subtree closure, A5-local
+  property evidence, and the A3a neutral source-form kernel;
   `d0631aff` is the pinned pre-A1/A2 evidence ancestor and `4c0ade63` is the
   pinned pre-A6 ancestor.
   This source fact is not
@@ -139,7 +140,12 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   `405/405`, and automatic-risk Agon review found no blocker. Its decoder now
   binds receipt coordinates and last-write-wins presence to the authenticated
   property authority without changing document `.2`, policy `.4`, or ABI 109.
-  F4-A3, canonical F4-A7/C15 graph normalization, and full-scale closure are
+  The A3a dependency now extracts the 52-case source-form decisions into one
+  receipt-neutral KERN kernel: its focused matrix passed `4/4`, the complete
+  keyword-handler gate passed `23/23` plus the regression wall, the exact
+  pre-extraction receipt digest is retained, and automatic-risk review found no
+  blocker. A3a does not make F4 consume those writes. F4-A3/A3b, canonical
+  F4-A7/C15 graph normalization, and full-scale closure are
   unfinished. F4 is neither
   accepted nor promoted; the F4 specification remains authoritative for
   slice-level status, and no candidate result changes the terminal-gate ledger.
@@ -174,7 +180,7 @@ its stated dependency is complete.
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
 | **M0 — candidate integration (source landed; acceptance receipt not attached)** | The integrated source baseline contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
-| **M1 — F4A semantic closure** | F4-A1, F4-A2, F4-A4, F4-A5-local, F4-A6, and F4-A11 have locally verified candidate evidence. Close F4-A3 across the remaining frozen F0 source forms and diagnostics; C13-LOCAL's eight constructed-here facts, A5 property/decoder ownership, and A6 detached-subtree closure are implemented and locally verified, while M1 remains open; dependency: M0. | The A3 source-form binary/mutation oracle proves the remaining F4A acceptance claim; no evidence slice alone promotes F4. |
+| **M1 — F4A semantic closure** | F4-A1, F4-A2, F4-A4, F4-A5-local, F4-A6, and F4-A11 have locally verified candidate evidence. A3a has landed the shared neutral normalization dependency with exact legacy parity. Close A3b by projecting the frozen source-form writes through public F4 with resource/occurrence ownership; C13-LOCAL, A5, and A6 remain locally verified while M1 stays open; dependency: M0. | The A3b public-path binary/mutation oracle proves the remaining F4A acceptance claim; no dependency or evidence slice alone promotes F4. |
 | **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
 | **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, C13-GLOBAL imported expression/path admission, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
