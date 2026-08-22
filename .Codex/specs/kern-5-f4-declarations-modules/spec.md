@@ -1400,10 +1400,19 @@ rather than a new host-owned F4 semantic path:
   passed `10/10`, the complete F4 declarations wall passed `393/393`, and
   automatic-risk Agon review found no verified or needs-check blocker. Evidence
   is pinned by `a4-decorator-closure.test.mjs` and the A4 satellite spec.
-- **[F4-A5 PROPOSED]** Property tests cover required/optional/absent,
-  duplicate/unknown, every value representation, expression binding, raw/host
-  exclusions, link-time `from.as`/`reexport` normalization, and property names
-  that collide with object prototypes.
+- **[F4-A5 IMPLEMENTED | VERIFIED — F4A LOCAL]** The public-path property
+  matrix covers required/optional/absent state, duplicate/unknown behavior,
+  every schema kind and disposition, bare/quoted/expression ownership,
+  expression binding, raw/host exclusions, enum endpoints, and prototype-
+  colliding names. The strict decoder binds occurrence coordinates to the
+  authenticated 1,149-row property authority and rejects decreasing spans,
+  stale last-write-wins presence, duplicate/missing presence keys, and excluded
+  payload leakage. The focused A5 matrix passed `12/12`, the adjacent decoder/
+  resource wall passed `145/145`, the complete F4 declarations wall passed
+  `405/405`, and automatic-risk Agon review found no blocker. Cross-module
+  `from.as`, default-kind, and re-export fixed-point normalization are F4-A7/
+  C15 graph acceptance, not F4A property defaulting. Evidence is pinned by
+  `a5-property-conformance.test.mjs` and the A5 satellite spec.
 - **[F4-A6 IMPLEMENTED | VERIFIED]** KERN computes the full detached-descendant
   closure before projection, preserves authenticated F3 geometry, suppresses
   detached declaration/interface/path/export/evidence effects, retains the
