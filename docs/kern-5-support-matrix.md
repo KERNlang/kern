@@ -80,6 +80,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | current | `pnpm test:kern-frontend-f2-expression` |
 | kern-frontend-f2-batch | KERN-owned F2 document expression batch | current | `pnpm test:kern-frontend-f2-batch` |
 | kern-frontend-f3-line-tree | KERN-owned F3 logical-line tree | current | `pnpm test:kern-frontend-f3-line-tree` |
+| kern-frontend-f4-declarations | KERN-owned F4 declarations and module sets | current | `pnpm test:kern-frontend-f4-declarations` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -165,6 +166,7 @@ wall and must remain absent until promoted.
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | internal-oracle | `pnpm test:kern-frontend-f2-expression` |
 | kern-frontend-f2-batch | KERN-owned F2 document expression batch | internal-oracle | `pnpm test:kern-frontend-f2-batch` |
 | kern-frontend-f3-line-tree | KERN-owned F3 logical-line tree | internal-oracle | `pnpm test:kern-frontend-f3-line-tree` |
+| kern-frontend-f4-declarations | KERN-owned F4 declaration and closed-module-set semantics | internal-oracle | `pnpm test:kern-frontend-f4-declarations` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |

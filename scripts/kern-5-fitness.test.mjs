@@ -289,12 +289,15 @@ test('accepted F4 declarations are current without promoting the terminal fronte
     policy.entrypoints['test:kern-frontend-f4-declarations'],
     packageJson.scripts['test:kern-frontend-f4-declarations'],
   );
-  assert.deepEqual(policy.ownership.find((row) => row.id === 'kern-frontend-f4-declarations'), {
-    id: 'kern-frontend-f4-declarations',
-    boundary: 'KERN-owned F4 declaration and closed-module-set semantics',
-    status: 'internal-oracle',
-    evidence: 'pnpm test:kern-frontend-f4-declarations',
-  });
+  assert.deepEqual(
+    policy.ownership.find((row) => row.id === 'kern-frontend-f4-declarations'),
+    {
+      id: 'kern-frontend-f4-declarations',
+      label: 'KERN-owned F4 declaration and closed-module-set semantics',
+      status: 'internal-oracle',
+      evidence: 'pnpm test:kern-frontend-f4-declarations',
+    },
+  );
   assert.equal(policy.gates.find((gate) => gate.id === 'kern-frontend').status, 'planned');
 });
 

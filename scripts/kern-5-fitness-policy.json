@@ -54,6 +54,7 @@
     "test:kern-frontend-f2-expression": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f2-expression/*.test.mjs",
     "test:kern-frontend-f2-batch": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f2-batch/*.test.mjs",
     "test:kern-frontend-f3-line-tree": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f3-line-tree/*.test.mjs",
+    "test:kern-frontend-f4-declarations": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f4-declarations/*.test.mjs",
     "test:kern-checker": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-checker/composition.mjs && node --test scripts/kern-checker/*.test.mjs && node scripts/check-capstone-checker-subset.mjs && node scripts/check-kern-checker.mjs",
     "test:kern-formatter": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-formatter/composition.mjs && node --test scripts/kern-formatter/*.test.mjs && node scripts/check-kern-formatter-wall.mjs"
   },
@@ -399,6 +400,12 @@
       "label": "KERN-owned F3 logical-line tree",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-f3-line-tree"]
+    },
+    {
+      "id": "kern-frontend-f4-declarations",
+      "label": "KERN-owned F4 declarations and module sets",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-f4-declarations"]
     },
     {
       "id": "kern-checker",
@@ -839,6 +846,12 @@
       "label": "KERN-owned F3 logical-line tree",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-f3-line-tree"
+    },
+    {
+      "id": "kern-frontend-f4-declarations",
+      "label": "KERN-owned F4 declaration and closed-module-set semantics",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-f4-declarations"
     },
     {
       "id": "kern-formatter",
