@@ -111,6 +111,26 @@
       "sha256": "e3481d8af52d562c4434c861839902aec34d17bdd4361994f90a42de44d7ae3b"
     },
     {
+      "path": "examples/kern-frontend/keyword-handlers-structured-scanner.kern",
+      "sha256": "4b134d40ce5ef1363f57794e12784e703ea84ff7054f8225710a4c85adafc18c"
+    },
+    {
+      "path": "examples/kern-frontend/keyword-handlers-structured-declarations.kern",
+      "sha256": "f7a9db4139bd797c151d65e549a2916283f507d72c20c84fd3f954bc6e525917"
+    },
+    {
+      "path": "examples/kern-frontend/keyword-handlers-structured.kern",
+      "sha256": "b3869cce8180d202c6591c818b19d964ca4088d3d19fdf13bb1a447cde422157"
+    },
+    {
+      "path": "examples/kern-frontend/keyword-handler-normalization.kern",
+      "sha256": "36ea4db1e418a8e03a3cf8b39aebec0f9efdfa4fc08be3a36c76a8ac1b391ae8"
+    },
+    {
+      "path": "examples/kern-frontend/f4-keyword-normalization.kern",
+      "sha256": "671ba333d9687b20c18a5aa39e868bcbfa2891b1a99e85f8e9e3760f493f95b5"
+    },
+    {
       "path": "examples/kern-frontend/f4-authority.generated.kern",
       "sha256": "361244bf082608707dd534887ae8ac267a6bed98b9fa38325fdb92f6a4111559"
     },
@@ -124,11 +144,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-expression-evidence.kern",
-      "sha256": "54a6375192d7b58621c2e09546ac49ebc10870fbdc94fb9e69aa326805ad5c64"
+      "sha256": "58de428e64adf1c885d01216745c2e71fae42623d0b307e393d4d6729a390ba0"
     },
     {
       "path": "examples/kern-frontend/f4-diagnostic-merge.kern",
-      "sha256": "ac03ab4e0a8f05a087aa062b8420e7c0340694948cdc35ec92e6719c272f3751"
+      "sha256": "a5aa2796142581b06d93ed5c7682987aae78381d9bc9d0ff30606cd3bda9e614"
     },
     {
       "path": "examples/kern-frontend/f4-line-eligibility.kern",
@@ -143,12 +163,16 @@
       "sha256": "df1e5c8f68f462b5c1e13682622e51125033a526c8543c4602bd7d57fd9fe304"
     },
     {
+      "path": "examples/kern-frontend/f4-declarations-semantic-head.kernpart",
+      "sha256": "b288b7e56d65c89960b89643ef4a6da701eab011e2501dd245c1b8c75dce1555"
+    },
+    {
       "path": "examples/kern-frontend/f4-declarations-semantic.kern",
-      "sha256": "1fc0780241d7b0ea29eb2bc119ecd470345d1342f2fb99f5d49831530a566bd7"
+      "sha256": "6e8d0a00c3039528f597333ed2cfec48b002e435ba31b5e45510743ee6ea799d"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic-tail.kernpart",
-      "sha256": "07482e8484b51fa7cef85ddce48502582ed1e4c0ae9637dd8ab41e2df4c22a73"
+      "sha256": "f34eb75813335f08dfc5f74ab30e1979926fd844d1d7ee1100f000174ee364df"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-main.kern",

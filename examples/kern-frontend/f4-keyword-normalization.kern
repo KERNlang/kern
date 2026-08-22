@@ -1,0 +1,337 @@
+fn name=f4keywordkind returns=string
+  param name=kindId type=number
+  handler lang="kern"
+    if cond="kindId == 0"
+      return value="\"identifier\""
+    if cond="kindId == 1"
+      return value="\"number\""
+    if cond="kindId == 2"
+      return value="\"equals\""
+    if cond="kindId == 3"
+      return value="\"slash\""
+    if cond="kindId == 4"
+      return value="\"comma\""
+    if cond="kindId == 5"
+      return value="\"quoted\""
+    if cond="kindId == 6"
+      return value="\"expr\""
+    if cond="kindId == 7"
+      return value="\"style\""
+    if cond="kindId == 8"
+      return value="\"themeRef\""
+    if cond="kindId == 9"
+      return value="\"unknown\""
+    if cond="kindId == 10"
+      return value="\"whitespace\""
+    return value="\"\""
+
+fn name=f4keywordquoted returns="string[]"
+  param name=raw type=string
+  handler lang="kern"
+    let name=n value="Text.length(raw)"
+    if cond="n < 2"
+      return value="[\"invalid\", \"\"]"
+    let name=quote value="Text.charAt(raw, 0)"
+    if cond="(quote != \"\\\"\" && quote != \"'\") || Text.charAt(raw, n - 1) != quote"
+      return value="[\"invalid\", \"\"]"
+    let name=out value="\"\""
+    let name=cursor value=1
+    while cond="cursor < n - 1"
+      let name=point value="Text.charAt(raw, cursor)"
+      if cond="point == \"\\\\\" && cursor + 1 < n - 1"
+        let name=next value="Text.charAt(raw, cursor + 1)"
+        if cond="next == quote || next == \"\\\\\""
+          assign target=out value="out + next"
+          assign target=cursor value="cursor + 2"
+          continue
+      assign target=out value="out + point"
+      assign target=cursor value="cursor + 1"
+    return value="[\"ok\", out]"
+
+fn name=f4keywordtokenvalue returns="string[]"
+  param name=kind type=string
+  param name=raw type=string
+  handler lang="kern"
+    let name=n value="Text.length(raw)"
+    if cond="kind == \"quoted\""
+      let name=quoted value="f4keywordquoted(raw)"
+      return value=quoted
+    if cond="kind == \"expr\""
+      if cond="n < 4 || Text.slice(raw, 0, 2) != \"{{\" || Text.slice(raw, n - 2, n) != \"}}\""
+        return value="[\"invalid\", \"\"]"
+      return value="[\"ok\", keywordtrim(Text.slice(raw, 2, n - 2))]"
+    if cond="kind == \"style\""
+      if cond="n < 2 || Text.charAt(raw, 0) != \"{\" || Text.charAt(raw, n - 1) != \"}\""
+        return value="[\"invalid\", \"\"]"
+      return value="[\"ok\", Text.slice(raw, 1, n - 1)]"
+    if cond="kind == \"themeRef\""
+      if cond="n < 2 || Text.charAt(raw, 0) != \"$\""
+        return value="[\"invalid\", \"\"]"
+      return value="[\"ok\", Text.slice(raw, 1, n)]"
+    return value="[\"ok\", raw]"
+
+fn name=f4keywordorderedwrites returns="string[]"
+  param name=normalized type="string[]"
+  param name=writeCount type=number
+  param name=contentLength type=number
+  handler lang="kern"
+    if cond="writeCount < 0 || contentLength < 0 || normalized.length != 6 + writeCount * 6"
+      return value="[\"invalid\", \"0\"]"
+    let name=nameByCursor value="new Map()"
+    let name=kindByCursor value="new Map()"
+    let name=valueByCursor value="new Map()"
+    let name=startByCursor value="new Map()"
+    let name=endByCursor value="new Map()"
+    let name=provenanceByCursor value="new Map()"
+    let name=headByStart value="new Map()"
+    let name=tailByStart value="new Map()"
+    let name=nextByCursor value="new Map()"
+    let name=work value=0
+    for name=writeCursor from=6 to="normalized.length" step=6
+      let name=relativeStart value="f2uint(normalized[writeCursor + 3])"
+      let name=relativeEnd value="f2uint(normalized[writeCursor + 4])"
+      if cond="relativeStart < 0 || relativeEnd < relativeStart || relativeEnd > contentLength"
+        return value="[\"invalid\", \"0\"]"
+      let name=cursorKey value="String(writeCursor)"
+      let name=startKey value="String(relativeStart)"
+      do value="Map.set(nameByCursor, String(cursorKey), normalized[writeCursor])"
+      do value="Map.set(kindByCursor, String(cursorKey), normalized[writeCursor + 1])"
+      do value="Map.set(valueByCursor, String(cursorKey), normalized[writeCursor + 2])"
+      do value="Map.set(startByCursor, String(cursorKey), normalized[writeCursor + 3])"
+      do value="Map.set(endByCursor, String(cursorKey), normalized[writeCursor + 4])"
+      do value="Map.set(provenanceByCursor, String(cursorKey), normalized[writeCursor + 5])"
+      do value="Map.set(nextByCursor, String(cursorKey), \"\")"
+      if cond="Map.has(tailByStart, String(startKey))"
+        let name=previousTail value="Map.get(tailByStart, String(startKey))"
+        do value="Map.set(nextByCursor, String(previousTail), cursorKey)"
+      else
+        do value="Map.set(headByStart, String(startKey), cursorKey)"
+      do value="Map.set(tailByStart, String(startKey), cursorKey)"
+      assign target=work value="work + 10"
+    let name=out value="[]"
+    let name=emitted value=0
+    let name=positionLimit value="contentLength + 1"
+    for name=position from=0 to=positionLimit
+      assign target=work value="work + 1"
+      let name=positionKey value="String(position)"
+      if cond="!Map.has(headByStart, String(positionKey))"
+        continue
+      let name=cursorKey value="Map.get(headByStart, String(positionKey))"
+      while cond="cursorKey != \"\""
+        if cond="!Map.has(nameByCursor, String(cursorKey)) || !Map.has(kindByCursor, String(cursorKey)) || !Map.has(valueByCursor, String(cursorKey)) || !Map.has(startByCursor, String(cursorKey)) || !Map.has(endByCursor, String(cursorKey)) || !Map.has(provenanceByCursor, String(cursorKey)) || !Map.has(nextByCursor, String(cursorKey))"
+          return value="[\"invalid\", \"0\"]"
+        do value="out.push(Map.get(nameByCursor, String(cursorKey)))"
+        do value="out.push(Map.get(kindByCursor, String(cursorKey)))"
+        do value="out.push(Map.get(valueByCursor, String(cursorKey)))"
+        do value="out.push(Map.get(startByCursor, String(cursorKey)))"
+        do value="out.push(Map.get(endByCursor, String(cursorKey)))"
+        do value="out.push(Map.get(provenanceByCursor, String(cursorKey)))"
+        let name=nextCursor value="Map.get(nextByCursor, String(cursorKey))"
+        assign target=cursorKey value=nextCursor
+        assign target=emitted value="emitted + 1"
+        assign target=work value="work + 8"
+    if cond="emitted != writeCount"
+      return value="[\"invalid\", \"0\"]"
+    let name=result value="[]"
+    do value="result.push(\"ok\")"
+    do value="result.push(String(work))"
+    for name=field from=0 to="out.length"
+      do value="result.push(out[field])"
+    return value=result
+
+fn name=f4keywordline returns="string[]"
+  param name=source type=string
+  param name=contentStart type=number
+  param name=contentEnd type=number
+  param name=firstRecord type=number
+  param name=lastRecord type=number
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=maxWrites type=number
+  handler lang="kern"
+    if cond="contentStart < 0 || contentEnd < contentStart || contentEnd > Text.length(source) || firstRecord < 0 || lastRecord < firstRecord || lastRecord >= recordKinds.length || recordFlags.length != recordKinds.length || recordStarts.length != recordKinds.length || recordEnds.length != recordKinds.length"
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    let name=content value="Text.slice(source, contentStart, contentEnd)"
+    let name=kinds value="[]"
+    let name=values value="[]"
+    let name=starts value="[]"
+    let name=ends value="[]"
+    let name=startByToken value="new Map()"
+    let name=skipThrough value="firstRecord - 1"
+    let name=inputRecords value=0
+    let name=recordLimit value="lastRecord + 1"
+    for name=recordOrdinal from=firstRecord to=recordLimit
+      if cond="recordOrdinal <= skipThrough"
+        continue
+      let name=kindId value="recordKinds[recordOrdinal]"
+      let name=flags value="recordFlags[recordOrdinal]"
+      let name=recordStart value="recordStarts[recordOrdinal]"
+      let name=recordEnd value="recordEnds[recordOrdinal]"
+      if cond="recordStart < 0 || recordEnd <= recordStart || recordEnd > Text.length(source)"
+        return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      assign target=inputRecords value="inputRecords + 1"
+      if cond="recordEnd <= contentStart || recordStart >= contentEnd || kindId == 11 || kindId == 12"
+        continue
+      if cond="recordStart < contentStart || recordEnd > contentEnd"
+        return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      let name=kind value="f4keywordkind(kindId)"
+      if cond="kind == \"\""
+        return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      let name=tokenEnd value=recordEnd
+      if cond="kindId == 5 || kindId == 6 || kindId == 7"
+        if cond="flags == 1"
+          let name=compositeStart value="recordOrdinal + 1"
+          let name=closed value=false
+          for name=compositeOrdinal from=compositeStart to=recordLimit
+            let name=compositeKind value="recordKinds[compositeOrdinal]"
+            let name=compositeFlags value="recordFlags[compositeOrdinal]"
+            if cond="compositeKind == 11"
+              assign target=inputRecords value="inputRecords + 1"
+              continue
+            if cond="compositeKind != kindId || (compositeFlags != 4 && compositeFlags != 6)"
+              return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+            assign target=inputRecords value="inputRecords + 1"
+            assign target=tokenEnd value="recordEnds[compositeOrdinal]"
+            if cond="compositeFlags == 6"
+              assign target=closed value=true
+              assign target=skipThrough value=compositeOrdinal
+              break
+          if cond="!closed"
+            return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+        else
+          if cond="flags != 3"
+            return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      else
+        if cond="flags != 0"
+          return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      let name=raw value="Text.slice(source, recordStart, tokenEnd)"
+      let name=decoded value="f4keywordtokenvalue(kind, raw)"
+      if cond="decoded[0] != \"ok\""
+        return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      do value="kinds.push(kind)"
+      do value="values.push(decoded[1])"
+      do value="Map.set(startByToken, String(starts.length), recordStart - contentStart)"
+      do value="starts.push(recordStart - contentStart)"
+      do value="ends.push(tokenEnd - contentStart)"
+    let name=normalized value="normalizekeywordhandlerwrites(content, \"\", 0, kinds, values, starts, ends, maxWrites)"
+    if cond="normalized.length < 6 || (normalized[0] != \"success\" && normalized[0] != \"invalid\" && normalized[0] != \"limit\")"
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    if cond="normalized[0] != \"success\""
+      return value="[normalized[0], normalized[1], \"0\", \"0\", normalized[5]]"
+    let name=writeCount value="f2uint(normalized[4])"
+    if cond="writeCount < 0 || normalized.length != 6 + writeCount * 6"
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    let name=finalCursor value="f2uint(normalized[3])"
+    if cond="finalCursor < 0 || finalCursor > starts.length"
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    if cond="finalCursor < starts.length && !Map.has(startByToken, String(finalCursor))"
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    let name=residual value="finalCursor == starts.length ? Text.length(content) : Map.get(startByToken, String(finalCursor))"
+    let name=out value="[]"
+    do value="out.push(\"success\")"
+    do value="out.push(normalized[1])"
+    do value="out.push(String(residual))"
+    do value="out.push(String(writeCount))"
+    let name=ordered value="f4keywordorderedwrites(normalized, writeCount, Text.length(content))"
+    if cond="ordered.length != 2 + writeCount * 6 || ordered[0] != \"ok\""
+      return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+    do value="out.push(String(f2uint(normalized[5]) + inputRecords + Text.length(content) + f2uint(ordered[1])))"
+    for name=writeCursor from=2 to="ordered.length" step=6
+      let name=relativeStart value="f2uint(ordered[writeCursor + 3])"
+      let name=relativeEnd value="f2uint(ordered[writeCursor + 4])"
+      if cond="relativeStart < 0 || relativeEnd < relativeStart || relativeEnd > Text.length(content)"
+        return value="[\"invalid\", \"\", \"0\", \"0\", \"0\"]"
+      do value="out.push(ordered[writeCursor])"
+      do value="out.push(ordered[writeCursor + 1])"
+      do value="out.push(ordered[writeCursor + 2])"
+      do value="out.push(String(contentStart + relativeStart))"
+      do value="out.push(String(contentStart + relativeEnd))"
+      do value="out.push(ordered[writeCursor + 5])"
+    return value=out
+
+fn name=f4occurrenceadmit returns="string[]"
+  param name=row type=string
+  param name=occurrenceCount type=number
+  param name=occurrenceBytes type=number
+  param name=workSteps type=number
+  param name=maxOccurrences type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="f4tapecount(row) != 13"
+      return value="[\"drift\", String(occurrenceCount), String(occurrenceBytes), String(workSteps), \"\"]"
+    let name=framed value="f4item(row)"
+    let name=nextCount value="occurrenceCount + 1"
+    let name=nextBytes value="occurrenceBytes + Text.utf8Length(framed)"
+    let name=nextWork value="workSteps + 2"
+    if cond="nextCount > maxOccurrences || nextBytes > maxEncodedBytes || nextWork > maxWorkSteps"
+      return value="[\"limit\", String(nextCount), String(nextBytes), String(nextWork), \"\"]"
+    return value="[\"ok\", String(nextCount), String(nextBytes), String(nextWork), framed]"
+
+fn name=f4normalizedpropertyadmission returns="string[]"
+  param name=schemaKind type=string
+  param name=disposition type=string
+  param name=valueTape type=string
+  param name=representation type=string
+  param name=value type=string
+  handler lang="kern"
+    if cond="disposition == \"included-value\""
+      return value="[\"admit\", value, \"\", \"\"]"
+    if cond="disposition == \"lowered-expression\" && representation == \"bare\""
+      if cond="Text.length(value) == 0"
+        return value="[\"reject\", \"\", \"UNEXPECTED_TOKEN\", \"invalid-expression\"]"
+      return value="[\"admit\", value, \"\", \"\"]"
+    let name=admission value="f4propertyadmission(schemaKind, disposition, valueTape, representation, value)"
+    return value=admission
+
+fn name=f4keywordbareexpression returns="string[]"
+  param name=decoded type=string
+  param name=absoluteStart type=number
+  param name=absoluteEnd type=number
+  param name=maxBoundaryEntries type=number
+  param name=maxSourceScalars type=number
+  param name=maxTokens type=number
+  param name=maxNodes type=number
+  param name=nodesPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  handler lang="kern"
+    let name=boundaryCount value="Text.length(decoded) + 1"
+    if cond="absoluteEnd - absoluteStart != Text.length(decoded)"
+      return value="[\"drift\", \"\", \"\", \"0\", \"\", \"0\"]"
+    if cond="boundaryCount > maxBoundaryEntries"
+      return value="[\"limit\", \"\", \"\", \"0\", \"\", \"0\"]"
+    let name=boundaryTape value="\"\""
+    for name=boundary from=0 to=boundaryCount
+      assign target=boundaryTape value="boundaryTape + f4item(String(absoluteStart + boundary))"
+    let name=result value="parsef2expression(decoded, maxSourceScalars, maxTokens, maxNodes, nodesPerChunk, maxChunks, maxTapeScalars, maxNestingDepth, maxExpressionWorkSteps, false)"
+    if cond="result.length != 9 || result[0] != \"kern.frontend.f2-expression.1\""
+      return value="[\"drift\", \"\", \"\", \"0\", \"\", \"0\"]"
+    if cond="result[1] != \"parsed\""
+      return value="[\"invalid\", \"\", \"\", \"0\", \"\", \"0\"]"
+    let name=receiptRow value="f2batchreceipt(result)"
+    let name=nodeCount value="f2uint(result[4])"
+    let name=localSpans value="f4localabsolutespans(result[7], nodeCount, boundaryTape)"
+    if cond="localSpans[0] != \"valid\""
+      return value="[\"drift\", \"\", \"\", \"0\", \"\", \"0\"]"
+    let name=localWork value="Text.length(decoded) + nodeCount * 2 + boundaryCount + 1"
+    return value="[\"parsed\", boundaryTape, receiptRow, String(nodeCount), localSpans[1], String(localWork)]"
+
+fn name=f4batchspans returns=string
+  param name=spanTape type=string
+  param name=segmentOrdinal type=number
+  handler lang="kern"
+    let name=cursor value=0
+    let name=out value="\"\""
+    while cond="cursor < Text.length(spanTape)"
+      let name=item value="f2batchmarked(spanTape, cursor, \"i\")"
+      let name=rowSegment value="f2uint(f4tapefield(item[0], 0))"
+      if cond="rowSegment == segmentOrdinal"
+        let name=row value="f4row3(f4tapefield(item[0], 1), f4tapefield(item[0], 2), f4tapefield(item[0], 3))"
+        assign target=out value="f4append(out, row)"
+      assign target=cursor value="f2uint(item[1])"
+    return value=out

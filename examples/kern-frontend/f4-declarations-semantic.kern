@@ -1,109 +1,3 @@
-fn name=classifyf4available returns="string[]"
-  param name=moduleId type=string
-  param name=source type=string
-  param name=recordKinds type="number[]"
-  param name=recordFlags type="number[]"
-  param name=recordStarts type="number[]"
-  param name=recordEnds type="number[]"
-  param name=f1RecordTape type=string
-  param name=segmentFirstRecords type="number[]"
-  param name=segmentLastRecords type="number[]"
-  param name=segmentOuterStarts type="number[]"
-  param name=segmentOuterEnds type="number[]"
-  param name=segmentBodyStarts type="number[]"
-  param name=segmentBodyEnds type="number[]"
-  param name=f3ExpectedFields type="string[]"
-  param name=rawOpenerTypes type="string[]"
-  param name=segmentBodies type="string[]"
-  param name=segmentBodyDigests type="string[]"
-  param name=segmentRecordDigests type="string[]"
-  param name=f2bExpectedFields type="string[]"
-  param name=maxSegments type=number
-  param name=maxAggregateBodyScalars type=number
-  param name=maxAggregateBatchNodes type=number
-  param name=maxBatchAbsoluteSpans type=number
-  param name=maxBatchWorkSteps type=number
-  param name=maxExpressionSourceScalars type=number
-  param name=maxExpressionTokens type=number
-  param name=maxExpressionNodes type=number
-  param name=expressionNodesPerChunk type=number
-  param name=maxExpressionChunks type=number
-  param name=maxExpressionTapeScalars type=number
-  param name=maxExpressionNestingDepth type=number
-  param name=maxExpressionWorkSteps type=number
-  param name=maxRecords type=number
-  param name=maxLogicalLines type=number
-  param name=maxParentEdges type=number
-  param name=maxDecoratorRuns type=number
-  param name=maxRawBlocks type=number
-  param name=maxStructuralDiagnostics type=number
-  param name=maxF3WorkSteps type=number
-  param name=lineFirstRecords type="number[]"
-  param name=lineLastRecords type="number[]"
-  param name=lineStarts type="number[]"
-  param name=lineEnds type="number[]"
-  param name=lineFirstPhysical type="number[]"
-  param name=lineLastPhysical type="number[]"
-  param name=lineIndents type="number[]"
-  param name=lineContentStarts type="number[]"
-  param name=lineRoles type="string[]"
-  param name=lineFirstSegments type="number[]"
-  param name=lineSegmentCounts type="number[]"
-  param name=edgeChildren type="number[]"
-  param name=edgeParents type="number[]"
-  param name=edgeChildIndents type="number[]"
-  param name=edgeParentIndents type="number[]"
-  param name=decoratorFirsts type="number[]"
-  param name=decoratorLasts type="number[]"
-  param name=decoratorSuccessors type="number[]"
-  param name=decoratorDispositions type="string[]"
-  param name=rawOwners type="number[]"
-  param name=rawOpeners type="number[]"
-  param name=rawClosers type="number[]"
-  param name=rawBodyStarts type="number[]"
-  param name=rawBodyEnds type="number[]"
-  param name=rawInlineFlags type="string[]"
-  param name=rawTypes type="string[]"
-  param name=nodeIds type="string[]"
-  param name=nodeSchemaStatuses type="string[]"
-  param name=nodeAllowedModes type="string[]"
-  param name=nodeChildTapes type="string[]"
-  param name=nodePropertyStarts type="number[]"
-  param name=nodePropertyCounts type="number[]"
-  param name=propertyNodes type="string[]"
-  param name=propertyNames type="string[]"
-  param name=propertyKinds type="string[]"
-  param name=propertyRequired type="string[]"
-  param name=propertyValueTapes type="string[]"
-  param name=propertyDispositions type="string[]"
-  param name=propertyReasonIds type="string[]"
-  param name=keywordForms type="string[]"
-  param name=keywordSourceProfiles type="string[]"
-  param name=maxDeclarations type=number
-  param name=maxOccurrences type=number
-  param name=maxAttachments type=number
-  param name=maxDecorators type=number
-  param name=maxSymbols type=number
-  param name=maxBindings type=number
-  param name=maxDiagnostics type=number
-  param name=maxEncodedBytes type=number
-  param name=maxFacts type=number
-  param name=maxWorkSteps type=number
-  param name=forceLateFailure type=boolean
-  param name=maxExpressionEvidence type=number
-  param name=maxF4LocalF2Calls type=number
-  param name=maxAggregateExpressionScalars type=number
-  param name=maxAggregateExpressionNodes type=number
-  param name=maxExpressionAbsoluteSpans type=number
-  param name=maxExpressionBoundaryEntries type=number
-  param name=maxExpressionReceiptScalars type=number
-  param name=testPhaseKeyMutation type=string
-  param name=maxModuleIdScalars type=number
-  param name=maxModuleIdSegments type=number
-  param name=maxImportSpecifierScalars type=number
-  param name=maxImportSpecifierSegments type=number
-  param name=moduleDirectory type=string
-  param name=pathWorkSteps type=number
   handler lang="kern"
     let name=sourceScalars value="Text.length(source)"
     let name=workSteps value=pathWorkSteps
@@ -162,7 +56,8 @@ fn name=classifyf4available returns="string[]"
     let name=kinds value="[]"
     let name=lineDetachedFlags value="[]"
     let name=declarations value="\"\""
-    let name=occurrences value="\"\""
+    let name=occurrenceParts value="[]"
+    let name=occurrenceBytes value=0
     let name=presence value="\"\""
     let name=decorators value="\"\""
     let name=symbols value="\"\""
@@ -179,6 +74,7 @@ fn name=classifyf4available returns="string[]"
     let name=occurrenceValueEnds value="[]"
     let name=occurrenceRawValues value="[]"
     let name=occurrenceDetachedFlags value="[]"
+    let name=occurrenceNormalizedFlags value="[]"
     let name=decoratorExplicitExports value="[]"
     let name=syntaxDiagnosticParts value="[]"
     let name=syntaxDiagnosticStarts value="[]"
@@ -301,7 +197,11 @@ fn name=classifyf4available returns="string[]"
           let name=decoratorAbsoluteStart value="lineContentStarts[classifyLine] + decoratorPropertyStarts[decoratorEligibilityProperty]"
           let name=decoratorAbsoluteEnd value="lineContentStarts[classifyLine] + decoratorPropertyEnds[decoratorEligibilityProperty]"
           let name=decoratorOccurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), \"decorator\", decoratorPropertyName, String(decoratorPropertyOrdinal), decoratorPropertyKind, decoratorPropertyRequired, decoratorPropertyDisposition, \"bare\", \"-1\", String(decoratorAbsoluteStart), String(decoratorAbsoluteEnd), decoratorPropertyValue)"
-          assign target=occurrences value="f4append(occurrences, decoratorOccurrenceRow)"
+          let name=decoratorOccurrenceAdmission value="f4occurrenceadmit(decoratorOccurrenceRow, occurrenceCount, occurrenceBytes, workSteps, maxOccurrences, maxEncodedBytes, maxWorkSteps)"
+          if cond="decoratorOccurrenceAdmission[0] != \"ok\""
+            let name=decoratorOccurrenceFailure value="f4fatal(decoratorOccurrenceAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=decoratorOccurrenceFailure
+          do value="occurrenceParts.push(decoratorOccurrenceAdmission[4])"
           do value="occurrenceDispositions.push(decoratorPropertyDisposition)"
           do value="occurrenceRepresentations.push(\"bare\")"
           do value="occurrenceSegments.push(-1)"
@@ -309,12 +209,104 @@ fn name=classifyf4available returns="string[]"
           do value="occurrenceValueEnds.push(decoratorAbsoluteEnd)"
           do value="occurrenceRawValues.push(decoratorPropertyValue)"
           do value="occurrenceDetachedFlags.push(lineDetached ? \"true\" : \"false\")"
+          do value="occurrenceNormalizedFlags.push(\"false\")"
           let name=decoratorEffectiveKey value="String(classifyLine) + \".\" + decoratorPropertyName"
           do value="Map.set(effectiveValues, String(decoratorEffectiveKey), decoratorPropertyValue)"
           do value="Map.set(effectiveOrdinals, String(decoratorEffectiveKey), occurrenceCount)"
-          assign target=occurrenceCount value="occurrenceCount + 1"
-          assign target=workSteps value="workSteps + 2"
+          assign target=occurrenceCount value="f2uint(decoratorOccurrenceAdmission[1])"
+          assign target=occurrenceBytes value="f2uint(decoratorOccurrenceAdmission[2])"
+          assign target=workSteps value="f2uint(decoratorOccurrenceAdmission[3])"
       let name=tokenStart value="kind == \"decorator\" || eligibilityStatus == \"decorator-invalid\" ? Text.length(effectiveLine) : cursor"
+      if cond="kind != \"decorator\" && eligibilityStatus != \"decorator-invalid\""
+        let name=normalizationLeft value="cursor - Text.length(kind)"
+        if cond="normalizationLeft < 0 || normalizationLeft > Text.length(effectiveLine)"
+          let name=normalizationGeometryFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+          return value=normalizationGeometryFailure
+        let name=normalizationLine value="Text.slice(effectiveLine, normalizationLeft, Text.length(effectiveLine))"
+        let name=normalizedContentStart value="lineContentStarts[classifyLine] + effectiveLeft + normalizationLeft"
+        let name=normalizationInputWork value="Text.length(normalizationLine) + lineLastRecords[classifyLine] - lineFirstRecords[classifyLine] + 1"
+        if cond="workSteps + normalizationInputWork > maxWorkSteps"
+          let name=normalizationInputLimit value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+          return value=normalizationInputLimit
+        let name=normalizedLine value="f4keywordline(source, normalizedContentStart, normalizedContentStart + Text.length(normalizationLine), lineFirstRecords[classifyLine], lineLastRecords[classifyLine], recordKinds, recordFlags, recordStarts, recordEnds, maxOccurrences)"
+        if cond="normalizedLine[0] == \"limit\""
+          let name=normalizedLineLimit value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+          return value=normalizedLineLimit
+        if cond="normalizedLine.length < 5 || normalizedLine[0] != \"success\" || normalizedLine[1] != kind || (normalizedLine.length - 5) % 6 != 0"
+          let name=normalizedLineFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+          return value=normalizedLineFailure
+        assign target=tokenStart value="normalizationLeft + f2uint(normalizedLine[2])"
+        assign target=workSteps value="workSteps + f2uint(normalizedLine[4])"
+        if cond="workSteps > maxWorkSteps"
+          let name=normalizationWorkLimit value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+          return value=normalizationWorkLimit
+        for name=normalizedWrite from=5 to="normalizedLine.length" step=6
+          let name=normalizedName value="normalizedLine[normalizedWrite]"
+          let name=normalizedKind value="normalizedLine[normalizedWrite + 1]"
+          let name=normalizedValue value="normalizedLine[normalizedWrite + 2]"
+          let name=normalizedStart value="f2uint(normalizedLine[normalizedWrite + 3])"
+          let name=normalizedEnd value="f2uint(normalizedLine[normalizedWrite + 4])"
+          let name=normalizedProvenance value="normalizedLine[normalizedWrite + 5]"
+          if cond="normalizedProvenance != \"authored-scalar\" && normalizedProvenance != \"authored-normalized-scalar\" && normalizedProvenance != \"synthetic-control\" && normalizedProvenance != \"internal-aggregate\""
+            let name=normalizedProvenanceFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=normalizedProvenanceFailure
+          if cond="normalizedProvenance == \"authored-scalar\" || normalizedProvenance == \"authored-normalized-scalar\""
+            let name=normalizedAuthorityKey value="kind + \".\" + normalizedName"
+            if cond="!Map.has(propertyMap, String(normalizedAuthorityKey))"
+              let name=normalizedUnknownFact value="f4row6(\"structural\", \"unknown-property\", String(normalizedStart), String(normalizedEnd), String(classifyLine), normalizedName)"
+              let name=normalizedUnknownAdmission value="f4eligibilityleafadmit(normalizedUnknownFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+              if cond="normalizedUnknownAdmission[0] != \"ok\""
+                let name=normalizedUnknownFailure value="f4fatal(normalizedUnknownAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+                return value=normalizedUnknownFailure
+              do value="factParts.push(normalizedUnknownAdmission[4])"
+              assign target=factCount value="f2uint(normalizedUnknownAdmission[1])"
+              assign target=factBytes value="f2uint(normalizedUnknownAdmission[2])"
+              assign target=workSteps value="f2uint(normalizedUnknownAdmission[3])"
+            else
+              let name=normalizedPropertyOrdinal value="Map.get(propertyMap, String(normalizedAuthorityKey))"
+              let name=normalizedPropertyKind value="Map.get(propertyKindMap, String(normalizedAuthorityKey))"
+              let name=normalizedRequired value="Map.get(propertyRequiredMap, String(normalizedAuthorityKey))"
+              let name=normalizedDisposition value="Map.get(propertyDispositionMap, String(normalizedAuthorityKey))"
+              let name=normalizedRaw value="Text.slice(source, normalizedStart, normalizedEnd)"
+              let name=normalizedRepresentation value="\"bare\""
+              if cond="Text.length(normalizedRaw) >= 2 && Text.slice(normalizedRaw, 0, 2) == \"{{\""
+                assign target=normalizedRepresentation value="\"expression\""
+              if cond="Text.length(normalizedRaw) > 0 && (Text.charAt(normalizedRaw, 0) == \"\\\"\" || Text.charAt(normalizedRaw, 0) == \"'\")"
+                assign target=normalizedRepresentation value="\"quoted\""
+              let name=normalizedAdmission value="f4normalizedpropertyadmission(normalizedPropertyKind, normalizedDisposition, Map.get(propertyValuesMap, String(normalizedAuthorityKey)), normalizedRepresentation, normalizedValue)"
+              let name=normalizedEmitted value="normalizedAdmission[1]"
+              let name=normalizedOccurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), kind, normalizedName, String(normalizedPropertyOrdinal), normalizedPropertyKind, normalizedRequired, normalizedDisposition, normalizedRepresentation, \"-1\", String(normalizedStart), String(normalizedEnd), normalizedEmitted)"
+              let name=normalizedOccurrenceAdmission value="f4occurrenceadmit(normalizedOccurrenceRow, occurrenceCount, occurrenceBytes, workSteps, maxOccurrences, maxEncodedBytes, maxWorkSteps)"
+              if cond="normalizedOccurrenceAdmission[0] != \"ok\""
+                let name=normalizedOccurrenceFailure value="f4fatal(normalizedOccurrenceAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+                return value=normalizedOccurrenceFailure
+              do value="occurrenceParts.push(normalizedOccurrenceAdmission[4])"
+              do value="occurrenceDispositions.push(normalizedDisposition)"
+              do value="occurrenceRepresentations.push(normalizedRepresentation)"
+              do value="occurrenceSegments.push(-1)"
+              do value="occurrenceValueStarts.push(normalizedStart)"
+              do value="occurrenceValueEnds.push(normalizedEnd)"
+              do value="occurrenceRawValues.push(normalizedRepresentation == \"quoted\" ? normalizedRaw : normalizedEmitted)"
+              do value="occurrenceDetachedFlags.push(lineDetached ? \"true\" : \"false\")"
+              do value="occurrenceNormalizedFlags.push(\"true\")"
+              let name=normalizedEffectiveKey value="String(classifyLine) + \".\" + normalizedName"
+              if cond="normalizedAdmission[0] == \"admit\""
+                do value="Map.set(effectiveValues, String(normalizedEffectiveKey), normalizedEmitted)"
+              else
+                let name=normalizedFact value="f4row6(\"structural\", normalizedAdmission[3], String(normalizedStart), String(normalizedEnd), String(classifyLine), normalizedName)"
+                let name=normalizedFactAdmission value="f4eligibilityleafadmit(normalizedFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+                if cond="normalizedFactAdmission[0] != \"ok\""
+                  let name=normalizedFactFailure value="f4fatal(normalizedFactAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+                  return value=normalizedFactFailure
+                do value="factParts.push(normalizedFactAdmission[4])"
+                assign target=factCount value="f2uint(normalizedFactAdmission[1])"
+                assign target=factBytes value="f2uint(normalizedFactAdmission[2])"
+                assign target=workSteps value="f2uint(normalizedFactAdmission[3])"
+                do value="Map.set(rejectedByLine, String(classifyLine), true)"
+              do value="Map.set(effectiveOrdinals, String(normalizedEffectiveKey), occurrenceCount)"
+              assign target=occurrenceCount value="f2uint(normalizedOccurrenceAdmission[1])"
+              assign target=occurrenceBytes value="f2uint(normalizedOccurrenceAdmission[2])"
+              assign target=workSteps value="f2uint(normalizedOccurrenceAdmission[3])"
       while cond="tokenStart < Text.length(effectiveLine)"
         while cond="tokenStart < Text.length(effectiveLine) && (Text.charAt(effectiveLine, tokenStart) == \" \" || Text.charAt(effectiveLine, tokenStart) == \"\\t\" || Text.charAt(effectiveLine, tokenStart) == \"\\n\" || Text.charAt(effectiveLine, tokenStart) == \"\\r\")"
           assign target=tokenStart value="tokenStart + 1"
@@ -381,7 +373,11 @@ fn name=classifyf4available returns="string[]"
             let name=emittedValue value="admission[1]"
             let name=valueStart value="absoluteStart + equals + 1"
             let name=occurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), kind, propertyName, String(propertyOrdinal), propertyKind, required, disposition, representation, String(segmentOrdinal), String(absoluteStart), String(absoluteEnd), emittedValue)"
-            assign target=occurrences value="f4append(occurrences, occurrenceRow)"
+            let name=occurrenceAdmission value="f4occurrenceadmit(occurrenceRow, occurrenceCount, occurrenceBytes, workSteps, maxOccurrences, maxEncodedBytes, maxWorkSteps)"
+            if cond="occurrenceAdmission[0] != \"ok\""
+              let name=occurrenceFailure value="f4fatal(occurrenceAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+              return value=occurrenceFailure
+            do value="occurrenceParts.push(occurrenceAdmission[4])"
             do value="occurrenceDispositions.push(disposition)"
             do value="occurrenceRepresentations.push(representation)"
             do value="occurrenceSegments.push(segmentOrdinal)"
@@ -389,6 +385,7 @@ fn name=classifyf4available returns="string[]"
             do value="occurrenceValueEnds.push(absoluteEnd)"
             do value="occurrenceRawValues.push(rawValue)"
             do value="occurrenceDetachedFlags.push(lineDetached ? \"true\" : \"false\")"
+            do value="occurrenceNormalizedFlags.push(\"false\")"
             let name=effectiveKey value="String(classifyLine) + \".\" + propertyName"
             if cond="admission[0] == \"admit\""
               do value="Map.set(effectiveValues, String(effectiveKey), emittedValue)"
@@ -404,7 +401,9 @@ fn name=classifyf4available returns="string[]"
               assign target=workSteps value="f2uint(admissionFactAdmission[3])"
               do value="Map.set(rejectedByLine, String(classifyLine), true)"
             do value="Map.set(effectiveOrdinals, String(effectiveKey), occurrenceCount)"
-            assign target=occurrenceCount value="occurrenceCount + 1"
+            assign target=occurrenceCount value="f2uint(occurrenceAdmission[1])"
+            assign target=occurrenceBytes value="f2uint(occurrenceAdmission[2])"
+            assign target=workSteps value="f2uint(occurrenceAdmission[3])"
         else
           let name=bareStart value="lineContentStarts[classifyLine] + effectiveLeft + tokenStart"
           let name=bareEnd value="lineContentStarts[classifyLine] + effectiveLeft + tokenEnd"
@@ -435,60 +434,3 @@ fn name=classifyf4available returns="string[]"
     if cond="eligibilityCursor != Text.length(eligibilityTape) || nextDetachedOrdinal != -1 || nextDetachedCursor != Text.length(detached)"
       let name=preprojectionConsumptionFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
       return value=preprojectionConsumptionFailure
-    for name=presenceLine from=0 to=lineStarts.length
-      let name=presenceKind value="kinds[presenceLine]"
-      let name=missingOnLine value=false
-      if cond="Map.has(nodePropertyTapeMap, String(presenceKind))"
-        let name=propertyTape value="Map.get(nodePropertyTapeMap, String(presenceKind))"
-        let name=propertyCursor value=0
-        while cond="propertyCursor < Text.length(propertyTape)"
-          let name=propertySuffix value="Text.slice(propertyTape, propertyCursor, Text.length(propertyTape))"
-          let name=colonRelative value="Text.indexOf(propertySuffix, \":\")"
-          if cond="colonRelative <= 0"
-            let name=propertyTapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
-            return value=propertyTapeFailure
-          let name=propertyColon value="propertyCursor + colonRelative"
-          let name=propertyName value="Text.slice(propertyTape, propertyCursor, propertyColon)"
-          let name=requiredFlag value="Text.charAt(propertyTape, propertyColon + 1)"
-          if cond="Text.charAt(propertyTape, propertyColon + 2) != \"|\" || (requiredFlag != \"0\" && requiredFlag != \"1\")"
-            let name=propertyFlagFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
-            return value=propertyFlagFailure
-          let name=presenceKey value="String(presenceLine) + \".\" + propertyName"
-          let name=effectiveOrdinal value="Map.has(effectiveOrdinals, presenceKey) ? String(Map.get(effectiveOrdinals, presenceKey)) : \"-1\""
-          let name=presenceRow value="f4row3(String(presenceLine), propertyName, effectiveOrdinal)"
-          assign target=presence value="f4append(presence, presenceRow)"
-          if cond="requiredFlag == \"1\" && effectiveOrdinal == \"-1\""
-            let name=missingFact value="f4row6(\"structural\", \"missing-property\", String(lineStarts[presenceLine]), String(lineEnds[presenceLine]), String(presenceLine), propertyName)"
-            let name=missingFactAdmission value="f4eligibilityleafadmit(missingFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
-            if cond="missingFactAdmission[0] != \"ok\""
-              let name=missingFactFailure value="f4fatal(missingFactAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
-              return value=missingFactFailure
-            do value="factParts.push(missingFactAdmission[4])"
-            assign target=factCount value="f2uint(missingFactAdmission[1])"
-            assign target=factBytes value="f2uint(missingFactAdmission[2])"
-            assign target=workSteps value="f2uint(missingFactAdmission[3])"
-            assign target=missingOnLine value=true
-          assign target=propertyCursor value="propertyColon + 3"
-      if cond=missingOnLine
-        let name=missingDiagnostic value="f4row5(\"UNEXPECTED_TOKEN\", \"error\", String(lineStarts[presenceLine]), String(lineEnds[presenceLine]), String(presenceLine))"
-        let name=missingDiagnosticAdmission value="f4eligibilityleafadmit(missingDiagnostic, 5, eligibilityDiagnosticCount, eligibilityDiagnosticBytes, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
-        if cond="missingDiagnosticAdmission[0] != \"ok\""
-          let name=missingDiagnosticFailure value="f4fatal(missingDiagnosticAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
-          return value=missingDiagnosticFailure
-        do value="eligibilityDiagnosticParts.push(missingDiagnosticAdmission[4])"
-        assign target=eligibilityDiagnosticCount value="f2uint(missingDiagnosticAdmission[1])"
-        assign target=eligibilityDiagnosticBytes value="f2uint(missingDiagnosticAdmission[2])"
-        assign target=workSteps value="f2uint(missingDiagnosticAdmission[3])"
-      let name=syntaxStart value="syntaxDiagnosticStarts[presenceLine]"
-      let name=syntaxEnd value="syntaxStart + syntaxDiagnosticCounts[presenceLine]"
-      for name=syntaxDiagnosticIndex from=syntaxStart to=syntaxEnd
-        do value="eligibilityDiagnosticParts.push(syntaxDiagnosticParts[syntaxDiagnosticIndex])"
-    let name=eligibilityDiagnosticFold value="f4balancedtapefold(eligibilityDiagnosticParts, workSteps, maxWorkSteps)"
-    if cond="eligibilityDiagnosticFold[0] != \"ok\""
-      let name=eligibilityDiagnosticFailure value="f4fatal(eligibilityDiagnosticFold[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
-      return value=eligibilityDiagnosticFailure
-    let name=eligibilityDiagnostics value="eligibilityDiagnosticFold[1]"
-    assign target=workSteps value="f2uint(eligibilityDiagnosticFold[2])"
-    let name=propertyDiagnosticState value="f4diagpropertyphase(occurrences, occurrenceRawValues, occurrenceValueStarts, propertyValueTapes, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
-    let name=eligibilityDiagnosticState value="f4diagphasefrompublic(eligibilityDiagnostics, 0, 1, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
-    let name=combinedPropertyDiagnosticState value="f4diagtwomerge(propertyDiagnosticState, eligibilityDiagnosticState, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"

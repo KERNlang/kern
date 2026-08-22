@@ -309,13 +309,23 @@ function decodeExpressionEvidence(fields, index, sourceScalars, context, occurre
     if (JSON.stringify(absoluteSpans) !== JSON.stringify(expectedSpans.map(({ nodeId, startScalar, endScalar }) =>
       ({ nodeId, startScalar, endScalar })))) fail('F2B evidence spans');
   } else {
-    if (occurrence.valueRepresentation !== 'quoted' || f2bSegmentOrdinal !== -1 ||
+    if ((occurrence.valueRepresentation !== 'quoted' && occurrence.valueRepresentation !== 'bare') ||
+        f2bSegmentOrdinal !== -1 ||
         boundaryMap.length !== Array.from(fields[6]).length + 1 ||
         boundaryMap[0] !== expressionStartScalar || boundaryMap.at(-1) !== expressionEndScalar) {
       fail('local evidence binding');
     }
-    for (let boundary = 1; boundary < boundaryMap.length; boundary += 1) {
-      if (boundaryMap[boundary] < boundaryMap[boundary - 1]) fail('evidence boundary order');
+    if (occurrence.valueRepresentation === 'bare') {
+      if (fields[6] !== context.sourcePoints.slice(expressionStartScalar, expressionEndScalar).join('')) {
+        fail('bare local evidence source');
+      }
+      for (let boundary = 0; boundary < boundaryMap.length; boundary += 1) {
+        if (boundaryMap[boundary] !== expressionStartScalar + boundary) fail('bare local evidence boundary');
+      }
+    } else {
+      for (let boundary = 1; boundary < boundaryMap.length; boundary += 1) {
+        if (boundaryMap[boundary] < boundaryMap[boundary - 1]) fail('evidence boundary order');
+      }
     }
     for (const node of decodedF2.nodes) {
       const span = absoluteSpans[node.id];

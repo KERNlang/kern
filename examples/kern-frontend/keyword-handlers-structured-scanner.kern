@@ -9,10 +9,35 @@ fn name=structuredtrim returns=string
       assign target=end value="end - 1"
     return value="Text.slice(value, start, end)"
 
+fn name=structuredtrimrange returns="number[]"
+  param name=value type=string
+  param name=start type=number
+  param name=end type=number
+  handler lang="kern"
+    let name=left value=start
+    let name=right value=end
+    while cond="left < right && structuredspace(Text.charAt(value, left))"
+      assign target=left value="left + 1"
+    while cond="right > left && structuredspace(Text.charAt(value, right - 1))"
+      assign target=right value="right - 1"
+    return value="[left, right]"
+
 fn name=structuredspace returns=boolean
   param name=value type=string
   handler lang="kern"
     return value="value == \" \" || value == \"\\t\" || value == \"\\n\" || value == \"\\r\""
+
+fn name=structureduint returns=number
+  param name=value type=string
+  handler lang="kern"
+    let name=out value=0
+    let name=length value="Text.length(value)"
+    for name=index from=0 to=length
+      let name=point value="Text.charAt(value, index)"
+      if cond="point < \"0\" || point > \"9\""
+        return value=-1
+      assign target=out value="out * 10 + (point == \"0\" ? 0 : point == \"1\" ? 1 : point == \"2\" ? 2 : point == \"3\" ? 3 : point == \"4\" ? 4 : point == \"5\" ? 5 : point == \"6\" ? 6 : point == \"7\" ? 7 : point == \"8\" ? 8 : 9)"
+    return value=out
 
 fn name=structurednamestart returns=boolean
   param name=value type=string
@@ -220,12 +245,16 @@ fn name=structuredsplitwhitespace returns="string[]"
       if cond="structuredspace(ch) && paren == 0 && bracket == 0 && brace == 0 && angle == 0"
         if cond="start >= 0"
           do value="out.push(structuredtrim(Text.slice(value, start, index)))"
+          do value="out.push(String(start))"
+          do value="out.push(String(index))"
           assign target=start value=-1
         continue
       if cond="start < 0"
         assign target=start value=index
     if cond="start >= 0"
       do value="out.push(structuredtrim(Text.slice(value, start, n)))"
+      do value="out.push(String(start))"
+      do value="out.push(String(n))"
     return value=out
 
 fn name=structuredfindassignment returns=number
@@ -364,19 +393,27 @@ fn name=structuredsplitreturns returns="string[]"
       if cond="ch == \">\" && index > 0 && Text.charAt(value, index - 1) != \"=\" && angle > 0"
         assign target=angle value="angle - 1"
       if cond="structuredspace(ch) && paren == 0 && bracket == 0 && brace == 0 && angle == 0 && structuredtrailingpropstart(value, index)"
-        do value="out.push(structuredtrim(Text.slice(value, 0, index)))"
-        do value="out.push(structuredtrim(Text.slice(value, index, n)))"
+        let name=leftRange value="structuredtrimrange(value, 0, index)"
+        let name=rightRange value="structuredtrimrange(value, index, n)"
+        do value="out.push(Text.slice(value, leftRange[0], leftRange[1]))"
+        do value="out.push(Text.slice(value, rightRange[0], rightRange[1]))"
+        do value="out.push(String(leftRange[1]))"
+        do value="out.push(String(rightRange[0]))"
         return value=out
-    do value="out.push(structuredtrim(value))"
+    let name=wholeRange value="structuredtrimrange(value, 0, n)"
+    do value="out.push(Text.slice(value, wholeRange[0], wholeRange[1]))"
     do value="out.push(\"\")"
+    do value="out.push(String(wholeRange[1]))"
+    do value="out.push(String(wholeRange[1]))"
     return value=out
 
 fn name=structuredbareprops returns="string[]"
   param name=value type=string
+  param name=baseStart type=number
   handler lang="kern"
     let name=out value="[]"
     let name=parts value="structuredsplitwhitespace(value)"
-    for name=index from=0 to="parts.length"
+    for name=index from=0 to="parts.length" step=3
       let name=part value="parts[index]"
       let name=equals value="Text.indexOf(part, \"=\")"
       if cond="equals <= 0"
@@ -396,9 +433,56 @@ fn name=structuredbareprops returns="string[]"
       do value="out.push(key)"
       do value="out.push(kind)"
       do value="out.push(decoded)"
+      do value="out.push(String(baseStart + structureduint(parts[index + 1])))"
+      do value="out.push(String(baseStart + structureduint(parts[index + 2])))"
     return value=out
 
 fn name=structuredencodefield returns=string
   param name=value type=string
   handler lang="kern"
     return value="String(Text.length(value)) + \":\" + value"
+
+fn name=structuredparamencoding returns=string
+  param name=items type="string[]"
+  handler lang="kern"
+    let name=count value=0
+    for name=countIndex from=0 to="items.length" step=4
+      assign target=count value="count + 1"
+    let name=out value="String(count) + \":\""
+    for name=index from=0 to="items.length" step=4
+      assign target=out value="out + structuredencodefield(items[index])"
+      assign target=out value="out + structuredencodefield(items[index + 1])"
+      assign target=out value="out + items[index + 2]"
+      if cond="items[index + 2] == \"1\""
+        assign target=out value="out + structuredencodefield(items[index + 3])"
+    return value=out
+
+fn name=structuredbareparams returns="string[]"
+  param name=value type=string
+  handler lang="kern"
+    let name=out value="[]"
+    let name=parts value="structuredsplit(value, \",\")"
+    for name=index from=0 to="parts.length"
+      let name=part value="structuredtrim(parts[index])"
+      if cond="part == \"\""
+        continue
+      let name=colon value="Text.indexOf(part, \":\")"
+      if cond="colon <= 0"
+        continue
+      let name=name value="structuredtrim(Text.slice(part, 0, colon))"
+      let name=tail value="structuredtrim(Text.slice(part, colon + 1, Text.length(part)))"
+      let name=equals value="Text.indexOf(tail, \"=\")"
+      let name=type value=tail
+      let name=hasDefault value="\"0\""
+      let name=defaultValue value="\"\""
+      if cond="equals >= 0"
+        assign target=type value="structuredtrim(Text.slice(tail, 0, equals))"
+        assign target=defaultValue value="structuredtrim(Text.slice(tail, equals + 1, Text.length(tail)))"
+        assign target=hasDefault value="\"1\""
+      if cond="!structuredvalidplain(name) || !structuredsimpletype(type) || (hasDefault == \"1\" && defaultValue == \"\")"
+        continue
+      do value="out.push(name)"
+      do value="out.push(type)"
+      do value="out.push(hasDefault)"
+      do value="out.push(defaultValue)"
+    return value=out

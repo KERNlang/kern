@@ -15,6 +15,11 @@ export const F2_COMPOSITION_PATHS = [
   'examples/kern-frontend/f2-batch-main.kern',
 ];
 export const F4_COMPOSITION_PATHS = [
+  'examples/kern-frontend/keyword-handlers-structured-scanner.kern',
+  'examples/kern-frontend/keyword-handlers-structured-declarations.kern',
+  'examples/kern-frontend/keyword-handlers-structured.kern',
+  'examples/kern-frontend/keyword-handler-normalization.kern',
+  'examples/kern-frontend/f4-keyword-normalization.kern',
   'examples/kern-frontend/f4-authority.generated.kern',
   'examples/kern-frontend/f4-declarations-helpers.kern',
   'examples/kern-frontend/f4-path-contract.kern',
@@ -23,6 +28,7 @@ export const F4_COMPOSITION_PATHS = [
   'examples/kern-frontend/f4-line-eligibility.kern',
   'examples/kern-frontend/f4-attachment-closure.kern',
   'examples/kern-frontend/f4-prerequisite-envelope.kern',
+  'examples/kern-frontend/f4-declarations-semantic-head.kernpart',
   'examples/kern-frontend/f4-declarations-semantic.kern',
   'examples/kern-frontend/f4-declarations-semantic-tail.kernpart',
   'examples/kern-frontend/f4-declarations-main.kern',

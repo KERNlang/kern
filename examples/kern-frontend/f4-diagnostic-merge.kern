@@ -115,6 +115,7 @@ fn name=f4diagpropertyphase returns="string[]"
   param name=occurrences type=string
   param name=occurrenceRawValues type="string[]"
   param name=occurrenceValueStarts type="number[]"
+  param name=occurrenceNormalizedFlags type="string[]"
   param name=propertyValueTapes type="string[]"
   param name=maxDiagnostics type=number
   param name=maxEncodedBytes type=number
@@ -143,7 +144,7 @@ fn name=f4diagpropertyphase returns="string[]"
         break
       let name=item value="f2batchmarked(occurrences, cursor, \"i\")"
       let name=next value="f2uint(item[1])"
-      if cond="next < 0 || f4tapecount(item[0]) != 13 || occurrenceValueStarts.length != occurrenceRawValues.length"
+      if cond="next < 0 || f4tapecount(item[0]) != 13 || occurrenceValueStarts.length != occurrenceRawValues.length || occurrenceNormalizedFlags.length != occurrenceRawValues.length"
         return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
       let name=owner value="f4tapefield(item[0], 1)"
       let name=propertyName value="f4tapefield(item[0], 3)"
@@ -170,9 +171,14 @@ fn name=f4diagpropertyphase returns="string[]"
         return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
       let name=valueTape value="Map.get(propertyValueTapeByOrdinal, String(propertyOrdinal))"
       let name=admission value="f4propertyadmission(f4tapefield(item[0], 5), f4tapefield(item[0], 7), valueTape, f4tapefield(item[0], 8), f4unquote(occurrenceRawValues[ordinal]))"
-      if cond="status == \"ok\" && admission[0] != \"admit\""
+      let name=admissionStatus value="admission[0]"
+      let name=rejectionCode value="admission[2]"
+      if cond="occurrenceNormalizedFlags[ordinal] == \"true\""
+        let name=normalizedAdmission value="f4normalizedpropertyadmission(f4tapefield(item[0], 5), f4tapefield(item[0], 7), valueTape, f4tapefield(item[0], 8), f4unquote(occurrenceRawValues[ordinal]))"
+        assign target=admissionStatus value="normalizedAdmission[0]"
+        assign target=rejectionCode value="normalizedAdmission[2]"
+      if cond="status == \"ok\" && admissionStatus != \"admit\""
         let name=valueStart value="occurrenceValueStarts[ordinal]"
-        let name=rejectionCode value="admission[2]"
         let name=rejectionRule value=-1
         if cond="rejectionCode == \"UNEXPECTED_TOKEN\""
           assign target=rejectionRule value=1

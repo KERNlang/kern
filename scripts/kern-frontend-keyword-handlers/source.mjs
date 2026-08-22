@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const MEMBER_URLS = [
   new URL('../../examples/kern-frontend/keyword-handlers-structured-scanner.kern', import.meta.url),
+  new URL('../../examples/kern-frontend/keyword-handlers-structured-declarations.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-structured.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handler-normalization.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-simple.kern', import.meta.url),

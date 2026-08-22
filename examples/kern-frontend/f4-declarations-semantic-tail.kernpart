@@ -1,3 +1,66 @@
+    let name=occurrenceFold value="f4balancedtapefold(occurrenceParts, workSteps, maxWorkSteps)"
+    if cond="occurrenceFold[0] != \"ok\""
+      let name=occurrenceFoldFailure value="f4fatal(occurrenceFold[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=occurrenceFoldFailure
+    let name=occurrences value="occurrenceFold[1]"
+    assign target=workSteps value="f2uint(occurrenceFold[2])"
+    for name=presenceLine from=0 to=lineStarts.length
+      let name=presenceKind value="kinds[presenceLine]"
+      let name=missingOnLine value=false
+      if cond="Map.has(nodePropertyTapeMap, String(presenceKind))"
+        let name=propertyTape value="Map.get(nodePropertyTapeMap, String(presenceKind))"
+        let name=propertyCursor value=0
+        while cond="propertyCursor < Text.length(propertyTape)"
+          let name=propertySuffix value="Text.slice(propertyTape, propertyCursor, Text.length(propertyTape))"
+          let name=colonRelative value="Text.indexOf(propertySuffix, \":\")"
+          if cond="colonRelative <= 0"
+            let name=propertyTapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=propertyTapeFailure
+          let name=propertyColon value="propertyCursor + colonRelative"
+          let name=propertyName value="Text.slice(propertyTape, propertyCursor, propertyColon)"
+          let name=requiredFlag value="Text.charAt(propertyTape, propertyColon + 1)"
+          if cond="Text.charAt(propertyTape, propertyColon + 2) != \"|\" || (requiredFlag != \"0\" && requiredFlag != \"1\")"
+            let name=propertyFlagFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=propertyFlagFailure
+          let name=presenceKey value="String(presenceLine) + \".\" + propertyName"
+          let name=effectiveOrdinal value="Map.has(effectiveOrdinals, presenceKey) ? String(Map.get(effectiveOrdinals, presenceKey)) : \"-1\""
+          let name=presenceRow value="f4row3(String(presenceLine), propertyName, effectiveOrdinal)"
+          assign target=presence value="f4append(presence, presenceRow)"
+          if cond="requiredFlag == \"1\" && effectiveOrdinal == \"-1\""
+            let name=missingFact value="f4row6(\"structural\", \"missing-property\", String(lineStarts[presenceLine]), String(lineEnds[presenceLine]), String(presenceLine), propertyName)"
+            let name=missingFactAdmission value="f4eligibilityleafadmit(missingFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+            if cond="missingFactAdmission[0] != \"ok\""
+              let name=missingFactFailure value="f4fatal(missingFactAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+              return value=missingFactFailure
+            do value="factParts.push(missingFactAdmission[4])"
+            assign target=factCount value="f2uint(missingFactAdmission[1])"
+            assign target=factBytes value="f2uint(missingFactAdmission[2])"
+            assign target=workSteps value="f2uint(missingFactAdmission[3])"
+            assign target=missingOnLine value=true
+          assign target=propertyCursor value="propertyColon + 3"
+      if cond=missingOnLine
+        let name=missingDiagnostic value="f4row5(\"UNEXPECTED_TOKEN\", \"error\", String(lineStarts[presenceLine]), String(lineEnds[presenceLine]), String(presenceLine))"
+        let name=missingDiagnosticAdmission value="f4eligibilityleafadmit(missingDiagnostic, 5, eligibilityDiagnosticCount, eligibilityDiagnosticBytes, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
+        if cond="missingDiagnosticAdmission[0] != \"ok\""
+          let name=missingDiagnosticFailure value="f4fatal(missingDiagnosticAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+          return value=missingDiagnosticFailure
+        do value="eligibilityDiagnosticParts.push(missingDiagnosticAdmission[4])"
+        assign target=eligibilityDiagnosticCount value="f2uint(missingDiagnosticAdmission[1])"
+        assign target=eligibilityDiagnosticBytes value="f2uint(missingDiagnosticAdmission[2])"
+        assign target=workSteps value="f2uint(missingDiagnosticAdmission[3])"
+      let name=syntaxStart value="syntaxDiagnosticStarts[presenceLine]"
+      let name=syntaxEnd value="syntaxStart + syntaxDiagnosticCounts[presenceLine]"
+      for name=syntaxDiagnosticIndex from=syntaxStart to=syntaxEnd
+        do value="eligibilityDiagnosticParts.push(syntaxDiagnosticParts[syntaxDiagnosticIndex])"
+    let name=eligibilityDiagnosticFold value="f4balancedtapefold(eligibilityDiagnosticParts, workSteps, maxWorkSteps)"
+    if cond="eligibilityDiagnosticFold[0] != \"ok\""
+      let name=eligibilityDiagnosticFailure value="f4fatal(eligibilityDiagnosticFold[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=eligibilityDiagnosticFailure
+    let name=eligibilityDiagnostics value="eligibilityDiagnosticFold[1]"
+    assign target=workSteps value="f2uint(eligibilityDiagnosticFold[2])"
+    let name=propertyDiagnosticState value="f4diagpropertyphase(occurrences, occurrenceRawValues, occurrenceValueStarts, occurrenceNormalizedFlags, propertyValueTapes, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=eligibilityDiagnosticState value="f4diagphasefrompublic(eligibilityDiagnostics, 0, 1, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=combinedPropertyDiagnosticState value="f4diagtwomerge(propertyDiagnosticState, eligibilityDiagnosticState, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
     let name=parentCursor value=0
     while cond="parentCursor < Text.length(attachmentClosure[5])"
       let name=parentItem value="f2batchmarked(attachmentClosure[5], parentCursor, \"i\")"
@@ -9,9 +72,10 @@
       let name=parentValue value="f2uint(f4tapefield(parentItem[0], 1))"
       do value="Map.set(parentByLine, String(parentChild), parentValue)"
       assign target=parentCursor value=parentNext
-    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, occurrenceDetachedFlags, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
+    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, occurrenceDetachedFlags, occurrenceNormalizedFlags, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
     if cond="expressionResult[0] == \"drift\""
-      return value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+      let name=expressionDriftFailure value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+      return value=expressionDriftFailure
     if cond="expressionResult[0] == \"limit\""
       let name=expressionLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
       return value=expressionLimitFailure

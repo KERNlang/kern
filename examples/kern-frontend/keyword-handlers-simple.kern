@@ -33,12 +33,12 @@ fn name=observekeywordhandlers returns="string[]"
       do value="ends.push(tokenEnd)"
 
     let name=normalized value="normalizekeywordhandlerwrites(content, upstreamType, upstreamCursor, kinds, values, starts, ends, maxWrites)"
-    if cond="normalized.length < 4 || (normalized.length - 4) % 5 != 0"
+    if cond="normalized.length < 6 || normalized[0] != \"success\" || (normalized.length - 6) % 6 != 0"
       return value="[]"
-    let name=type value="normalized[0]"
-    let name=initialCursor value="normalized[1]"
-    let name=cursor value="normalized[2]"
-    let name=writeCount value="normalized[3]"
+    let name=type value="normalized[1]"
+    let name=initialCursor value="normalized[2]"
+    let name=cursor value="normalized[3]"
+    let name=writeCount value="normalized[4]"
     let name=out value="[]"
     do value="out.push(format)"
     do value="out.push(\"decision\")"
@@ -52,15 +52,30 @@ fn name=observekeywordhandlers returns="string[]"
     do value="out.push(String(maxFields))"
     do value="out.push(String(maxBytes))"
     do value="out.push(\"\")"
+    let name=legacyStructured value="type == \"let\" && parseboundeduinttext(cursor, maxTokens) == kinds.length && writeCount != \"0\""
+    if cond="parseboundeduinttext(cursor, maxTokens) == kinds.length"
+      for name=legacyMarker from=6 to="normalized.length" step=6
+        if cond="normalized[legacyMarker] == \"__firstClassSyntax\" || normalized[legacyMarker] == \"__firstClassImport\" || normalized[legacyMarker + 1] == \"params-items-v1\""
+          assign target=legacyStructured value=true
+          break
+    let name=legacyStructuredStart value=0
+    if cond=legacyStructured
+      let name=legacyInitial value="parseboundeduinttext(initialCursor, maxTokens)"
+      for name=legacyIndex from=legacyInitial to=kinds.length
+        if cond="kinds[legacyIndex] != \"whitespace\""
+          assign target=legacyStructuredStart value="starts[legacyIndex]"
+          break
     let name=writeIndex value="0"
-    for name=normalizedCursor from=4 to="normalized.length" step=5
+    for name=normalizedCursor from=6 to="normalized.length" step=6
+      let name=legacyWriteStart value="legacyStructured ? String(legacyStructuredStart) : normalized[normalizedCursor + 3]"
+      let name=legacyWriteEnd value="legacyStructured ? String(Text.length(content)) : normalized[normalizedCursor + 4]"
       do value="out.push(\"write\")"
       do value="out.push(String(writeIndex))"
       do value="out.push(normalized[normalizedCursor])"
       do value="out.push(normalized[normalizedCursor + 1])"
       do value="out.push(normalized[normalizedCursor + 2])"
-      do value="out.push(normalized[normalizedCursor + 3])"
-      do value="out.push(normalized[normalizedCursor + 4])"
+      do value="out.push(legacyWriteStart)"
+      do value="out.push(legacyWriteEnd)"
       do value="out.push(\"\")"
       assign target=writeIndex value="writeIndex + 1"
     do value="out.push(\"seal\")"
