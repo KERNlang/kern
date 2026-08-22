@@ -1,9 +1,9 @@
 # KERN 5 F4 M3.2 — A8 Mutation Closure
 
-**Status:** SPEC — READY FOR RED
+**Status:** IMPLEMENTED — LOCALLY VERIFIED; MERGE AND WHOLE-F4 ACCEPTANCE PENDING
 **Date:** 2026-08-22
 **Baseline:** `48ed9ed150501c03be100072185388da886ce271`
-**Confidence:** 0.93
+**Confidence:** 0.98
 
 ## Objective
 
@@ -19,15 +19,15 @@ is a separately traced production defect and stops this slice before any fix.
 
 ## Grounded State
 
-**[A8-R1 VERIFIED]** The parent contract leaves F4-A8 proposed and names nine
-families: prerequisite forgery, semantic host delegation, shadow-receipt
-consumption, catalog omission, constant output, partial failure, post-hoc
-sorting, hardcoded limits, and seal drift. Evidence:
-`.Codex/specs/kern-5-f4-declarations-modules/spec.md:1441-1444`.
+**[A8-R1 VERIFIED — BASELINE]** At slice start, the parent contract left F4-A8
+proposed and named nine families: prerequisite forgery, semantic host
+delegation, shadow-receipt consumption, catalog omission, constant output,
+partial failure, post-hoc sorting, hardcoded limits, and seal drift. The parent
+acceptance row now records the completed local evidence.
 
-**[A8-R2 VERIFIED]** Existing tests kill representative authority and
-prerequisite mutations, but do not form one nine-family attribution ledger.
-Evidence: `authority.test.mjs`, `document.test.mjs`,
+**[A8-R2 VERIFIED — BASELINE]** Before this slice, existing tests killed
+representative authority and prerequisite mutations but did not form one
+nine-family attribution ledger. Baseline evidence: `authority.test.mjs`, `document.test.mjs`,
 `a1-a2-a11-evidence.test.mjs`, `a4-decorator-closure.test.mjs`, and
 `a6-detached-closure.test.mjs`.
 
@@ -50,6 +50,14 @@ tests. Evidence: `policy.json`, `policy-validation.mjs`, and
 guards for count, bytes, work, cursor, producer admission, and consumer width.
 Evidence: `c13-global-facts.test.mjs`, `c13-local-facts.test.mjs`, and
 `worker.mjs.__test.runGlobalFactVerify`.
+
+**[A8-R7 VERIFIED]** The implementation now supplies one executable registry
+for `A8-F1` through `A8-F9`, with independently attributable source, document,
+and module-set sub-slices. The final local candidate passed the focused
+aggregate `2/2`, the complete F4 declarations wall `509/509`, lint, repository
+consistency, exact `45/45` policy pins, deterministic authority regeneration,
+and independent Agon review. This is local slice evidence, not F4 promotion,
+merge, release, tag, publication, or deployment evidence.
 
 ## Execution Model
 
@@ -183,10 +191,10 @@ have positive and negative canaries.
 | Path | Action |
 | --- | --- |
 | `.Codex/specs/kern-5-f4-m3-a8-mutation-closure/spec.md` | add this contract |
-| `scripts/kern-frontend-f4-declarations/a8-test-support.mjs` | add authentic capture, isolated one-change runner, attribution helpers |
-| `scripts/kern-frontend-f4-declarations/a8-document-mutations.test.mjs` | add F4A F1-F6/F8/F9 and C13 controls |
-| `scripts/kern-frontend-f4-declarations/a8-module-set-mutations.test.mjs` | add F4B F7, permutations, policy skew, independent oracle |
-| `scripts/kern-frontend-f4-declarations/a8-source-canaries.test.mjs` | add F2/F3 ownership and structural mutation guards |
+| `scripts/kern-frontend-f4-declarations/a8-test-support.mjs` and `a8-mutation-closure.test.mjs` | aggregate exact IDs, killers, and controls |
+| `scripts/kern-frontend-f4-declarations/a8-document-support.mjs` and `a8-document-mutations.test.mjs` | execute F4A F1/F4/F5/F6/F8/F9 plus C13, skew, and stale-generation controls |
+| `scripts/kern-frontend-f4-declarations/a8-module-set-support.mjs` and `a8-module-set-mutations.test.mjs` | execute F4B F7, twenty balanced permutations, and M2 oracle canaries |
+| `scripts/kern-frontend-f4-declarations/a8-source-canaries.mjs` and `a8-source-canaries.test.mjs` | execute F2/F3 ownership and structural mutation guards |
 
 No production KERN, policy, decoder, public export, F0-F3 source, generated
 authority, fitness policy, or terminal gate is in the planned allowlist.
@@ -210,26 +218,26 @@ Before any mutation is counted:
 
 ## Acceptance
 
-- [ ] A8-A1: registry IDs are exactly `A8-F1` through `A8-F9`.
-- [ ] A8-A2: every family has one defect, one positive control, one reachable
+- [x] A8-A1: registry IDs are exactly `A8-F1` through `A8-F9`.
+- [x] A8-A2: every family has one defect, one positive control, one reachable
       sentinel, and one exact designated killer.
-- [ ] A8-A3: no runtime crash or generic error counts as a kill.
-- [ ] A8-A4: F4A captures use authentic ABI 109; F4B captures use authentic
+- [x] A8-A3: no runtime crash or generic error counts as a kill.
+- [x] A8-A4: F4A captures use authentic ABI 109; F4B captures use authentic
       ABI 18; no vector is reused for an unreachable family.
-- [ ] A8-A5: constant, omission, reorder, and duplicated-work canaries kill
+- [x] A8-A5: constant, omission, reorder, and duplicated-work canaries kill
       the independent oracle.
-- [ ] A8-A6: C13 cursor/arity/count/bytes/work mutations return exact drift;
+- [x] A8-A6: C13 cursor/arity/count/bytes/work mutations return exact drift;
       exact control and work-limit control remain distinct.
-- [ ] A8-A7: composition skew and stale authority generation reject without
+- [x] A8-A7: composition skew and stale authority generation reject without
       changing repository files.
-- [ ] A8-A8: canonical F4B output is invariant across at least twenty
+- [x] A8-A8: canonical F4B output is invariant across at least twenty
       deterministic document permutations and equals the M2 reference.
-- [ ] A8-A9: production worker exports, `.2`/109/17, `.4`/18/10, policy `.4`,
+- [x] A8-A9: production worker exports, `.2`/109/17, `.4`/18/10, policy `.4`,
       F0-F3, and generated authority bytes remain unchanged.
-- [ ] A8-A10: focused A8, complete F4, lint, repository consistency, exact
+- [x] A8-A10: focused A8, complete F4, lint, repository consistency, exact
       pins, deterministic authority, and automatic-risk Agon review pass.
-- [ ] A8-A11: every new handwritten file is below 500 lines.
-- [ ] A8-A12: M3.2 does not promote F4 or the terminal frontend gate and does
+- [x] A8-A11: every new handwritten file is below 500 lines.
+- [x] A8-A12: M3.2 does not promote F4 or the terminal frontend gate and does
       not push the partial M3 feature.
 
 ## Kill Switches

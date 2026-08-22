@@ -1437,10 +1437,19 @@ rather than a new host-owned F4 semantic path:
   `17/17`, the complete F4 declarations wall passed `481/481`, and the
   post-repair independent correctness review reported no findings. Evidence is
   pinned by `m2-canonical-graph.test.mjs`, `m2-reference-graph.mjs`, and the M2
-  satellite spec. This does not close F4-A8 through F4-A10 or promote F4.
-- **[F4-A8 PROPOSED]** Mutations kill prerequisite forgery, semantic host
-  delegation, shadow-receipt consumption, catalog omission, constant output,
-  partial failure, post-hoc sorting, hardcoded limits, and seal drift.
+  satellite spec. That graph slice does not by itself close F4-A8 through
+  F4-A10 or promote F4; the separately verified A8 closure follows below.
+- **[F4-A8 IMPLEMENTED | VERIFIED]** The executable `A8-F1` through `A8-F9`
+  registry kills prerequisite forgery, semantic host delegation, shadow-receipt
+  consumption, catalog omission, constant output, partial failure, post-hoc
+  sorting, hardcoded limits, and seal drift with exact controls and designated
+  killers. The module-set slice runs twenty balanced request permutations and
+  compares public output to the independent M2 reference. The final local
+  candidate passed the focused aggregate `2/2`, complete F4 declarations wall
+  `509/509`, lint, repository consistency, exact `45/45` pins, deterministic
+  authority regeneration, and independent review. Evidence is pinned by the
+  A8 satellite spec and `a8-*.test.mjs`; F4-A9/A10 and whole-F4 promotion remain
+  open.
 - **[F4-A9 PROPOSED]** Frozen 1x/2x/4x/8x declaration, property, attachment,
   decorator, and module-density families satisfy adjacent and absolute time,
   RSS, envelope-size, and work-step walls. Each document uses one F4A runtime
