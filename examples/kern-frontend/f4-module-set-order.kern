@@ -1,0 +1,239 @@
+fn name=f4blinkrule returns=number
+  param name=code type=string
+  handler lang="kern"
+    if cond="code == \"missing-module\""
+      return value=0
+    if cond="code == \"missing-export\""
+      return value=1
+    if cond="code == \"kind-mismatch\""
+      return value=2
+    if cond="code == \"duplicate-local-binding\""
+      return value=3
+    if cond="code == \"duplicate-export\""
+      return value=4
+    if cond="code == \"module-cycle\""
+      return value=5
+    return value=-1
+
+fn name=f4browless returns=boolean
+  param name=left type=string
+  param name=right type=string
+  param name=kind type=string
+  handler lang="kern"
+    if cond="kind == \"string\""
+      return value="left < right"
+    if cond="kind == \"module-row\" || kind == \"component-row\" || kind == \"member-row\""
+      let name=leftId value="f4browfield(left, 0)"
+      let name=rightId value="f4browfield(right, 0)"
+      if cond="leftId != rightId"
+        return value="leftId < rightId"
+      return value="left < right"
+    if cond="kind == \"edge-row\""
+      let name=leftSource value="f4browfield(left, 0)"
+      let name=rightSource value="f4browfield(right, 0)"
+      if cond="leftSource != rightSource"
+        return value="leftSource < rightSource"
+      let name=leftTarget value="f4browfield(left, 1)"
+      let name=rightTarget value="f4browfield(right, 1)"
+      if cond="leftTarget != rightTarget"
+        return value="leftTarget < rightTarget"
+      let name=leftStart value="f2uint(f4browfield(left, 3))"
+      let name=rightStart value="f2uint(f4browfield(right, 3))"
+      if cond="leftStart != rightStart"
+        return value="leftStart < rightStart"
+      let name=leftOrdinal value="f2uint(f4browfield(left, 2))"
+      let name=rightOrdinal value="f2uint(f4browfield(right, 2))"
+      if cond="leftOrdinal != rightOrdinal"
+        return value="leftOrdinal < rightOrdinal"
+      return value="left < right"
+    if cond="kind == \"binding-row\""
+      let name=leftImporter value="f4browfield(left, 5)"
+      let name=rightImporter value="f4browfield(right, 5)"
+      if cond="leftImporter != rightImporter"
+        return value="leftImporter < rightImporter"
+      let name=leftStart value="f2uint(f4browfield(left, 7))"
+      let name=rightStart value="f2uint(f4browfield(right, 7))"
+      if cond="leftStart != rightStart"
+        return value="leftStart < rightStart"
+      let name=leftOrdinal value="f2uint(f4browfield(left, 6))"
+      let name=rightOrdinal value="f2uint(f4browfield(right, 6))"
+      if cond="leftOrdinal != rightOrdinal"
+        return value="leftOrdinal < rightOrdinal"
+      for name=fieldIndex from=0 to=6
+        let name=leftField value="f4browfield(left, fieldIndex)"
+        let name=rightField value="f4browfield(right, fieldIndex)"
+        if cond="leftField != rightField"
+          return value="leftField < rightField"
+      return value=false
+    if cond="kind == \"fact-wrapper\""
+      let name=leftComponent value="f4browfield(left, 0)"
+      let name=rightComponent value="f4browfield(right, 0)"
+      if cond="leftComponent != rightComponent"
+        return value="leftComponent < rightComponent"
+      let name=leftModule value="f4browfield(left, 3)"
+      let name=rightModule value="f4browfield(right, 3)"
+      if cond="leftModule != rightModule"
+        return value="leftModule < rightModule"
+      let name=leftStart value="f2uint(f4browfield(left, 5))"
+      let name=rightStart value="f2uint(f4browfield(right, 5))"
+      if cond="leftStart != rightStart"
+        return value="leftStart < rightStart"
+      let name=leftRank value="f4blinkrule(f4browfield(left, 1))"
+      let name=rightRank value="f4blinkrule(f4browfield(right, 1))"
+      if cond="leftRank != rightRank"
+        return value="leftRank < rightRank"
+      let name=leftCode value="f4browfield(left, 1)"
+      let name=rightCode value="f4browfield(right, 1)"
+      if cond="leftCode != rightCode"
+        return value="leftCode < rightCode"
+      let name=leftDetail value="f4browfield(left, 2)"
+      let name=rightDetail value="f4browfield(right, 2)"
+      if cond="leftDetail != rightDetail"
+        return value="leftDetail < rightDetail"
+      let name=leftOrdinal value="f2uint(f4browfield(left, 4))"
+      let name=rightOrdinal value="f2uint(f4browfield(right, 4))"
+      return value="leftOrdinal < rightOrdinal"
+    return value="left < right"
+
+fn name=f4bsortrows returns="string[]"
+  param name=rows type="string[]"
+  param name=kind type=string
+  handler lang="kern"
+    let name=count value=rows.length
+    let name=leftRows value="new Map()"
+    let name=rightRows value="new Map()"
+    for name=inputIndex from=0 to=count
+      do value="Map.set(leftRows, String(inputIndex), rows[inputIndex])"
+    let name=width value=1
+    let name=readLeft value=true
+    while cond="width < count"
+      let name=runStart value=0
+      let name=outputIndex value=0
+      while cond="runStart < count"
+        let name=leftIndex value=runStart
+        let name=leftEnd value="runStart + width"
+        if cond="leftEnd > count"
+          assign target=leftEnd value=count
+        let name=rightIndex value=leftEnd
+        let name=rightEnd value="rightIndex + width"
+        if cond="rightEnd > count"
+          assign target=rightEnd value=count
+        while cond="leftIndex < leftEnd || rightIndex < rightEnd"
+          let name=takeLeft value=false
+          if cond="rightIndex >= rightEnd"
+            assign target=takeLeft value=true
+          else
+            if cond="leftIndex < leftEnd"
+              let name=leftKey value="String(leftIndex)"
+              let name=rightKey value="String(rightIndex)"
+              let name=leftRow value="\"\""
+              let name=rightRow value="\"\""
+              if cond=readLeft
+                if cond="!Map.has(leftRows, leftKey)"
+                  return value="[]"
+                if cond="!Map.has(leftRows, rightKey)"
+                  return value="[]"
+                assign target=leftRow value="Map.get(leftRows, leftKey)"
+                assign target=rightRow value="Map.get(leftRows, rightKey)"
+              else
+                if cond="!Map.has(rightRows, leftKey)"
+                  return value="[]"
+                if cond="!Map.has(rightRows, rightKey)"
+                  return value="[]"
+                assign target=leftRow value="Map.get(rightRows, leftKey)"
+                assign target=rightRow value="Map.get(rightRows, rightKey)"
+              if cond="!f4browless(rightRow, leftRow, kind)"
+                assign target=takeLeft value=true
+          let name=selectedIndex value="takeLeft ? leftIndex : rightIndex"
+          let name=selectedKey value="String(selectedIndex)"
+          let name=selectedRow value="\"\""
+          if cond=readLeft
+            if cond="!Map.has(leftRows, selectedKey)"
+              return value="[]"
+            assign target=selectedRow value="Map.get(leftRows, selectedKey)"
+            do value="Map.set(rightRows, String(outputIndex), selectedRow)"
+          else
+            if cond="!Map.has(rightRows, selectedKey)"
+              return value="[]"
+            assign target=selectedRow value="Map.get(rightRows, selectedKey)"
+            do value="Map.set(leftRows, String(outputIndex), selectedRow)"
+          if cond=takeLeft
+            assign target=leftIndex value="leftIndex + 1"
+          else
+            assign target=rightIndex value="rightIndex + 1"
+          assign target=outputIndex value="outputIndex + 1"
+        assign target=runStart value="runStart + width + width"
+      assign target=readLeft value="!readLeft"
+      assign target=width value="width + width"
+    let name=sorted value="[]"
+    for name=outputIndex from=0 to=count
+      let name=outputKey value="String(outputIndex)"
+      let name=row value="\"\""
+      if cond=readLeft
+        if cond="!Map.has(leftRows, outputKey)"
+          return value="[]"
+        assign target=row value="Map.get(leftRows, outputKey)"
+      else
+        if cond="!Map.has(rightRows, outputKey)"
+          return value="[]"
+        assign target=row value="Map.get(rightRows, outputKey)"
+      do value="sorted.push(row)"
+    return value=sorted
+
+fn name=f4bfoldparts returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=count value=parts.length
+    if cond="count == 0"
+      return value="\"\""
+    let name=leftParts value="new Map()"
+    let name=rightParts value="new Map()"
+    for name=inputIndex from=0 to=count
+      do value="Map.set(leftParts, String(inputIndex), parts[inputIndex])"
+    let name=currentCount value=count
+    let name=readLeft value=true
+    while cond="currentCount > 1"
+      let name=inputIndex value=0
+      let name=outputCount value=0
+      while cond="inputIndex < currentCount"
+        let name=leftKey value="String(inputIndex)"
+        let name=leftPart value="\"\""
+        if cond=readLeft
+          if cond="!Map.has(leftParts, leftKey)"
+            return value="\"\""
+          assign target=leftPart value="Map.get(leftParts, leftKey)"
+        else
+          if cond="!Map.has(rightParts, leftKey)"
+            return value="\"\""
+          assign target=leftPart value="Map.get(rightParts, leftKey)"
+        let name=combined value=leftPart
+        let name=rightIndex value="inputIndex + 1"
+        if cond="rightIndex < currentCount"
+          let name=rightKey value="String(rightIndex)"
+          let name=rightPart value="\"\""
+          if cond=readLeft
+            if cond="!Map.has(leftParts, rightKey)"
+              return value="\"\""
+            assign target=rightPart value="Map.get(leftParts, rightKey)"
+          else
+            if cond="!Map.has(rightParts, rightKey)"
+              return value="\"\""
+            assign target=rightPart value="Map.get(rightParts, rightKey)"
+          assign target=combined value="leftPart + rightPart"
+        if cond=readLeft
+          do value="Map.set(rightParts, String(outputCount), combined)"
+        else
+          do value="Map.set(leftParts, String(outputCount), combined)"
+        assign target=outputCount value="outputCount + 1"
+        assign target=inputIndex value="inputIndex + 2"
+      assign target=currentCount value=outputCount
+      assign target=readLeft value="!readLeft"
+    if cond=readLeft
+      if cond="!Map.has(leftParts, \"0\")"
+        return value="\"\""
+      let name=result value="Map.get(leftParts, \"0\")"
+      return value=result
+    if cond="!Map.has(rightParts, \"0\")"
+      return value="\"\""
+    let name=result value="Map.get(rightParts, \"0\")"
+    return value=result
