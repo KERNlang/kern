@@ -53,7 +53,7 @@ test('Phase 0 declares the complete terminal gate suffix and versioned ledger', 
     policy.gates.slice(-terminalGateIds.length).map((gate) => gate.id),
     terminalGateIds,
   );
-  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 59);
+  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 60);
   assert.equal(policy.gates.filter((gate) => gate.status === 'planned').length, 6);
   assert.deepEqual(
     remainingGates.terminalGates.map((gate) => gate.id),
@@ -144,7 +144,7 @@ test('default contract loading is independent from the caller working directory'
   const originalCwd = process.cwd();
   try {
     process.chdir('scripts');
-    assert.equal(loadKern5FitnessContract().currentGates.length, 59);
+    assert.equal(loadKern5FitnessContract().currentGates.length, 60);
   } finally {
     process.chdir(originalCwd);
   }
@@ -187,7 +187,7 @@ test('policy and ledger bind terminal id, order, status, and argv', () => {
 
 test('planned terminal gates have no root scripts while promoted terminal gates execute', () => {
   const contract = validate();
-  assert.equal(contract.currentGates.length, 59);
+  assert.equal(contract.currentGates.length, 60);
   assert.deepEqual(
     contract.currentGates.filter((gate) => terminalGateIds.includes(gate.id)),
     [
@@ -270,10 +270,32 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-f2-expression',
       'kern-frontend-f2-batch',
       'kern-frontend-f3-line-tree',
+      'kern-frontend-f4-declarations',
       'kern-checker',
       'kern-formatter',
     ],
   );
+});
+
+test('accepted F4 declarations are current without promoting the terminal frontend', () => {
+  const f3Index = policy.gates.findIndex((gate) => gate.id === 'kern-frontend-f3-line-tree');
+  assert.deepEqual(policy.gates[f3Index + 1], {
+    id: 'kern-frontend-f4-declarations',
+    label: 'KERN-owned F4 declarations and module sets',
+    status: 'current',
+    argv: ['pnpm', 'test:kern-frontend-f4-declarations'],
+  });
+  assert.equal(
+    policy.entrypoints['test:kern-frontend-f4-declarations'],
+    packageJson.scripts['test:kern-frontend-f4-declarations'],
+  );
+  assert.deepEqual(policy.ownership.find((row) => row.id === 'kern-frontend-f4-declarations'), {
+    id: 'kern-frontend-f4-declarations',
+    boundary: 'KERN-owned F4 declaration and closed-module-set semantics',
+    status: 'internal-oracle',
+    evidence: 'pnpm test:kern-frontend-f4-declarations',
+  });
+  assert.equal(policy.gates.find((gate) => gate.id === 'kern-frontend').status, 'planned');
 });
 
 test('test:infra executes every current frontend fitness gate', () => {
