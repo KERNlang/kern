@@ -1390,9 +1390,16 @@ rather than a new host-owned F4 semantic path:
 - **[F4-A3 PROPOSED]** Every closed keyword/source form has positive, malformed,
   fallback, multiline, quoted, astral, and trailing-property evidence where
   applicable, with exact parity to hand-authored expectations.
-- **[F4-A4 PROPOSED]** Decorator tests cover runs, explicit export, EOF,
-  indentation mismatch, non-`fn` substitution, malformed decorator syntax,
-  and one diagnostic per dropped decorator.
+- **[F4-A4 IMPLEMENTED | VERIFIED]** The public-path A4 matrix covers plain
+  multi-decorator runs, the independent export-prefixed control, EOF and
+  indentation orphans, equal-F3 non-`fn` substitution, malformed syntax,
+  detached-target compatibility, exact C14 order, and one diagnostic per
+  dropped decorator. Well-shaped and malformed F3 decorator transport
+  mutations fail atomically; structural canaries retain per-row projection,
+  target-kind/disposition, and warning emission. The final focused matrix
+  passed `10/10`, the complete F4 declarations wall passed `393/393`, and
+  automatic-risk Agon review found no verified or needs-check blocker. Evidence
+  is pinned by `a4-decorator-closure.test.mjs` and the A4 satellite spec.
 - **[F4-A5 PROPOSED]** Property tests cover required/optional/absent,
   duplicate/unknown, every value representation, expression binding, raw/host
   exclusions, link-time `from.as`/`reexport` normalization, and property names

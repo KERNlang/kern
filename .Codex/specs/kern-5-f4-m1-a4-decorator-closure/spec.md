@@ -1,6 +1,6 @@
 # KERN 5 F4-A4 Decorator Closure
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED AND LOCALLY VERIFIED — ACCEPTANCE EVIDENCE ONLY
 **Date:** 2026-08-22
 **Confidence:** 0.98
 
@@ -168,6 +168,26 @@ and the vocabulary is frozen.
   frontend promotion, publication, or release.
 - Performance/scaling promotion beyond regression protection for this small
   semantic matrix; A9 remains M3.
+
+## Verification Evidence
+
+- The final focused A4 matrix passed `10/10` on the review-corrected test bytes.
+  Its test mapping is D1; D2+D7; D3; D4; D5; D6; D8; D9; D10; and
+  D11+D12, where the paired criteria deliberately share one top-level test.
+- The complete F4 declarations wall, including forced core build and the
+  exhaustive A2 authority matrix, passed `393/393` with zero fail/skip on the
+  final candidate.
+- Lint checked 1,377 files; repository consistency, `git diff --check`, exact
+  `35/35` authority/prerequisite/composition pins, and deterministic authority
+  regeneration all passed.
+- Automatic-risk Agon review at
+  `~/.agon/runs/review-1787355973858-n86g5j` routed one
+  independent reviewer, found zero verified/needs-check blockers, and its
+  useful traceability nits were corrected before the final wall.
+- Commit `11bc3cee` pins the final reviewed spec/test evidence bytes; the
+  status-only evidence commit follows it and changes no executable source.
+- No production KERN, worker, policy, decoder, ABI, or generated-authority file
+  changed. A4 closes candidate evidence only; it does not accept or promote F4.
 
 ## Deploy Order
 
