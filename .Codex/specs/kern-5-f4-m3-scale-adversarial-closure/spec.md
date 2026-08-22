@@ -164,6 +164,12 @@ fact bytes, and work at slots `11..13`. The path tuple retains slots `0..4` and
 appends the same absolute state at slots `5..7`. These are private composition
 interfaces; public receipt fields remain unchanged.
 
+The pre-M3 terminal tuples remain valid only at their exact legacy widths:
+expression width `11` and path width `5`. A legacy-width tuple must have status
+`drift` or `limit`; any other status or width is authority drift. A full-width
+tuple (expression `14`, path `8`) is always verified before its status is
+honored. The root must decide the width before indexing an appended slot.
+
 Producer-local work slots `[10]` and `[4]` remain independently meaningful.
 The absolute returned work must equal:
 
@@ -175,12 +181,32 @@ fields, exact final cursor, recomputed count/UTF-8 deltas, and the declared work
 identity. Root verification work is then charged once. Only a verified bounded
 tape may contribute frames to the final `factParts` fold.
 
+Concretely, if `C` is the claimed producer work, `N` the admitted part count,
+and `F` the producer fold-copy work, then
+`C = base + producer-local + N + F`. The verifier independently repeats its
+`N`-part traversal and `F` fold, so the adopted work is `C + N + F`; it is not
+permitted to collapse back to `C`. Path resolution already advances its
+producer-owned global work cursor, whereas expression-local work is supplied
+separately; callers must not add either debit twice.
+
 Producer status handling is:
 
 1. malformed row/internal invariant → producer `drift`;
 2. prospective count/byte/work crossing → producer `limit` with no offending
    frame retained;
 3. otherwise `ok`.
+
+When admission rejects a candidate with `limit`, the rejected candidate is
+validated and framed but is not retained and does not advance the committed
+count, byte, or work state. The producer folds the previously admitted parts.
+If that fold succeeds, the producer returns a full-width `limit` tuple carrying
+the exact prefix tape and its prior cumulative count/bytes plus the fold work.
+The root verifies that prefix before returning atomic `F4_LIMIT`. If the
+prefix fold itself returns `drift` or reaches the work cap before constructing
+a tape, the producer returns the corresponding exact legacy-width terminal;
+`f4balancedtapefold` has already validated every retained frame before that
+work verdict. This is the only no-tape terminal path and must be frozen by a
+composition-wide source-structure oracle.
 
 The root verifies any returned bounded tape and state before honoring `limit`.
 Therefore a malformed returned tape/state is drift even if status claims
