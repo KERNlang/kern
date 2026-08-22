@@ -36,6 +36,8 @@ fn name=f4globalfactverify returns="string[]"
   param name=claimedWorkSteps type=number
   param name=maxWorkSteps type=number
   handler lang="kern"
+    if cond="baseFactCount < 0 || baseFactBytes < 0 || baseWorkSteps < 0 || producerWorkSteps < 0 || claimedFactCount < baseFactCount || claimedFactBytes < baseFactBytes || claimedWorkSteps < baseWorkSteps || maxWorkSteps < 0"
+      return value="[\"drift\"]"
     let name=parts value="[]"
     let name=cursor value=0
     let name=count value=baseFactCount

@@ -4,8 +4,10 @@ import test from 'node:test';
 
 import {
   runA8SourceOwnership,
+  scanHardcodedRootArguments,
   scanSemanticOwnership,
   scanShadowClosure,
+  scanWorkerSemanticOwnership,
 } from './a8-source-canaries.mjs';
 import { ALL_COMPOSITION_PATHS } from './policy-validation.mjs';
 
@@ -27,6 +29,7 @@ test('A8.1 semantic ownership scanner kills exact host classifiers and ignores i
     const mutant = `let name=delegated value="${classifier}(source)"`;
     assert.deepEqual(scanSemanticOwnership(mutant), [classifier], classifier);
   }
+  assert.deepEqual(scanSemanticOwnership('if cond="parseDocument(source)"'), ['parseDocument']);
   assert.deepEqual(
     scanSemanticOwnership('if cond=false\n  let name=delegated value="parseDocument(source)"'),
     ['parseDocument'],
@@ -36,6 +39,23 @@ test('A8.1 semantic ownership scanner kills exact host classifiers and ignores i
     scanSemanticOwnership('let "malformed prefix" name=x value="parseDocument(source)"'),
     ['parseDocument'],
     'a leading quoted token cannot hide a later authored value expression',
+  );
+});
+
+test('A8.1 worker and root-argument scanners reject executable delegation and hardcoded caps', () => {
+  assert.deepEqual(scanWorkerSemanticOwnership([
+    '// parseDocument(source)',
+    'const note = "parseLines(source)";',
+    'const count = parseDocumentCount;',
+  ].join('\n')), []);
+  assert.deepEqual(scanWorkerSemanticOwnership('const result = parseDocument(source);'), ['parseDocument']);
+  assert.deepEqual(
+    scanHardcodedRootArguments('let name=result value="classifyf4available(moduleId, maxFacts)"'),
+    [],
+  );
+  assert.deepEqual(
+    scanHardcodedRootArguments('let name=result value="classifyf4available(moduleId, 999999)"'),
+    ['classifyf4available[1]=999999'],
   );
 });
 

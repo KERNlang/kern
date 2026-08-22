@@ -93,10 +93,10 @@ function globalFactConsumerViolations(source) {
     'f4framedtapeparts(pathBindings[2], 6)',
   ]) if (source.includes(stale)) violations.push(`wholesale materialization: ${stale}`);
   for (const tuple of [
-    ['expressionResult', 11, 12, 13, 10, 11, 14],
-    ['pathBindings', 5, 6, 7, 4, 5, 8],
+    ['expressionResult', 'expressionFactParts', 11, 12, 13, 10, 11, 14],
+    ['pathBindings', 'pathFactParts', 5, 6, 7, 4, 5, 8],
   ]) {
-    const [name, count, bytes, work, legacyWork, legacyWidth, fullWidth] = tuple;
+    const [name, verified, count, bytes, work, legacyWork, legacyWidth, fullWidth] = tuple;
     const legacyGate = `if cond="${name}.length == ${legacyWidth}"`;
     const fullGate = `if cond="${name}.length != ${fullWidth}"`;
     const firstAppendedRead = source.indexOf(`${name}[${count}]`);
@@ -104,9 +104,15 @@ function globalFactConsumerViolations(source) {
         source.indexOf(fullGate) < 0 || source.indexOf(fullGate) > firstAppendedRead) {
       violations.push(`missing ${name} width-before-index gate`);
     }
-    for (const [target, slot] of [['factCount', count], ['factBytes', bytes], ['workSteps', work]]) {
-      const adoption = new RegExp(`assign target=${target} value="f2uint\\(${name}\\[${slot}\\]\\)"`, 'u');
+    for (const [target, owner, slot] of [
+      ['factCount', name, count], ['factBytes', name, bytes], ['workSteps', verified, 3],
+    ]) {
+      const adoption = new RegExp(`assign target=${target} value="f2uint\\(${owner}\\[${slot}\\]\\)"`, 'u');
       if (!adoption.test(source)) violations.push(`missing ${name} ${target} adoption`);
+    }
+    const verifierCall = new RegExp(`f4globalfactverify\\(${name}\\[`, 'u');
+    if (!verifierCall.test(source) || !source.includes(`f2uint(${name}[${work}])`)) {
+      violations.push(`missing ${name} producer work verification`);
     }
     const duplicateWork = new RegExp(`workSteps \\+ (?:f2uint\\()?${name}\\[${legacyWork}\\]`, 'u');
     if (duplicateWork.test(source)) violations.push(`duplicate ${name} legacy work`);
@@ -200,9 +206,11 @@ test('C13 GLOBAL producer and consumer source structure closes pre-admission all
   ].join('\n');
   assert.deepEqual(globalFactConsumerViolations(shallowConsumer), [
     'missing expressionResult width-before-index gate',
-    'missing expressionResult workSteps adoption', 'duplicate expressionResult legacy work',
+    'missing expressionResult workSteps adoption',
+    'missing expressionResult producer work verification', 'duplicate expressionResult legacy work',
     'missing pathBindings width-before-index gate',
-    'missing pathBindings workSteps adoption', 'duplicate pathBindings legacy work',
+    'missing pathBindings workSteps adoption',
+    'missing pathBindings producer work verification', 'duplicate pathBindings legacy work',
   ], 'consumer canary rejects shallow slot mentions and duplicate legacy work');
 });
 

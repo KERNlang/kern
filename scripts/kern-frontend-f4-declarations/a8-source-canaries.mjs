@@ -88,7 +88,115 @@ export function scanSemanticOwnership(source) {
   const violations = [];
   for (const line of kernLines(source)) {
     for (const [name, raw] of attributes(line)) {
-      if (name === 'value') violations.push(...callsInExpression(decodeKernValue(raw)));
+      if (name === 'value' || name === 'cond') {
+        violations.push(...callsInExpression(decodeKernValue(raw)));
+      }
+    }
+  }
+  return [...new Set(violations)];
+}
+
+function hostExecutableCode(source) {
+  let result = '';
+  let state = 'code';
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (state === 'line-comment') {
+      if (character === '\n') {
+        state = 'code';
+        result += '\n';
+      } else result += ' ';
+    } else if (state === 'block-comment') {
+      if (character === '*' && next === '/') {
+        result += '  ';
+        index += 1;
+        state = 'code';
+      } else result += character === '\n' ? '\n' : ' ';
+    } else if (state !== 'code') {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if ((state === 'single' && character === "'") ||
+               (state === 'double' && character === '"') ||
+               (state === 'template' && character === '`')) state = 'code';
+      result += character === '\n' ? '\n' : ' ';
+    } else if (character === '/' && next === '/') {
+      result += '  ';
+      index += 1;
+      state = 'line-comment';
+    } else if (character === '/' && next === '*') {
+      result += '  ';
+      index += 1;
+      state = 'block-comment';
+    } else if (character === "'") {
+      result += ' ';
+      state = 'single';
+    } else if (character === '"') {
+      result += ' ';
+      state = 'double';
+    } else if (character === '`') {
+      result += ' ';
+      state = 'template';
+    } else result += character;
+  }
+  return result;
+}
+
+export function scanWorkerSemanticOwnership(source) {
+  return [...new Set(callsInExpression(hostExecutableCode(String(source))))];
+}
+
+function callArguments(expression, name) {
+  const marker = `${name}(`;
+  const start = expression.indexOf(marker);
+  if (start < 0) return [];
+  let depth = 1;
+  let quote = null;
+  let escaped = false;
+  let argument = '';
+  const result = [];
+  for (let index = start + marker.length; index < expression.length; index += 1) {
+    const character = expression[index];
+    if (quote !== null) {
+      argument += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      argument += character;
+    } else if (character === '(') {
+      depth += 1;
+      argument += character;
+    } else if (character === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        result.push(argument.trim());
+        return result;
+      }
+      argument += character;
+    } else if (character === ',' && depth === 1) {
+      result.push(argument.trim());
+      argument = '';
+    } else argument += character;
+  }
+  return [];
+}
+
+export function scanHardcodedRootArguments(source) {
+  const violations = [];
+  for (const line of kernLines(source)) {
+    for (const [name, raw] of attributes(line)) {
+      if (name !== 'value') continue;
+      const args = callArguments(decodeKernValue(raw), 'classifyf4available');
+      for (let index = 0; index < args.length; index += 1) {
+        if (/^(?:-?\d+(?:\.\d+)?|true|false|null|".*"|'.*')$/u.test(args[index])) {
+          violations.push(`classifyf4available[${index}]=${args[index]}`);
+        }
+      }
     }
   }
   return [...new Set(violations)];
@@ -114,13 +222,16 @@ function requireExact(actual, expected, context) {
   }
 }
 
-export function runA8SourceOwnership(source) {
+export function runA8SourceOwnership(source, workerSource = '') {
   requireExact(scanSemanticOwnership(source), [], 'pristine source ownership violation');
+  requireExact(scanWorkerSemanticOwnership(workerSource), [], 'pristine worker ownership violation');
   requireExact(scanShadowClosure(source), [], 'pristine source closure violation');
 
   const semanticMutant = `${source}\nlet name=a8OwnershipMutant value="parseDocument(source)"`;
   const shadowMutant = `${source}\nuse path="kern.frontend.a8-shadow.1"`;
   requireExact(scanSemanticOwnership(semanticMutant), ['parseDocument'], 'reachable ownership mutant');
+  requireExact(scanWorkerSemanticOwnership(`${workerSource}\nparseDocument(source);`), ['parseDocument'],
+    'reachable worker ownership mutant');
   requireExact(scanShadowClosure(semanticMutant), [], 'paired ownership mutant closure control');
   requireExact(scanSemanticOwnership(shadowMutant), [], 'paired closure mutant ownership control');
   requireExact(scanShadowClosure(shadowMutant), ['kern.frontend.a8-shadow.1'], 'reachable closure mutant');

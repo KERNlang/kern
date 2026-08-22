@@ -140,7 +140,7 @@
     },
     {
       "path": "examples/kern-frontend/f4-global-facts.kern",
-      "sha256": "d5b5b0aedf9decd9b851fe9ee10c76c39e63c7dfdc0eb34a02166f1a719fe994"
+      "sha256": "50915251ebc80a1cfbb24f54f9a110ca7925252c1c078e9d591c3da73b869938"
     },
     {
       "path": "examples/kern-frontend/f4-path-contract.kern",
@@ -180,7 +180,7 @@
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic-tail.kernpart",
-      "sha256": "15553d9f82386e2b18c725c251628c65b4f08b8fe14ec1cfc02c9b627842e3ce"
+      "sha256": "e14f3788c6f0f9da27ea073a6b26bb5f11d9bcd7e7b8df6636a4a1d50d15d7b8"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-main.kern",
@@ -231,7 +231,7 @@
     "maxPeakRssBytes": 805306368,
     "maxAdjacentEnvelopeRatio": 3,
     "maxEnvelopeBytes": 1048576,
-    "maxAdjacentWorkRatio": 4,
+    "maxAdjacentWorkRatio": 3,
     "maxDocumentWorkSteps": 250000,
     "maxModuleDocumentWorkSteps": 1000000
   },

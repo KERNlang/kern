@@ -103,7 +103,6 @@
       do value="factParts.push(expressionFactPart)"
     assign target=factCount value="f2uint(expressionResult[11])"
     assign target=factBytes value="f2uint(expressionResult[12])"
-    assign target=workSteps value="f2uint(expressionResult[13])"
     assign target=workSteps value="f2uint(expressionFactParts[3])"
     if cond="workSteps > maxWorkSteps"
       let name=attachmentWorkFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
@@ -172,7 +171,6 @@
       do value="factParts.push(pathFactPart)"
     assign target=factCount value="f2uint(pathBindings[5])"
     assign target=factBytes value="f2uint(pathBindings[6])"
-    assign target=workSteps value="f2uint(pathBindings[7])"
     assign target=workSteps value="f2uint(pathFactParts[3])"
     for name=rootLine from=0 to=lineStarts.length
       let name=parent value="Map.has(parentByLine, String(rootLine)) ? Map.get(parentByLine, String(rootLine)) : -1"

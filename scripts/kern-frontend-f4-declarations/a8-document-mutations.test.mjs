@@ -83,6 +83,12 @@ test('A8.2 controls cover composition skew, stale generation, C13 claims, and or
     ['ok', '1', String(bytes), '10', tape]);
   assert.deepEqual(__test.runGlobalFactVerify(tape, 0, 0, 5, 3, 1, bytes, 9, 9), ['limit']);
   for (const args of [
+    ['', -1, 0, 0, 0, -1, 0, 0, 10],
+    ['', 0, -1, 0, 0, 0, -1, 0, 10],
+    ['', 0, 0, -1, 0, 0, 0, -1, 10],
+    ['', 1, 0, 0, 0, 0, 0, 0, 10],
+  ]) assert.deepEqual(__test.runGlobalFactVerify(...args), ['drift'], `invalid accounting ${args}`);
+  for (const args of [
     [`${tape}x`, 0, 0, 5, 3, 1, bytes, 9, 10],
     [frame('x'), 0, 0, 5, 3, 1, bytes, 9, 10],
     [frame(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(frame).join('')), 0, 0, 5, 3, 1, bytes, 9, 10],

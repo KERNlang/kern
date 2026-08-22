@@ -14,12 +14,17 @@ export const A8_FAMILY_IDS = Object.freeze(
   Array.from({ length: 9 }, (_, index) => `A8-F${index + 1}`),
 );
 
+const WORKER_SOURCE = [
+  new URL('./worker.mjs', import.meta.url),
+  new URL('./module-set-worker.mjs', import.meta.url),
+].map((url) => readFileSync(url, 'utf8')).join('\n');
+
 const familyOrdinal = ({ id }) => Number(id.slice('A8-F'.length));
 
 export async function runA8MutationMatrix() {
   const source = loadPristineF4AComposition(loadPolicy().policy);
   const reports = [
-    ...runA8SourceOwnership(source),
+    ...runA8SourceOwnership(source, WORKER_SOURCE),
     ...await runA8DocumentMutations(),
     runA8PostSortMutation(),
   ].sort((left, right) => familyOrdinal(left) - familyOrdinal(right));
@@ -46,3 +51,4 @@ export async function runA8AdditionalControls() {
     oracleCanariesRejected: moduleSet.oracleCanariesRejected,
   });
 }
+import { readFileSync } from 'node:fs';

@@ -16,6 +16,7 @@ import {
   F4_COMPOSITION_PATHS,
 } from './policy-validation.mjs';
 import { __test, loadPolicy } from './worker.mjs';
+import { scanHardcodedRootArguments } from './a8-source-canaries.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const sourceAt = (path) => readFileSync(new URL(path, ROOT), 'utf8');
@@ -234,10 +235,11 @@ function runF8HardcodedLimits() {
   args[88] = factCount - 1;
   const executed = executeF4AComposition(changed.source, args, captured.policy);
   const decoded = decodeCapturedDocument(executed.fields, captured);
+  const sourceViolations = scanHardcodedRootArguments(changed.source);
   const control = factCount === 2 && exact.receipt.status === 'rejected' &&
     under.receipt.status === 'fatal' && under.receipt.diagnostics[0]?.code === 'F4_LIMIT';
   const killed = decoded.status === 'rejected' && decoded.facts.length === factCount &&
-    changed.source.includes('999999');
+    sourceViolations.length === 1 && sourceViolations[0].endsWith('=999999');
   return report('A8-F8', killed ? 'resource-and-source-rejection' : 'not-killed', changed.replacementCount,
     { ...executed, abi: args.length }, control, killed);
 }
