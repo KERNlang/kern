@@ -392,6 +392,12 @@ test('source containment rejects delegation, foreign handlers, call-count drift,
     /composition rejection/u,
   );
   assert.throws(
+    () => validateNativeKeywordHandlerSource(
+      source.replace('normalizekeywordhandlerwrites(', 'normalizekeywordhandlermutant('),
+    ),
+    /composition rejection/u,
+  );
+  assert.throws(
     () => validateNativeKeywordHandlerSource(`${source}\nfn name=escape export=true\n  handler lang="kern"\n    return value=0`),
     /composition rejection/u,
   );

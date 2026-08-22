@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const MEMBER_URLS = [
   new URL('../../examples/kern-frontend/keyword-handlers-structured-scanner.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-structured.kern', import.meta.url),
+  new URL('../../examples/kern-frontend/keyword-handler-normalization.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-simple.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-envelope.kern', import.meta.url),
   new URL('../../examples/kern-frontend/keyword-handlers-composed.kern', import.meta.url),
@@ -47,6 +48,9 @@ export function validateNativeKeywordHandlerSource(source) {
   }
   if (occurrences('observekeywordhandlers(') !== 1) {
     fail('composition rejection', 'M4.170 must invoke the selected local handler exactly once');
+  }
+  if (occurrences('normalizekeywordhandlerwrites(') !== 1) {
+    fail('composition rejection', 'the neutral keyword normalizer must have exactly one adapter call');
   }
   if (occurrences('observegenericpropertystylethemediagnostics(') !== 1) {
     fail('composition rejection', 'M4.170 must invoke the residual generic continuation exactly once');
