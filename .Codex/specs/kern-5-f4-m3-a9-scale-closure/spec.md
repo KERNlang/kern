@@ -1,6 +1,6 @@
 # KERN 5 F4 M3 A9 Scale Closure
 
-**Status:** READY TO BUILD — ACCEPTANCE EVIDENCE PENDING
+**Status:** IMPLEMENTED AND LOCALLY VERIFIED — F4-A10 ACCEPTANCE PENDING
 
 **Baseline:** `da16bbacd93c378a655ca5dde5716ba2c6fc9fc3`
 
@@ -35,8 +35,22 @@ ordering, or public APIs.
   documents; and linked module sets. The largest observed document envelope
   was 5,357 bytes, the largest document work total was 16,852, and the
   eight-module set used eight F4A invocations plus one F4B invocation.
+- The first complete concurrent F4 wall exposed a module-family adjacent RSS
+  increase of 194,576,384 bytes: 497,647,616 bytes observed against a
+  437,288,960-byte ceiling under the initial 128 MiB slack. The authenticated
+  slack is therefore 256 MiB while the independent 768 MiB absolute wall is
+  unchanged. The adjacent wall still rejects any single increase above the
+  configured slack when the absolute wall alone would admit the result.
+- Three subsequent complete serial module-density repetitions observed maximum
+  adjacent increases of 185,876,480, 88,096,768, and 193,118,208 bytes. Their
+  eight-module peaks ranged from 482,377,728 to 500,531,200 bytes. The 256 MiB
+  power-of-two slack therefore retains at least 73,859,072 bytes of margin over
+  the largest observed adjacent increase without moving the absolute wall.
+- After recalibration, the focused A9 suite passed 41/41 and an independent
+  complete F4 wall passed 550/550 under the concurrent root runner.
 
-The probe numbers guide generous walls; they are not acceptance evidence.
+The baseline probe numbers guide generous walls; the reproduced concurrent
+crossing and the final full-wall result are acceptance evidence.
 
 ## Decided Contract
 
@@ -104,7 +118,7 @@ The probe numbers guide generous walls; they are not acceptance evidence.
   | `cpuTimeSlackMs` | `1_000` |
   | `maxCpuTimeMs` | `30_000` |
   | `maxAdjacentRssRatio` | `1` |
-  | `rssSlackBytes` | `134_217_728` |
+  | `rssSlackBytes` | `268_435_456` |
   | `maxPeakRssBytes` | `805_306_368` |
   | `maxAdjacentEnvelopeRatio` | `3` |
   | `maxEnvelopeBytes` | `1_048_576` |

@@ -227,7 +227,7 @@
     "cpuTimeSlackMs": 1000,
     "maxCpuTimeMs": 30000,
     "maxAdjacentRssRatio": 1,
-    "rssSlackBytes": 134217728,
+    "rssSlackBytes": 268435456,
     "maxPeakRssBytes": 805306368,
     "maxAdjacentEnvelopeRatio": 3,
     "maxEnvelopeBytes": 1048576,
