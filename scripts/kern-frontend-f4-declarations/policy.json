@@ -221,6 +221,20 @@
     "kern.frontend.f2.document-batch.1",
     "kern.frontend.f3-line-tree.1"
   ],
+  "scalingWalls": {
+    "densityCounts": [1, 2, 4, 8],
+    "maxAdjacentCpuTimeRatio": 4,
+    "cpuTimeSlackMs": 1000,
+    "maxCpuTimeMs": 30000,
+    "maxAdjacentRssRatio": 1,
+    "rssSlackBytes": 134217728,
+    "maxPeakRssBytes": 805306368,
+    "maxAdjacentEnvelopeRatio": 3,
+    "maxEnvelopeBytes": 1048576,
+    "maxAdjacentWorkRatio": 4,
+    "maxDocumentWorkSteps": 250000,
+    "maxModuleDocumentWorkSteps": 1000000
+  },
   "profileLimits": {
     "maxModules": 1024,
     "maxSourceScalars": 4194304,

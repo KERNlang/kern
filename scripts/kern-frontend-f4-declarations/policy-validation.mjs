@@ -60,7 +60,13 @@ const POLICY_KEYS = [
   'moduleSetPrivateAbi',
   'authorities', 'f1Policy', 'f2Policy', 'f2bPolicy', 'f3Policy',
   'composition', 'prerequisites',
-  'profileLimits', 'runtimeLimits', 'scheduler',
+  'scalingWalls', 'profileLimits', 'runtimeLimits', 'scheduler',
+];
+const SCALING_WALL_KEYS = [
+  'densityCounts', 'maxAdjacentCpuTimeRatio', 'cpuTimeSlackMs', 'maxCpuTimeMs',
+  'maxAdjacentRssRatio', 'rssSlackBytes', 'maxPeakRssBytes',
+  'maxAdjacentEnvelopeRatio', 'maxEnvelopeBytes', 'maxAdjacentWorkRatio',
+  'maxDocumentWorkSteps', 'maxModuleDocumentWorkSteps',
 ];
 const PROFILE_LIMIT_KEYS = [
   'maxModules', 'maxSourceScalars', 'maxRecords', 'maxLogicalLines', 'maxDeclarations',
@@ -177,6 +183,16 @@ export function validatePolicy(policy) {
       fail('composition descriptor');
     }
   }
+  exactKeys(policy.scalingWalls, SCALING_WALL_KEYS, 'scaling walls');
+  const densityCounts = policy.scalingWalls.densityCounts;
+  if (!Array.isArray(densityCounts) || densityCounts.length !== 4 || densityCounts[0] !== 1 ||
+      densityCounts.some((value, index) => !Number.isSafeInteger(value) || value < 1 ||
+        (index > 0 && value !== densityCounts[index - 1] * 2))) fail('scaling density counts');
+  for (const key of SCALING_WALL_KEYS.slice(1)) {
+    if (!Number.isSafeInteger(policy.scalingWalls[key]) || policy.scalingWalls[key] < 1) {
+      fail(`scaling wall ${key}`);
+    }
+  }
   exactKeys(policy.profileLimits, PROFILE_LIMIT_KEYS, 'profile limits');
   exactKeys(policy.runtimeLimits, RUNTIME_LIMIT_KEYS, 'runtime limits');
   exactKeys(policy.scheduler, ['timeoutMs'], 'scheduler');
@@ -204,5 +220,9 @@ export function validatePolicy(policy) {
     if (!Number.isSafeInteger(value) || value < 1) fail(`runtime limit ${key}`);
   }
   if (!Number.isSafeInteger(policy.scheduler.timeoutMs) || policy.scheduler.timeoutMs < 1) fail('scheduler');
+  if (policy.scalingWalls.maxCpuTimeMs > policy.scheduler.timeoutMs ||
+      policy.scalingWalls.maxEnvelopeBytes > policy.runtimeLimits.maxBytes) {
+    fail('scaling wall parent ceiling');
+  }
   return policy;
 }

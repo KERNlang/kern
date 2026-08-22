@@ -101,15 +101,15 @@ The probe numbers guide generous walls; they are not acceptance evidence.
   |---|---:|
   | `densityCounts` | `[1, 2, 4, 8]` |
   | `maxAdjacentCpuTimeRatio` | `4` |
-  | `cpuTimeSlackMs` | `5_000` |
+  | `cpuTimeSlackMs` | `1_000` |
   | `maxCpuTimeMs` | `30_000` |
-  | `maxAdjacentRssRatio` | `2` |
-  | `rssSlackBytes` | `268_435_456` |
-  | `maxPeakRssBytes` | `1_073_741_824` |
+  | `maxAdjacentRssRatio` | `1` |
+  | `rssSlackBytes` | `134_217_728` |
+  | `maxPeakRssBytes` | `805_306_368` |
   | `maxAdjacentEnvelopeRatio` | `3` |
   | `maxEnvelopeBytes` | `1_048_576` |
   | `maxAdjacentWorkRatio` | `4` |
-  | `maxDocumentWorkSteps` | `1_000_000` |
+  | `maxDocumentWorkSteps` | `250_000` |
   | `maxModuleDocumentWorkSteps` | `1_000_000` |
 
 - **[A9-C13 DECIDED]** For each adjacent pair, current CPU time, RSS, envelope
@@ -118,8 +118,11 @@ The probe numbers guide generous walls; they are not acceptance evidence.
 - **[A9-C14 DECIDED]** Every measurement also satisfies its absolute CPU, RSS,
   envelope, and work wall. The policy validator requires safe positive integer
   wall values, exact keys in any property order, exact doubling counts, and
-  walls no greater than the already authenticated runtime/profile ceilings
-  where a corresponding ceiling exists.
+  CPU/envelope walls no greater than the stable authenticated scheduler/runtime
+  ceilings. Canonical source-policy evidence separately requires both work
+  walls beneath canonical `profileLimits.maxWorkSteps`; generic validation must
+  still admit test-only downward profile overrides used to prove exact semantic
+  F4 limits.
 - **[A9-C15 DECIDED]** Changeable wall values exist only in policy, never in the
   measurement worker or assertion test. Stable family names, fixture grammar,
   result identities, and the literal 1x/2x/4x/8x relationship are protocol test
@@ -143,8 +146,10 @@ The probe numbers guide generous walls; they are not acceptance evidence.
 2. **[A9-A2]** Removing or adding any scaling key rejects before execution.
 3. **[A9-A3]** Non-doubling, non-positive, non-integer, unsafe, or wrong-length
    density counts reject.
-4. **[A9-A4]** Non-positive/unsafe walls and walls exceeding corresponding
-   profile/runtime limits reject.
+4. **[A9-A4]** Non-positive/unsafe walls and CPU/envelope walls exceeding their
+   stable scheduler/runtime limits reject. The canonical source policy also
+   proves both work walls are below its canonical work cap without disabling
+   downward semantic-cap test seams.
 5. **[A9-A5]** Declaration 1x/2x/4x/8x runs have exact classified status,
    declaration count, one F4A invocation, and pass all adjacent/absolute walls.
 6. **[A9-A6]** Property runs have exact rejected status, declaration/property
