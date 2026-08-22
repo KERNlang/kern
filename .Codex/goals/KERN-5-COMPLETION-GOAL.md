@@ -163,8 +163,9 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   adjacent product gates, exact `45/45` pins, deterministic authority
   regeneration, and the cumulative `pnpm fitness:kern-5` wall. F4-A1 through
   F4-A11 are therefore accepted and `kern-frontend-f4-declarations` is current
-  as a nonterminal `internal-oracle`. This does not promote the terminal
-  frontend gate or change the terminal ledger.
+  as a nonterminal `internal-oracle`. Final review-driven source-canary and
+  accounting repairs passed the post-review complete F4 wall `551/551`. This
+  does not promote the terminal frontend gate or change the terminal ledger.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
@@ -198,7 +199,7 @@ its stated dependency is complete.
 | **M0 — candidate integration (source landed; acceptance receipt not attached)** | The integrated source baseline contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
 | **M1 — F4A semantic closure (accepted)** | F4-A1 through F4-A6 and F4-A11 are accepted. A3a retains exact legacy parity, and A3b projects its frozen scalar source-form writes through public F4 with authenticated provenance and prospective occurrence ownership; dependency: M0. | The A3b public-path binary/mutation oracle, adjacent wall, complete F4 declarations wall, exact pin validation, and independent review passed. |
 | **M2 — F4B canonical graph closure (accepted)** | F4-A7/C15 provides deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Focused M2 `17/17`, adjacent `17/17` + `30/30` + `17/17`, complete F4 `481/481`, exact `43/43` pins, deterministic authority regeneration, and independent review passed. |
-| **M3 — F4 scale, adversarial closure, and promotion (accepted)** | C13-GLOBAL and F4-A8-A10 close the declared adversarial, scale, resource, work, byte, and promotion contract; dependency: M2. | A9 focused `41/41`, standalone complete F4 `550/550`, exact `45/45` pins, cumulative KERN 5 fitness, and independent review passed. F4 is current only as a nonterminal internal oracle. |
+| **M3 — F4 scale, adversarial closure, and promotion (accepted)** | C13-GLOBAL and F4-A8-A10 close the declared adversarial, scale, resource, work, byte, and promotion contract; dependency: M2. | A9 focused `41/41`, pre-review complete F4 `550/550`, post-review complete F4 `551/551`, exact `45/45` pins, cumulative KERN 5 fitness, and independent review passed. F4 is current only as a nonterminal internal oracle. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
 | **M5 — F6/F7 frontend promotion** | Complete adversarial frontend closure and promote the terminal frontend gate only after F0–F6 converge; dependency: M4. | `pnpm test:kern-frontend` is added, current, and green; the ledger, policy, support matrix, and release train promote atomically. |
 | **M6 — remaining canonical ownership** | Complete compiler, fixed-point, interpreter-shadow, and canonical-cutover ownership serially; dependency: M5. | In order: `pnpm test:kern-compiler`, `pnpm test:selfhost-fixed-point`, `pnpm test:kern-interpreter-shadow`, and `pnpm test:kern-canonical-cutover` are each current and green. |

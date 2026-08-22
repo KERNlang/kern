@@ -1463,8 +1463,9 @@ rather than a new host-owned F4 semantic path:
   canonicalizer, checker, formatter, lint, build, repository consistency,
   descriptor validation, and deterministic authority regeneration passed. The
   cumulative `pnpm fitness:kern-5` wall then passed with F4 in the exact current
-  gate roster. Independent review has no unresolved verified blocker. This
-  promotes F4 only as a mandatory nonterminal `internal-oracle`; F5-F7, the
+  gate roster. Review-driven oracle/accounting repairs then passed the complete
+  F4 wall `551/551`; independent review has no unresolved verified blocker.
+  This promotes F4 only as a mandatory nonterminal `internal-oracle`; F5-F7, the
   terminal frontend gate, canonical cutover, packed release, and publication
   remain open.
 - **[F4-A11 IMPLEMENTED | VERIFIED]** Relational policy tests accept both valid endpoints and

@@ -1,6 +1,6 @@
 # KERN 5 F4 M3 — Scale and Adversarial Closure
 
-**Status:** SPEC — READY FOR RED
+**Status:** IMPLEMENTED AND VERIFIED — F4 CURRENT INTERNAL ORACLE
 **Date:** 2026-08-22
 **Baseline:** `195d8cac445bdd42e428595443a781d24d7a73ca`
 **Confidence:** 0.92
@@ -18,12 +18,13 @@ sub-slices, preceded by a local RED-only oracle phase:
 5. M3.4 runs the cumulative F4-A10 acceptance wall and independent review.
 
 The slices may commit independently, but M3 is accepted only when all five
-phases pass together on one SHA. F4 remains an internal candidate until that
-point, and terminal frontend promotion remains M5 work.
+phases pass together on one candidate. That cumulative acceptance is now
+complete and F4 is current as an internal oracle; terminal frontend promotion
+remains M5 work.
 
 ## Current State and Root Cause
 
-**[M3-R1 VERIFIED]** The parent F4 contract leaves only F4-A8, F4-A9, and
+**[M3-R1 VERIFIED — BASELINE]** The parent F4 contract left only F4-A8, F4-A9, and
 F4-A10 proposed. M3 also owns C13-GLOBAL imported expression/path fact
 admission. Evidence: `.Codex/specs/kern-5-f4-declarations-modules/spec.md:1441-1451`,
 `.Codex/goals/KERN-5-COMPLETION-GOAL.md:153-160`, and
@@ -324,33 +325,33 @@ not itself add or promote `test:kern-frontend`.
 
 ## Acceptance Criteria
 
-- [ ] M3-A1: current wholesale consumer paths and every producer fact
+- [x] M3-A1: current wholesale consumer paths and every producer fact
       `f4append` are RED at baseline and absent after M3.1.
-- [ ] M3-A2: expression/path facts cross count, exact UTF-8 byte, and exact
+- [x] M3-A2: expression/path facts cross count, exact UTF-8 byte, and exact
       work limits prospectively; exact boundaries preserve byte-identical
       ordinary receipts.
-- [ ] M3-A3: malformed outer frame, trailing bytes, non-forward cursor,
+- [x] M3-A3: malformed outer frame, trailing bytes, non-forward cursor,
       five/seven-field row, or mismatched count/bytes/work returns the correct
       atomic drift before a simultaneous claimed limit.
-- [ ] M3-A4: producer semantic work, each fact admission, producer fact fold,
+- [x] M3-A4: producer semantic work, each fact admission, producer fact fold,
       root verification, and final fact fold are charged exactly once; deleting
       or duplicating any debit fails.
-- [ ] M3-A5: no expression/path fact is retained after a failed prospective
+- [x] M3-A5: no expression/path fact is retained after a failed prospective
       admission, and no public partial partition escapes a fatal result.
-- [ ] M3-A6: no global fact path rescans a tape, slices a growing suffix, uses
+- [x] M3-A6: no global fact path rescans a tape, slices a growing suffix, uses
       growing-prefix accumulation, or delegates classification/admission to
       host code.
-- [ ] M3-A7: document `.2`, ABI 109/17, F4B `.4` ABI 18/10, policy `.4`, F0–F3,
+- [x] M3-A7: document `.2`, ABI 109/17, F4B `.4` ABI 18/10, policy `.4`, F0–F3,
       and M2 canonical graph outputs remain unchanged except for legitimate
       receipt/work bytes caused by newly charged work.
-- [ ] M3-A8: the complete nine-family adversarial mutation matrix is
+- [x] M3-A8: the complete nine-family adversarial mutation matrix is
       discriminating and green on the implementation.
-- [ ] M3-A9: non-nested 1x/2x/4x/8x families pass deterministic work/envelope
+- [x] M3-A9: non-nested 1x/2x/4x/8x families pass deterministic work/envelope
       and environment-qualified time/RSS walls.
-- [ ] M3-A10: all cumulative gates and independent automatic-risk review pass
+- [x] M3-A10: all cumulative gates and independent review pass
       on one SHA; policy and generated authority are deterministic and clean.
-- [ ] M3-A11: all handwritten touched files remain below 500 lines.
-- [ ] M3-A12: no terminal frontend gate, release, tag, package publication, or
+- [x] M3-A11: all handwritten touched files remain below 500 lines.
+- [x] M3-A12: no terminal frontend gate, release, tag, package publication, or
       deployment occurs in M3.
 
 ## Out of Scope
@@ -368,8 +369,8 @@ Each sub-slice is an internal source/policy/test candidate. Composition source,
 descriptor order/SHA, and policy bytes land atomically; old-source/new-policy or
 new-source/old-policy combinations fail before ordinary receipt acceptance.
 Rollback is a Git revert of the complete sub-slice. There is no runtime fallback
-or mixed-format window. M3.4 acceptance is required before later F5 work treats
-F4 as accepted.
+or mixed-format window. M3.4 acceptance is complete, so later F5 work may treat
+F4 as the accepted current internal-oracle boundary.
 
 ## Kill Switches
 

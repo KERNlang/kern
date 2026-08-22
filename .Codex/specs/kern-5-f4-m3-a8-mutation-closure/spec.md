@@ -1,6 +1,6 @@
 # KERN 5 F4 M3.2 — A8 Mutation Closure
 
-**Status:** IMPLEMENTED — LOCALLY VERIFIED; MERGE AND WHOLE-F4 ACCEPTANCE PENDING
+**Status:** IMPLEMENTED AND VERIFIED — ACCEPTED WITH F4 INTERNAL ORACLE
 **Date:** 2026-08-22
 **Baseline:** `48ed9ed150501c03be100072185388da886ce271`
 **Confidence:** 0.98
@@ -51,13 +51,14 @@ guards for count, bytes, work, cursor, producer admission, and consumer width.
 Evidence: `c13-global-facts.test.mjs`, `c13-local-facts.test.mjs`, and
 `worker.mjs.__test.runGlobalFactVerify`.
 
-**[A8-R7 VERIFIED]** The implementation now supplies one executable registry
+**[A8-R7 VERIFIED]** The implementation supplies one executable registry
 for `A8-F1` through `A8-F9`, with independently attributable source, document,
 and module-set sub-slices. The final local candidate passed the focused
 aggregate `2/2`, the complete F4 declarations wall `509/509`, lint, repository
 consistency, exact `45/45` policy pins, deterministic authority regeneration,
-and independent Agon review. This is local slice evidence, not F4 promotion,
-merge, release, tag, publication, or deployment evidence.
+and independent Agon review. The later A10 cumulative acceptance promotes this
+evidence only as part of the F4 internal oracle, not as a terminal frontend,
+release, tag, publication, or deployment claim.
 
 ## Execution Model
 

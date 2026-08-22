@@ -1,10 +1,10 @@
 # KERN 5 F4 M3 A9 Scale Closure
 
-**Status:** IMPLEMENTED AND LOCALLY VERIFIED — F4-A10 ACCEPTANCE PENDING
+**Status:** IMPLEMENTED AND VERIFIED — ACCEPTED WITH F4 INTERNAL ORACLE
 
 **Baseline:** `da16bbacd93c378a655ca5dde5716ba2c6fc9fc3`
 
-**Scope:** F4-A9 only. F4-A10 and whole-F4 promotion remain open.
+**Scope:** F4-A9 only. The later A10 slice owns whole-F4 promotion.
 
 ## Objective
 
@@ -19,12 +19,12 @@ This slice does not change F0-F3, the F4 document or module-set formats, the
 109-argument F4A ABI, the 18-argument F4B ABI, semantic projection, receipt
 ordering, or public APIs.
 
-## Current Evidence
+## Baseline and Acceptance Evidence
 
 - F1, F2B, and F3 already authenticate scaling walls in their own policies and
   exercise adjacent 1x/2x/4x/8x families.
-- F4 policy `.4` currently authenticates semantic, runtime, and scheduler
-  ceilings but has no F4-specific scaling-wall section.
+- At slice start, F4 policy `.4` authenticated semantic, runtime, and scheduler
+  ceilings but had no F4-specific scaling-wall section.
 - `runDocument` returns the exact F4A invocation count and the sealed document
   `workSteps` total.
 - `runModuleSet` returns every document, the aggregate F4A invocation count,
@@ -48,6 +48,12 @@ ordering, or public APIs.
   the largest observed adjacent increase without moving the absolute wall.
 - After recalibration, the focused A9 suite passed 41/41 and an independent
   complete F4 wall passed 550/550 under the concurrent root runner.
+- Final full-range review found that the initial adjacent work ratio of four
+  would admit exact quadratic growth across a doubling density step. The
+  authenticated deterministic work ratio is therefore three; the unchanged
+  workloads passed focused A9 `41/41` and the post-review complete F4 wall
+  `551/551`. CPU and RSS remain explicitly environment-qualified metrics with
+  separate absolute ceilings.
 
 The baseline probe numbers guide generous walls; the reproduced concurrent
 crossing and the final full-wall result are acceptance evidence.
@@ -122,7 +128,7 @@ crossing and the final full-wall result are acceptance evidence.
   | `maxPeakRssBytes` | `805_306_368` |
   | `maxAdjacentEnvelopeRatio` | `3` |
   | `maxEnvelopeBytes` | `1_048_576` |
-  | `maxAdjacentWorkRatio` | `4` |
+  | `maxAdjacentWorkRatio` | `3` |
   | `maxDocumentWorkSteps` | `250_000` |
   | `maxModuleDocumentWorkSteps` | `1_000_000` |
 

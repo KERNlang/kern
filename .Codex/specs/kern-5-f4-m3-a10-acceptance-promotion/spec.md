@@ -155,8 +155,10 @@ Stop and redesign if any change:
   scan `8/8`, F2 `33/33`, F2B `33/33`, and F3 `22/22`. Runtime ABI, checker,
   formatter, lint, build, and repository consistency also passed.
 - **[A10-A2 VERIFIED]** The standalone complete F4 declarations wall passed
-  `550/550`. Exact F4 authority, prerequisite, and composition validation
-  passed `45/45`, and deterministic authority regeneration produced zero diff.
+  `550/550` before final range review and `551/551` after the review-driven
+  oracle/accounting repairs. Exact F4 authority, prerequisite, and composition
+  validation passed `45/45`, and deterministic authority regeneration produced
+  zero diff.
 - **[A10-A3 VERIFIED]** The canonicalizer passed `850/850` Node tests plus its
   golden, witness, profile, hostile-fixture, CLI, and `112/112` coverage
   closures.
@@ -165,6 +167,10 @@ Stop and redesign if any change:
   general gates, including the newly current F4 gate. The terminal ledger
   remains exactly two current and six planned rows.
 - **[A10-A5 VERIFIED]** Independent review of the promotion diff completed with
-  all required seats and no verified finding. The result establishes a current
-  nonterminal internal oracle, not a terminal frontend, release, tag,
-  publication, or KERN 5 completion claim.
+  all required seats and no finding. Final full-range review identified an A8
+  false-green source canary, malformed accounting acceptance, and a
+  deterministic work ratio that admitted exact quadratic growth. All three
+  were repaired and their focused plus complete F4 regressions passed. No
+  verified blocker remains. The result establishes a current nonterminal
+  internal oracle, not a terminal frontend, release, tag, publication, or KERN
+  5 completion claim.
