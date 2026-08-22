@@ -158,6 +158,10 @@ fn name=f4pathbindings returns="string[]"
   param name=maxImportSpecifierSegments type=number
   param name=baseWorkSteps type=number
   param name=maxWorkSteps type=number
+  param name=factCount type=number
+  param name=factBytes type=number
+  param name=maxFacts type=number
+  param name=maxEncodedBytes type=number
   handler lang="kern"
     if cond="detachedFlags.length != kinds.length"
       return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
@@ -183,8 +187,10 @@ fn name=f4pathbindings returns="string[]"
       do value="Map.set(parentByLine, String(edgeChildren[edgeIndex]), edgeParents[edgeIndex])"
     let name=targets value="new Map()"
     let name=bindings value="\"\""
-    let name=facts value="\"\""
-    let name=factCount value=0
+    let name=factParts value="[]"
+    let name=globalFactCount value=factCount
+    let name=globalFactBytes value=factBytes
+    let name=globalWorkSteps value=baseWorkSteps
     let name=work value=0
     for name=lineIndex from=0 to=kinds.length
       let name=kind value="kinds[lineIndex]"
@@ -198,12 +204,21 @@ fn name=f4pathbindings returns="string[]"
           let name=resolved value="f4pathresolve(moduleDirectory, Map.get(effective, pathKey), maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments)"
           let name=resolvedWork value="f2uint(resolved[2])"
           assign target=work value="work + resolvedWork"
+          assign target=globalWorkSteps value="globalWorkSteps + resolvedWork"
           if cond="baseWorkSteps + work > maxWorkSteps || resolved[0] == \"limit\""
             return value="[\"limit\", \"\", \"\", \"0\", String(work)]"
           if cond="resolved[0] == \"invalid\""
             let name=fact value="f4row6(\"structural\", \"invalid-import-path\", String(lineStarts[lineIndex]), String(lineEnds[lineIndex]), String(lineIndex), \"path\")"
-            assign target=facts value="f4append(facts, fact)"
-            assign target=factCount value="factCount + 1"
+            let name=factAdmission value="f4globalfactadmit(fact, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+            if cond="factAdmission[0] != \"ok\""
+              let name=factTerminal value="f4globalfactterminal(factParts, factAdmission[0], globalWorkSteps, maxWorkSteps)"
+              if cond="factTerminal.length == 3"
+                return value="[factTerminal[0], \"\", factTerminal[1], \"0\", String(work), String(globalFactCount), String(globalFactBytes), factTerminal[2]]"
+              return value="[factTerminal[0], \"\", \"\", \"0\", String(work)]"
+            do value="factParts.push(factAdmission[4])"
+            assign target=globalFactCount value="f2uint(factAdmission[1])"
+            assign target=globalFactBytes value="f2uint(factAdmission[2])"
+            assign target=globalWorkSteps value="f2uint(factAdmission[3])"
           else
             if cond="resolved[0] != \"ok\""
               return value="[\"drift\", \"\", \"\", \"0\", String(work)]"
@@ -223,4 +238,7 @@ fn name=f4pathbindings returns="string[]"
           let name=reexport value="Map.has(effective, exportKey) && Map.get(effective, exportKey) == \"true\""
           let name=binding value="f4row8(moduleId, Map.get(targets, String(parent)), imported, localName, requestedKind, reexport ? \"true\" : \"false\", String(lineIndex), String(lineStarts[lineIndex]))"
           assign target=bindings value="f4append(bindings, binding)"
-    return value="[\"ok\", bindings, facts, String(factCount), String(work)]"
+    let name=factFold value="f4balancedtapefold(factParts, globalWorkSteps, maxWorkSteps)"
+    if cond="factFold[0] != \"ok\""
+      return value="[factFold[0], \"\", \"\", \"0\", String(work), String(globalFactCount), String(globalFactBytes), factFold[2]]"
+    return value="[\"ok\", bindings, factFold[1], String(globalFactCount - factCount), String(work), String(globalFactCount), String(globalFactBytes), factFold[2]]"

@@ -27,6 +27,21 @@ const CASES = [
   },
 ];
 
+const PREFIX_LIMIT_CASES = [
+  {
+    label: 'expression prefix',
+    moduleId: 'c13-global-expression-prefix.kern',
+    source: 'fn name=bad stray\n  handler lang=kern\n    return value="1 +" value="2 +"\n',
+    facts: ['invalid-property', 'invalid-expression', 'invalid-expression'],
+  },
+  {
+    label: 'path prefix',
+    moduleId: 'dir/c13-global-path-prefix.kern',
+    source: 'module name=app stray\n  use path="../../one.kern"\n  use path="../../two.kern"\n',
+    facts: ['invalid-property', 'invalid-import-path', 'invalid-import-path'],
+  },
+];
+
 function assertAtomicLimit(result, label) {
   assert.equal(result.runtimeInvocations, 1, `${label}: one real F4 invocation`);
   assert.equal(result.receipt.status, 'fatal', label);
@@ -35,6 +50,10 @@ function assertAtomicLimit(result, label) {
     'declarations', 'propertyOccurrences', 'propertyPresence', 'attachments', 'decorators',
     'symbols', 'bindings', 'facts', 'detachedLogicalOrdinals', 'expressionEvidence',
   ]) assert.deepEqual(result.receipt[field], [], `${label}: ${field} is atomic`);
+}
+
+function frame(value) {
+  return `i${Array.from(value).length}:${value}`;
 }
 
 function functionBody(source, name) {
@@ -56,6 +75,10 @@ function globalFactProducerViolations(source, name) {
     violations.push(`global admission mismatch ${admissions}/${candidates}`);
   }
   if (!/f4balancedtapefold\(/u.test(body)) violations.push('missing bounded fact fold');
+  const terminals = [...body.matchAll(/f4globalfactterminal\(/gu)].length;
+  if (candidates === 0 || terminals !== candidates) {
+    violations.push(`global terminal mismatch ${terminals}/${candidates}`);
+  }
   if (!/factCount/u.test(body) || !/factBytes/u.test(body) || !/maxFacts/u.test(body) ||
       !/maxEncodedBytes/u.test(body) || !/maxWorkSteps/u.test(body)) {
     violations.push('missing cumulative fact state or cap');
@@ -70,10 +93,17 @@ function globalFactConsumerViolations(source) {
     'f4framedtapeparts(pathBindings[2], 6)',
   ]) if (source.includes(stale)) violations.push(`wholesale materialization: ${stale}`);
   for (const tuple of [
-    ['expressionResult', 11, 12, 13, 10],
-    ['pathBindings', 5, 6, 7, 4],
+    ['expressionResult', 11, 12, 13, 10, 11, 14],
+    ['pathBindings', 5, 6, 7, 4, 5, 8],
   ]) {
-    const [name, count, bytes, work, legacyWork] = tuple;
+    const [name, count, bytes, work, legacyWork, legacyWidth, fullWidth] = tuple;
+    const legacyGate = `if cond="${name}.length == ${legacyWidth}"`;
+    const fullGate = `if cond="${name}.length != ${fullWidth}"`;
+    const firstAppendedRead = source.indexOf(`${name}[${count}]`);
+    if (source.indexOf(legacyGate) < 0 || source.indexOf(legacyGate) > firstAppendedRead ||
+        source.indexOf(fullGate) < 0 || source.indexOf(fullGate) > firstAppendedRead) {
+      violations.push(`missing ${name} width-before-index gate`);
+    }
     for (const [target, slot] of [['factCount', count], ['factBytes', bytes], ['workSteps', work]]) {
       const adoption = new RegExp(`assign target=${target} value="f2uint\\(${name}\\[${slot}\\]\\)"`, 'u');
       if (!adoption.test(source)) violations.push(`missing ${name} ${target} adoption`);
@@ -116,6 +146,32 @@ test('C13 GLOBAL public count and work crossings are atomic after an admitted lo
   });
 });
 
+test('C13 GLOBAL a second imported fact crossing preserves and verifies the admitted prefix', async (t) => {
+  for (const entry of PREFIX_LIMIT_CASES) await t.test(entry.label, () => {
+    const baseline = runDocument(entry.moduleId, entry.source);
+    assert.equal(baseline.receipt.status, 'rejected');
+    assert.deepEqual(baseline.receipt.facts.map(({ code }) => code), entry.facts);
+    assertAtomicLimit(__test.runDocumentWithProfileLimits(entry.moduleId, entry.source, {
+      maxFacts: entry.facts.length - 1,
+    }), `${entry.label}: verified prefix limit`);
+  });
+});
+
+test('C13 GLOBAL malformed returned tape wins before a simultaneous work limit', () => {
+  assert.deepEqual(__test.runGlobalFactVerify('i1:x', 0, 0, 0, 0, 1, 4, 1, 0), ['drift']);
+});
+
+test('C13 GLOBAL verification charges its traversal and fold exactly once after producer work', () => {
+  const row = ['structural', 'invalid-expression', '0', '1', '-1', '0'].map(frame).join('');
+  const tape = frame(row);
+  const bytes = Buffer.byteLength(tape, 'utf8');
+  assert.deepEqual(__test.runGlobalFactVerify(tape, 0, 0, 5, 3, 1, bytes, 9, 10),
+    ['ok', '1', String(bytes), '10', tape],
+    'producer work 9 plus one verifier traversal step is adopted exactly once');
+  assert.deepEqual(__test.runGlobalFactVerify(tape, 0, 0, 5, 3, 1, bytes, 9, 9), ['limit'],
+    'the independently charged verification step crosses a cap of nine');
+});
+
 test('C13 GLOBAL producer and consumer source structure closes pre-admission allocation', () => {
   assert.deepEqual(globalFactProducerViolations(EXPRESSION_SOURCE, 'f4expressionevidence'), [],
     'expression producer owns prospective fact admission and bounded folding');
@@ -127,6 +183,7 @@ test('C13 GLOBAL producer and consumer source structure closes pre-admission all
   assert.deepEqual(globalFactProducerViolations('fn name=f4expressionevidence\n  assign target=facts value="f4append(facts, row)"\n',
     'f4expressionevidence'), [
     'growing fact prefix', 'global admission mismatch 0/0', 'missing bounded fact fold',
+    'global terminal mismatch 0/0',
     'missing cumulative fact state or cap',
   ], 'producer canary rejects growing-prefix and missing admission state');
   assert.ok(globalFactConsumerViolations(
@@ -142,7 +199,9 @@ test('C13 GLOBAL producer and consumer source structure closes pre-admission all
     'assign target=workSteps value="workSteps + pathBindings[4]"',
   ].join('\n');
   assert.deepEqual(globalFactConsumerViolations(shallowConsumer), [
+    'missing expressionResult width-before-index gate',
     'missing expressionResult workSteps adoption', 'duplicate expressionResult legacy work',
+    'missing pathBindings width-before-index gate',
     'missing pathBindings workSteps adoption', 'duplicate pathBindings legacy work',
   ], 'consumer canary rejects shallow slot mentions and duplicate legacy work');
 });

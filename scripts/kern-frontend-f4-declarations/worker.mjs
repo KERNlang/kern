@@ -434,6 +434,23 @@ export const __test = Object.freeze({
     }
     return materialize(envelope.result.value);
   },
+  runGlobalFactVerify(tape, baseFactCount, baseFactBytes, baseWorkSteps, producerWorkSteps,
+      claimedFactCount, claimedFactBytes, claimedWorkSteps, maxWorkSteps) {
+    const { policy } = loadPolicy();
+    const envelope = executeKernRuntimeHandlerSync({
+      abi: KERN_RUNTIME_HANDLER_ABI,
+      arguments: [tape, baseFactCount, baseFactBytes, baseWorkSteps, producerWorkSteps,
+        claimedFactCount, claimedFactBytes, claimedWorkSteps, maxWorkSteps],
+      identity: { handlerName: 'f4globalfactverify', sourcePath: 'examples/kern-frontend/f4-global-facts.kern' },
+      source: loadComposition(policy).composition,
+    }, { enabled: true, limits: policy.runtimeLimits, scheduler: policy.scheduler });
+    if (envelope.outcome !== 'success' || envelope.completion.kind !== 'return' ||
+        envelope.result.presence !== 'value' || envelope.result.value.tag !== 'list' ||
+        envelope.events.length !== 0) {
+      fail(`global fact verify runtime envelope ${JSON.stringify(envelope)}`);
+    }
+    return materialize(envelope.result.value);
+  },
   runModuleSetWithReceiptMutation(modules, mutateReceipt, options = {}) {
     if (typeof mutateReceipt !== 'function') fail('receipt mutation');
     return moduleSetTest.runModuleSetWithOptions((moduleId, source) => {

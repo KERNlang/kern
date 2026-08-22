@@ -72,7 +72,24 @@
       let name=parentValue value="f2uint(f4tapefield(parentItem[0], 1))"
       do value="Map.set(parentByLine, String(parentChild), parentValue)"
       assign target=parentCursor value=parentNext
-    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, occurrenceDetachedFlags, occurrenceNormalizedFlags, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
+    let name=expressionBaseWork value=workSteps
+    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, occurrenceDetachedFlags, occurrenceNormalizedFlags, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+    if cond="expressionResult.length == 11"
+      if cond="expressionResult[0] == \"drift\""
+        let name=legacyExpressionDriftFailure value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+        return value=legacyExpressionDriftFailure
+      if cond="expressionResult[0] == \"limit\""
+        let name=legacyExpressionLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+        return value=legacyExpressionLimitFailure
+      let name=legacyExpressionShapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=legacyExpressionShapeFailure
+    if cond="expressionResult.length != 14"
+      let name=expressionShapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=expressionShapeFailure
+    let name=expressionFactParts value="f4globalfactverify(expressionResult[3], factCount, factBytes, expressionBaseWork, f2uint(expressionResult[10]), f2uint(expressionResult[11]), f2uint(expressionResult[12]), f2uint(expressionResult[13]), maxWorkSteps)"
+    if cond="expressionFactParts[0] != \"ok\""
+      let name=expressionFactFailure value="f4fatal(expressionFactParts[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=expressionFactFailure
     if cond="expressionResult[0] == \"drift\""
       let name=expressionDriftFailure value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
       return value=expressionDriftFailure
@@ -81,16 +98,13 @@
       return value=expressionLimitFailure
     let name=expressionEvidence value="expressionResult[1]"
     let name=expressionDiagnosticState value="f4diagphasefrompublic(expressionResult[2], 1, 0, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
-    let name=expressionFactParts value="f4framedtapeparts(expressionResult[3], 6)"
-    if cond="expressionFactParts[0] != \"ok\""
-      let name=expressionFactFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
-      return value=expressionFactFailure
-    for name=expressionFactIndex from=1 to=expressionFactParts.length
+    for name=expressionFactIndex from=4 to=expressionFactParts.length
       let name=expressionFactPart value="expressionFactParts[expressionFactIndex]"
       do value="factParts.push(expressionFactPart)"
-      assign target=factBytes value="factBytes + Text.utf8Length(expressionFactPart)"
-    assign target=factCount value="factCount + expressionFactParts.length - 1"
-    assign target=workSteps value="workSteps + f2uint(expressionResult[10])"
+    assign target=factCount value="f2uint(expressionResult[11])"
+    assign target=factBytes value="f2uint(expressionResult[12])"
+    assign target=workSteps value="f2uint(expressionResult[13])"
+    assign target=workSteps value="f2uint(expressionFactParts[3])"
     if cond="workSteps > maxWorkSteps"
       let name=attachmentWorkFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
       return value=attachmentWorkFailure
@@ -128,7 +142,24 @@
       assign target=exportCursor value=exportNext
     assign target=workSteps value="workSteps + f2uint(decoratorResult[3])"
     let name=decoratorDiagnosticState value="f4diagdecoratorphase(decorators, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
-    let name=pathBindings value="f4pathbindings(moduleId, moduleDirectory, occurrences, lineDetachedFlags, lineStarts, lineEnds, kinds, edgeChildren, edgeParents, maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments, workSteps, maxWorkSteps)"
+    let name=pathBaseWork value=workSteps
+    let name=pathBindings value="f4pathbindings(moduleId, moduleDirectory, occurrences, lineDetachedFlags, lineStarts, lineEnds, kinds, edgeChildren, edgeParents, maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments, workSteps, maxWorkSteps, factCount, factBytes, maxFacts, maxEncodedBytes)"
+    if cond="pathBindings.length == 5"
+      if cond="pathBindings[0] == \"limit\""
+        let name=legacyPathLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+        return value=legacyPathLimitFailure
+      if cond="pathBindings[0] == \"drift\""
+        let name=legacyPathDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=legacyPathDriftFailure
+      let name=legacyPathShapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=legacyPathShapeFailure
+    if cond="pathBindings.length != 8"
+      let name=pathShapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=pathShapeFailure
+    let name=pathFactParts value="f4globalfactverify(pathBindings[2], factCount, factBytes, pathBaseWork, f2uint(pathBindings[4]), f2uint(pathBindings[5]), f2uint(pathBindings[6]), f2uint(pathBindings[7]), maxWorkSteps)"
+    if cond="pathFactParts[0] != \"ok\""
+      let name=pathFactFailure value="f4fatal(pathFactParts[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=pathFactFailure
     if cond="pathBindings[0] == \"limit\""
       let name=pathLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
       return value=pathLimitFailure
@@ -136,18 +167,13 @@
       let name=pathDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
       return value=pathDriftFailure
     assign target=bindings value="pathBindings[1]"
-    let name=pathFactParts value="f4framedtapeparts(pathBindings[2], 6)"
-    if cond="pathFactParts[0] != \"ok\""
-      let name=pathFactFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
-      return value=pathFactFailure
-    for name=pathFactIndex from=1 to=pathFactParts.length
+    for name=pathFactIndex from=4 to=pathFactParts.length
       let name=pathFactPart value="pathFactParts[pathFactIndex]"
       do value="factParts.push(pathFactPart)"
-      assign target=factBytes value="factBytes + Text.utf8Length(pathFactPart)"
-    let name=pathFactCount value="f2uint(pathBindings[3])"
-    let name=pathWork value="f2uint(pathBindings[4])"
-    assign target=factCount value="factCount + pathFactCount"
-    assign target=workSteps value="workSteps + pathWork"
+    assign target=factCount value="f2uint(pathBindings[5])"
+    assign target=factBytes value="f2uint(pathBindings[6])"
+    assign target=workSteps value="f2uint(pathBindings[7])"
+    assign target=workSteps value="f2uint(pathFactParts[3])"
     for name=rootLine from=0 to=lineStarts.length
       let name=parent value="Map.has(parentByLine, String(rootLine)) ? Map.get(parentByLine, String(rootLine)) : -1"
       let name=isDetached value="lineDetachedFlags[rootLine] == \"true\""

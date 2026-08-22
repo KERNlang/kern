@@ -1,0 +1,55 @@
+fn name=f4localabsolutespans returns="string[]"
+  param name=nodeTape type=string
+  param name=nodeCount type=number
+  param name=boundaryTape type=string
+  handler lang="kern"
+    let name=tapeCursor value=0
+    let name=expectedNode value=0
+    let name=spans value="\"\""
+    while cond="tapeCursor < Text.length(nodeTape)"
+      if cond="Text.charAt(nodeTape, tapeCursor) != \"c\""
+        return value="[\"invalid\", \"\"]"
+      let name=chunkOrdinal value="f2batchreadto(nodeTape, tapeCursor + 1, \",\")"
+      let name=firstNode value="f2batchreadto(nodeTape, f2uint(chunkOrdinal[1]), \",\")"
+      let name=chunkCount value="f2batchreadto(nodeTape, f2uint(firstNode[1]), \",\")"
+      let name=payloadLength value="f2batchreadto(nodeTape, f2uint(chunkCount[1]), \":\")"
+      let name=payloadEnd value="f2uint(payloadLength[1]) + f2uint(payloadLength[0])"
+      assign target=tapeCursor value="f2uint(payloadLength[1])"
+      let name=chunkNodes value="f2uint(chunkCount[0])"
+      for name=chunkNode from=0 to=chunkNodes
+        if cond="Text.charAt(nodeTape, tapeCursor) != \"n\""
+          return value="[\"invalid\", \"\"]"
+        let name=nodeLength value="f2batchreadto(nodeTape, tapeCursor + 1, \":\")"
+        let name=fieldCursor value="f2uint(nodeLength[1])"
+        let name=nodeEnd value="fieldCursor + f2uint(nodeLength[0])"
+        let name=nodeId value=-1
+        let name=relativeStart value=-1
+        let name=relativeEnd value=-1
+        for name=field from=0 to=8
+          if cond="Text.charAt(nodeTape, fieldCursor) != \"f\""
+            return value="[\"invalid\", \"\"]"
+          let name=fieldIndex value="f2batchreadto(nodeTape, fieldCursor + 1, \",\")"
+          let name=fieldLength value="f2batchreadto(nodeTape, f2uint(fieldIndex[1]), \":\")"
+          let name=valueStart value="f2uint(fieldLength[1])"
+          let name=valueEnd value="valueStart + f2uint(fieldLength[0])"
+          if cond="field == 0"
+            assign target=nodeId value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          if cond="field == 2"
+            assign target=relativeStart value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          if cond="field == 3"
+            assign target=relativeEnd value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          assign target=fieldCursor value=valueEnd
+        let name=absoluteStart value="f2uint(f4tapeitemat(boundaryTape, relativeStart))"
+        let name=absoluteEnd value="f2uint(f4tapeitemat(boundaryTape, relativeEnd))"
+        if cond="fieldCursor != nodeEnd || nodeId != expectedNode || absoluteStart < 0 || absoluteEnd <= absoluteStart"
+          return value="[\"invalid\", \"\"]"
+        assign target=spans value="f4append(spans, f4row3(String(nodeId), String(absoluteStart), String(absoluteEnd)))"
+        assign target=expectedNode value="expectedNode + 1"
+        assign target=tapeCursor value=nodeEnd
+      if cond="tapeCursor != payloadEnd || Text.charAt(nodeTape, tapeCursor) != \"s\""
+        return value="[\"invalid\", \"\"]"
+      let name=seal value="f2batchreaddigits(nodeTape, tapeCursor + 1)"
+      assign target=tapeCursor value="f2uint(seal[1])"
+    if cond="expectedNode != nodeCount"
+      return value="[\"invalid\", \"\"]"
+    return value="[\"valid\", spans]"

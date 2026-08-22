@@ -83,16 +83,16 @@ function blockStart(lines, index, indent) {
 
 function exactImportedFactPush(lines, index, value) {
   const imported = value === 'expressionFactPart'
-    ? ['expressionFactIndex', 'expressionFactParts', 'expressionFactPart']
-    : value === 'pathFactPart' ? ['pathFactIndex', 'pathFactParts', 'pathFactPart'] : undefined;
+    ? ['expressionFactIndex', 'expressionFactParts', 'expressionFactPart', 4]
+    : value === 'pathFactPart' ? ['pathFactIndex', 'pathFactParts', 'pathFactPart', 4] : undefined;
   if (!imported || index < 2) return false;
-  const [indexName, partsName, partName] = imported;
+  const [indexName, partsName, partName, firstPart] = imported;
   const pushIndent = indentation(lines[index]);
   const start = blockStart(lines, index, pushIndent);
   return lines[index - 1].trim() ===
       `let name=${partName} value="${partsName}[${indexName}]"` &&
     start > 0 && lines[start - 1].trim() ===
-      `for name=${indexName} from=1 to=${partsName}.length`;
+      `for name=${indexName} from=${firstPart} to=${partsName}.length`;
 }
 
 function directlyReturnsNonOk(lines, guard, push) {
@@ -106,12 +106,12 @@ function directlyReturnsNonOk(lines, guard, push) {
   return false;
 }
 
-function directlyUpdatesFactState(lines, push, name) {
+function directlyUpdatesFactState(lines, push, name, state) {
   const indent = indentation(lines[push]);
   const expected = [
-    `assign target=factCount value="f2uint(${name}[1])"`,
-    `assign target=factBytes value="f2uint(${name}[2])"`,
-    `assign target=workSteps value="f2uint(${name}[3])"`,
+    `assign target=${state[0]} value="f2uint(${name}[1])"`,
+    `assign target=${state[1]} value="f2uint(${name}[2])"`,
+    `assign target=${state[2]} value="f2uint(${name}[3])"`,
   ];
   return expected.every((line, offset) => lines[push + offset + 1]?.trim() === line &&
     indentation(lines[push + offset + 1]) === indent);
@@ -130,13 +130,26 @@ function localFactPushViolations(source) {
     const name = admission[1];
     const pushIndent = indentation(lines[index]);
     const start = blockStart(lines, index, pushIndent);
-    const declaration = lines.findLastIndex((line, cursor) => cursor >= start && cursor < index &&
-      indentation(line) === pushIndent && new RegExp(
-        `^let name=${name} value="f4eligibilityleafadmit\\([^,]+, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps\\)"$`, 'u').test(line.trim()));
+    const admissionShapes = [
+      {
+        call: `f4eligibilityleafadmit\\([^,]+, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps\\)`,
+        state: ['factCount', 'factBytes', 'workSteps'],
+      },
+      {
+        call: `f4globalfactadmit\\([^,]+, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps\\)`,
+        state: ['globalFactCount', 'globalFactBytes', 'globalWorkSteps'],
+      },
+    ];
+    const shape = admissionShapes.find(({ call }) => lines.some((line, cursor) =>
+      cursor >= start && cursor < index && indentation(line) === pushIndent &&
+      new RegExp(`^let name=${name} value="${call}"$`, 'u').test(line.trim())));
+    const declaration = shape === undefined ? -1 : lines.findLastIndex((line, cursor) =>
+      cursor >= start && cursor < index && indentation(line) === pushIndent &&
+      new RegExp(`^let name=${name} value="${shape.call}"$`, 'u').test(line.trim()));
     const guard = declaration < 0 ? -1 : lines.findIndex((line, cursor) => cursor > declaration && cursor < index &&
       indentation(line) === pushIndent && line.trim() === `if cond="${name}[0] != \\"ok\\""`);
     if (declaration < 0 || guard < 0 || !directlyReturnsNonOk(lines, guard, index) ||
-        !directlyUpdatesFactState(lines, index, name)) {
+        !directlyUpdatesFactState(lines, index, name, shape?.state ?? [])) {
       violations.push(`${index + 1}: ${name} lacks local six-field admission guard or state update`);
     }
   }
@@ -330,6 +343,13 @@ test('C13 LOCAL RED: every constructed fact writer must use a prospective funnel
     'assign target=factBytes value="f2uint(rowAdmission[2])"',
     'assign target=workSteps value="f2uint(rowAdmission[3])"',
   ].join('\n')), true, 'the canary recognizes a locally guarded six-field admission');
+  assert.equal(hasProspectiveFactFunnel([
+    'let name=rowAdmission value="f4globalfactadmit(row, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"',
+    'if cond="rowAdmission[0] != \\"ok\\""', '  return value=failure', 'do value="factParts.push(rowAdmission[4])"',
+    'assign target=globalFactCount value="f2uint(rowAdmission[1])"',
+    'assign target=globalFactBytes value="f2uint(rowAdmission[2])"',
+    'assign target=globalWorkSteps value="f2uint(rowAdmission[3])"',
+  ].join('\n')), true, 'the canary recognizes a producer-owned global admission');
 });
 
 test('C13 LOCAL RED: fact count and bytes must be guarded before the balanced fold', () => {
@@ -380,6 +400,11 @@ test('C13 LOCAL canary self-check: local bypasses cannot borrow another admissio
     'let name=expressionFactPart value="row"', 'do value="factParts.push(expressionFactPart)"',
   ].join('\n')), ['2: local fact must use named admission[4]'],
   'a reserved imported name is exempt only inside its exact framed-parts loop');
+  assert.deepEqual(localFactPushViolations([
+    'for name=expressionFactIndex from=4 to=expressionFactParts.length',
+    '  let name=expressionFactPart value="expressionFactParts[expressionFactIndex]"',
+    '  do value="factParts.push(expressionFactPart)"',
+  ].join('\n')), [], 'a verified global result imports only its payload slots');
   assert.deepEqual(localFactPushViolations([
     'if cond=maybe',
     '  let name=admission value="f4eligibilityleafadmit(row, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"',

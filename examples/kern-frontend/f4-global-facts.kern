@@ -1,0 +1,69 @@
+fn name=f4globalfactadmit returns="string[]"
+  param name=row type=string
+  param name=factCount type=number
+  param name=factBytes type=number
+  param name=workSteps type=number
+  param name=maxFacts type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=admission value="f4eligibilityleafadmit(row, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+    return value=admission
+
+fn name=f4globalfactterminal returns="string[]"
+  param name=parts type="string[]"
+  param name=status type=string
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="status == \"drift\""
+      return value="[\"drift\"]"
+    if cond="status != \"limit\""
+      return value="[\"drift\"]"
+    let name=prefix value="f4balancedtapefold(parts, baseWorkSteps, maxWorkSteps)"
+    if cond="prefix[0] != \"ok\""
+      return value="[prefix[0] == \"limit\" ? \"limit\" : \"drift\"]"
+    return value="[\"limit\", prefix[1], prefix[2]]"
+
+fn name=f4globalfactverify returns="string[]"
+  param name=tape type=string
+  param name=baseFactCount type=number
+  param name=baseFactBytes type=number
+  param name=baseWorkSteps type=number
+  param name=producerWorkSteps type=number
+  param name=claimedFactCount type=number
+  param name=claimedFactBytes type=number
+  param name=claimedWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=parts value="[]"
+    let name=cursor value=0
+    let name=count value=baseFactCount
+    let name=bytes value=baseFactBytes
+    while cond="cursor < Text.length(tape)"
+      let name=item value="f2batchmarked(tape, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= cursor || next > Text.length(tape) || f4tapecount(item[0]) != 6"
+        return value="[\"drift\"]"
+      let name=part value="Text.slice(tape, cursor, next)"
+      do value="parts.push(part)"
+      assign target=count value="count + 1"
+      assign target=bytes value="bytes + Text.utf8Length(part)"
+      assign target=cursor value=next
+    if cond="cursor != Text.length(tape) || count != claimedFactCount || bytes != claimedFactBytes"
+      return value="[\"drift\"]"
+    let name=producerIdentity value="f4balancedtapefold(parts, baseWorkSteps + producerWorkSteps + parts.length, maxWorkSteps)"
+    if cond="producerIdentity[0] == \"drift\" || f2uint(producerIdentity[2]) != claimedWorkSteps"
+      return value="[\"drift\"]"
+    let name=producerFoldWork value="claimedWorkSteps - baseWorkSteps - producerWorkSteps - parts.length"
+    let name=verifiedWork value="claimedWorkSteps + parts.length + producerFoldWork"
+    if cond="producerIdentity[0] == \"limit\" || verifiedWork > maxWorkSteps"
+      return value="[\"limit\"]"
+    let name=result value="[]"
+    do value="result.push(\"ok\")"
+    do value="result.push(String(count))"
+    do value="result.push(String(bytes))"
+    do value="result.push(String(verifiedWork))"
+    for name=partIndex from=0 to=parts.length
+      do value="result.push(parts[partIndex])"
+    return value=result

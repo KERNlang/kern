@@ -279,61 +279,6 @@ fn name=f4quoteddecode returns="string[]"
       assign target=boundaryTape value="boundaryTape + f4item(String(Map.get(boundaries, String(boundary))))"
     return value="[\"decoded\", decoded, boundaryTape]"
 
-fn name=f4localabsolutespans returns="string[]"
-  param name=nodeTape type=string
-  param name=nodeCount type=number
-  param name=boundaryTape type=string
-  handler lang="kern"
-    let name=tapeCursor value=0
-    let name=expectedNode value=0
-    let name=spans value="\"\""
-    while cond="tapeCursor < Text.length(nodeTape)"
-      if cond="Text.charAt(nodeTape, tapeCursor) != \"c\""
-        return value="[\"invalid\", \"\"]"
-      let name=chunkOrdinal value="f2batchreadto(nodeTape, tapeCursor + 1, \",\")"
-      let name=firstNode value="f2batchreadto(nodeTape, f2uint(chunkOrdinal[1]), \",\")"
-      let name=chunkCount value="f2batchreadto(nodeTape, f2uint(firstNode[1]), \",\")"
-      let name=payloadLength value="f2batchreadto(nodeTape, f2uint(chunkCount[1]), \":\")"
-      let name=payloadEnd value="f2uint(payloadLength[1]) + f2uint(payloadLength[0])"
-      assign target=tapeCursor value="f2uint(payloadLength[1])"
-      let name=chunkNodes value="f2uint(chunkCount[0])"
-      for name=chunkNode from=0 to=chunkNodes
-        if cond="Text.charAt(nodeTape, tapeCursor) != \"n\""
-          return value="[\"invalid\", \"\"]"
-        let name=nodeLength value="f2batchreadto(nodeTape, tapeCursor + 1, \":\")"
-        let name=fieldCursor value="f2uint(nodeLength[1])"
-        let name=nodeEnd value="fieldCursor + f2uint(nodeLength[0])"
-        let name=nodeId value=-1
-        let name=relativeStart value=-1
-        let name=relativeEnd value=-1
-        for name=field from=0 to=8
-          if cond="Text.charAt(nodeTape, fieldCursor) != \"f\""
-            return value="[\"invalid\", \"\"]"
-          let name=fieldIndex value="f2batchreadto(nodeTape, fieldCursor + 1, \",\")"
-          let name=fieldLength value="f2batchreadto(nodeTape, f2uint(fieldIndex[1]), \":\")"
-          let name=valueStart value="f2uint(fieldLength[1])"
-          let name=valueEnd value="valueStart + f2uint(fieldLength[0])"
-          if cond="field == 0"
-            assign target=nodeId value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
-          if cond="field == 2"
-            assign target=relativeStart value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
-          if cond="field == 3"
-            assign target=relativeEnd value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
-          assign target=fieldCursor value=valueEnd
-        let name=absoluteStart value="f2uint(f4tapeitemat(boundaryTape, relativeStart))"
-        let name=absoluteEnd value="f2uint(f4tapeitemat(boundaryTape, relativeEnd))"
-        if cond="fieldCursor != nodeEnd || nodeId != expectedNode || absoluteStart < 0 || absoluteEnd <= absoluteStart"
-          return value="[\"invalid\", \"\"]"
-        assign target=spans value="f4append(spans, f4row3(String(nodeId), String(absoluteStart), String(absoluteEnd)))"
-        assign target=expectedNode value="expectedNode + 1"
-        assign target=tapeCursor value=nodeEnd
-      if cond="tapeCursor != payloadEnd || Text.charAt(nodeTape, tapeCursor) != \"s\""
-        return value="[\"invalid\", \"\"]"
-      let name=seal value="f2batchreaddigits(nodeTape, tapeCursor + 1)"
-      assign target=tapeCursor value="f2uint(seal[1])"
-    if cond="expectedNode != nodeCount"
-      return value="[\"invalid\", \"\"]"
-    return value="[\"valid\", spans]"
 
 fn name=f4expressionevidence returns="string[]"
   param name=source type=string
@@ -364,12 +309,21 @@ fn name=f4expressionevidence returns="string[]"
   param name=maxTapeScalars type=number
   param name=maxNestingDepth type=number
   param name=maxExpressionWorkSteps type=number
+  param name=factCount type=number
+  param name=factBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxFacts type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
   handler lang="kern"
     if cond="occurrenceDetachedFlags.length != occurrenceDispositions.length || occurrenceNormalizedFlags.length != occurrenceDispositions.length"
       return value="[\"drift\", \"\", \"\", \"\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\"]"
     let name=evidence value="\"\""
     let name=diagnostics value="\"\""
-    let name=facts value="\"\""
+    let name=factParts value="[]"
+    let name=globalFactCount value=factCount
+    let name=globalFactBytes value=factBytes
+    let name=globalWorkSteps value=baseWorkSteps
     let name=evidenceCount value=0
     let name=localCalls value=0
     let name=aggregateScalars value=0
@@ -422,7 +376,16 @@ fn name=f4expressionevidence returns="string[]"
               let name=quoteDiagnostic value="f4row5(\"FRONTEND_INVALID_EXPRESSION\", \"error\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\")"
               assign target=diagnostics value="f4append(diagnostics, quoteDiagnostic)"
               let name=quoteFact value="f4row6(\"structural\", \"invalid-expression\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\", String(occurrence))"
-              assign target=facts value="f4append(facts, quoteFact)"
+              let name=quoteAdmission value="f4globalfactadmit(quoteFact, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+              if cond="quoteAdmission[0] != \"ok\""
+                let name=quoteTerminal value="f4globalfactterminal(factParts, quoteAdmission[0], globalWorkSteps + workSteps, maxWorkSteps)"
+                if cond="quoteTerminal.length == 3"
+                  return value="[quoteTerminal[0], \"\", diagnostics, quoteTerminal[1], String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps), String(globalFactCount), String(globalFactBytes), quoteTerminal[2]]"
+                return value="[quoteTerminal[0], \"\", diagnostics, \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+              do value="factParts.push(quoteAdmission[4])"
+              assign target=globalFactCount value="f2uint(quoteAdmission[1])"
+              assign target=globalFactBytes value="f2uint(quoteAdmission[2])"
+              assign target=globalWorkSteps value="f2uint(quoteAdmission[3])"
               continue
             assign target=decoded value="quoted[1]"
             assign target=boundaryTape value="quoted[2]"
@@ -436,7 +399,16 @@ fn name=f4expressionevidence returns="string[]"
               let name=invalidDiagnostic value="f4row5(\"FRONTEND_INVALID_EXPRESSION\", \"error\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\")"
               assign target=diagnostics value="f4append(diagnostics, invalidDiagnostic)"
               let name=invalidFact value="f4row6(\"structural\", \"invalid-expression\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\", String(occurrence))"
-              assign target=facts value="f4append(facts, invalidFact)"
+              let name=invalidAdmission value="f4globalfactadmit(invalidFact, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+              if cond="invalidAdmission[0] != \"ok\""
+                let name=invalidTerminal value="f4globalfactterminal(factParts, invalidAdmission[0], globalWorkSteps + workSteps, maxWorkSteps)"
+                if cond="invalidTerminal.length == 3"
+                  return value="[invalidTerminal[0], \"\", diagnostics, invalidTerminal[1], String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps), String(globalFactCount), String(globalFactBytes), invalidTerminal[2]]"
+                return value="[invalidTerminal[0], \"\", diagnostics, \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+              do value="factParts.push(invalidAdmission[4])"
+              assign target=globalFactCount value="f2uint(invalidAdmission[1])"
+              assign target=globalFactBytes value="f2uint(invalidAdmission[2])"
+              assign target=globalWorkSteps value="f2uint(invalidAdmission[3])"
               continue
             if cond="!occurrenceDetached"
               if cond="aggregateScalars + Text.length(decoded) > maxAggregateExpressionScalars"
@@ -473,7 +445,16 @@ fn name=f4expressionevidence returns="string[]"
                 let name=normalizedDiagnostic value="f4row5(\"FRONTEND_INVALID_EXPRESSION\", \"error\", String(expressionStart), String(expressionEnd), \"-1\")"
                 assign target=diagnostics value="f4append(diagnostics, normalizedDiagnostic)"
                 let name=normalizedFact value="f4row6(\"structural\", \"invalid-expression\", String(expressionStart), String(expressionEnd), \"-1\", String(occurrence))"
-                assign target=facts value="f4append(facts, normalizedFact)"
+                let name=normalizedAdmission value="f4globalfactadmit(normalizedFact, globalFactCount, globalFactBytes, globalWorkSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+                if cond="normalizedAdmission[0] != \"ok\""
+                  let name=normalizedTerminal value="f4globalfactterminal(factParts, normalizedAdmission[0], globalWorkSteps + workSteps, maxWorkSteps)"
+                  if cond="normalizedTerminal.length == 3"
+                    return value="[normalizedTerminal[0], \"\", diagnostics, normalizedTerminal[1], String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps), String(globalFactCount), String(globalFactBytes), normalizedTerminal[2]]"
+                  return value="[normalizedTerminal[0], \"\", diagnostics, \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+                do value="factParts.push(normalizedAdmission[4])"
+                assign target=globalFactCount value="f2uint(normalizedAdmission[1])"
+                assign target=globalFactBytes value="f2uint(normalizedAdmission[2])"
+                assign target=globalWorkSteps value="f2uint(normalizedAdmission[3])"
                 continue
               assign target=boundaryTape value="normalizedExpression[1]"
               assign target=receiptRow value="normalizedExpression[2]"
@@ -496,4 +477,7 @@ fn name=f4expressionevidence returns="string[]"
             assign target=evidence value="f4append(evidence, evidenceRow)"
     if cond="evidenceCount > maxExpressionEvidence || aggregateNodes > maxAggregateExpressionNodes || aggregateSpans > maxExpressionAbsoluteSpans || aggregateReceiptScalars > maxExpressionReceiptScalars"
       return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
-    return value="[\"ok\", evidence, diagnostics, facts, String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+    let name=factFold value="f4balancedtapefold(factParts, globalWorkSteps + workSteps, maxWorkSteps)"
+    if cond="factFold[0] != \"ok\""
+      return value="[factFold[0], \"\", diagnostics, \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps), String(globalFactCount), String(globalFactBytes), factFold[2]]"
+    return value="[\"ok\", evidence, diagnostics, factFold[1], String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps), String(globalFactCount), String(globalFactBytes), factFold[2]]"
