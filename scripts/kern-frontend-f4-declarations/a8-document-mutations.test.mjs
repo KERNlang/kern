@@ -97,12 +97,13 @@ test('A8.2 runner source owns authentic execution and attribution machinery', ()
   for (const token of [
     'executeKernRuntimeHandlerSync',
     'runDocumentWithTestInput',
-    'runDocumentWithMutation',
+    'runDocumentWithProfileLimits',
     'decodeDocument',
     'renderAuthority',
     'runGlobalFactVerify',
   ]) assert.ok(source.includes(token), token);
   assert.match(source, /function replaceExactly\b/u);
   assert.match(source, /replacementCount/u);
-  assert.doesNotMatch(source, /catch\s*\([^)]*\)\s*\{\s*return\s+(?:true|['"]passed['"])/u);
+  assert.doesNotMatch(source,
+    /catch(?:\s*\([^)]*\))?\s*\{\s*return\s+(?:true|['"]passed['"])/u);
 });
