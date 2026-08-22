@@ -1,7 +1,7 @@
 # KERN 5.0 Completion Goal
 
-**Status:** KERN 5 IN PROGRESS; F0-F3 CURRENT-GATED CANDIDATE SUBSTRATE; F4
-CANDIDATE AWAITING ACCEPTANCE
+**Status:** KERN 5 IN PROGRESS; F0-F4 CURRENT-GATED INTERNAL-ORACLE SUBSTRATE;
+F5-F7 AND TERMINAL OWNERSHIP OPEN
 
 **Goal confidence:** 0.96
 
@@ -30,12 +30,12 @@ or silently fall back to TypeScript semantics; and the exact accepted packed RC
 passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After the production-checker, formatter, and non-promoting frontend F0
+passes. After the production-checker, formatter, non-promoting frontend F0
 closure, runtime text-scaling prerequisite, P0 transport, production F1
-physical-scanner, production F2 expression-parser, F2 document-batch, and F3
-logical-line/tree slices, that wall contains 59
-promoted gates and excludes the six
-remaining planned terminal gates.
+physical scanner, production F2 expression parser and document batch, F3
+logical-line/tree, and accepted F4 declaration/module-set slices, that wall
+contains 60 promoted gates and excludes the six remaining planned terminal
+gates.
 
 ## Post-M4.171 Baseline
 
@@ -49,7 +49,7 @@ before the isolated Phase 0 worktree was created.
 Reconciled state after the Phase 1 checker, formatter, runtime splice, and
 frontend F0 closure slices:
 
-- 65 declared KERN 5 gates: 59 current, 6 planned.
+- 66 declared KERN 5 gates: 60 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
@@ -69,10 +69,11 @@ frontend F0 closure slices:
   materialization from reference-runner document walks. P0 transport and the
   authenticated KERN-owned production F1 physical scanner, and the authenticated
   KERN-owned production F2 expression parser and document batch, plus F3
-  logical-line/tree assembly, are current; F4-F7,
+  logical-line/tree assembly and F4 declaration/module-set semantics, are
+  current internal oracles; F5-F7,
   generated target parity, and terminal frontend promotion remain open.
 
-Promoted-gate row coverage is `59 / 65 = 90.8%`. Phase 0 made three omitted
+Promoted-gate row coverage is `60 / 66 = 90.9%`. Phase 0 made three omitted
 terminal requirements visible; no implementation was lost. The source-grounded
 release-completion estimate is approximately 54-64%
 because the remaining gates are the high-weight ownership and cutover phases.
@@ -87,7 +88,7 @@ remain absent until an implementation slice promotes each with its complete
 binary oracle. The machine-readable authority is
 `scripts/kern-5-remaining-gates-v1.json`.
 
-| Gate | Current state after frontend F3 |
+| Gate | Current state after frontend F4 |
 | --- | --- |
 | `pnpm test:kern-checker` | current |
 | `pnpm test:kern-formatter` | current |
@@ -102,7 +103,7 @@ binary oracle. The machine-readable authority is
 when the final call chain actually consumes it. Keep KIR private by default;
 public export is a separate consumer-contract decision, not a KERN 5 blocker.
 
-## Current state — 2026-08-22
+## Current state — 2026-08-23
 
 - **[K5-CS1 VERIFIED]** The integrated `4.6.0` source baseline contains M0,
   M1.1 eligibility, C13-LOCAL, the A6 detached-subtree closure, A5-local
@@ -115,29 +116,26 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 - **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form an implemented,
   current-gated *candidate* internal frontend substrate. Their authenticated
   KERN composition remains `internal-oracle`; it does not promote the terminal
-  frontend gate or replace the TypeScript production path. F1 cumulative-wall
-  and F2 acceptance-review evidence remain explicitly pending in their slice
-  specifications.
-- **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
-  review-clean *candidate* (declarations, expression evidence, request verdict,
-  path/ID, resource-prefix, UTF-8, and merged M1.1 eligibility slices). M1.1
-  acceptance remains open: this slice implements all eight C13-LOCAL
-  constructed-here admission families and its pre-integration candidate passed the focused
-  32/32 oracle plus the full 362/362 F4 declarations wall. That bounded local
-  evidence is not a durable merged/CI receipt. C13-GLOBAL imported expression/
-  path admission is now locally verified by the M3.1 candidate and remains
-  unmerged/whole-F4 acceptance evidence. F4-A1, F4-A2, and F4-A11 now have local
-  candidate evidence: the focused matrix passed `8/8`, the complete F4 wall
-  passed `370/370`, and automatic-risk Agon review left no verified blocker.
-  F4-A6 also has bounded local candidate evidence: its focused E1-E10 matrix
+  frontend gate or replace the TypeScript production path. The cumulative F4
+  acceptance wall exercised these prerequisites; their historical slice-level
+  review status remains recorded in their own specifications.
+- **[K5-CS3 VERIFIED]** F4 is an accepted, independently reviewed nonterminal
+  `internal-oracle` for declarations, expression evidence, request verdict,
+  path/ID, resource-prefix, UTF-8, and module-set semantics. M1.1 implements all
+  eight C13-LOCAL constructed-here admission families; its focused `32/32`
+  oracle and full `362/362` F4 wall passed before the later cumulative
+  acceptance. C13-GLOBAL imported expression/path admission is integrated.
+  F4-A1, F4-A2, and F4-A11 evidence includes the focused `8/8` matrix, complete
+  F4 wall `370/370`, and automatic-risk Agon review with no verified blocker.
+  F4-A6 evidence includes its focused E1-E10 matrix
   passed `10/10`, its adjacent C13/document/eligibility/expression/path wall
   passed `119/119`, and automatic-risk Agon review left no verified blocker
   after the traced repairs; the expanded complete F4 declarations wall passed
-  `383/383` on the final candidate. F4-A4 now has bounded evidence: its final
+  `383/383` on the final candidate. F4-A4 evidence includes its final
   public-path matrix passed `10/10`, the complete F4 declarations wall passed
   `393/393`, and automatic-risk Agon review found no verified or needs-check
-  blocker; no production or contract bytes changed. F4-A5 now has bounded
-  F4A-local evidence: its focused matrix passed `12/12`, the adjacent decoder/
+  blocker; no production or contract bytes changed. F4-A5 F4A-local evidence
+  includes its focused matrix `12/12` and adjacent decoder/
   resource wall passed `145/145`, the complete F4 declarations wall passed
   `405/405`, and automatic-risk Agon review found no blocker. Its decoder now
   binds receipt coordinates and last-write-wins presence to the authenticated
@@ -147,30 +145,34 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   writes through public F4. The reviewed A3b candidate passed its focused
   `35/35` matrix, adjacent `246/246` wall, complete `458/458` F4 declarations
   wall, complete `23/23` keyword-handler gate plus regression wall, and exact
-  `41/41` policy-pin validation. This locally closes the bounded F4-A3 scalar
-  subset without promoting F4. F4-A7/C15 now has bounded local candidate
-  evidence: the focused M2 matrix passed `17/17`, adjacent module-set/resource
-  gates passed `17/17`, `30/30`, and `17/17`, the complete F4 declarations wall
+  `41/41` policy-pin validation. This closes the bounded F4-A3 scalar subset.
+  F4-A7/C15 evidence includes the focused M2 matrix `17/17` and adjacent
+  module-set/resource gates `17/17`, `30/30`, and `17/17`, the complete F4 wall
   passed `481/481`, all `43` policy pins matched, and post-repair independent
   correctness review reported no findings. The KERN-owned `.4` module-set path
   now emits canonical R/T/V, real SCCs, sourced cycle facts, normalized
   bindings, and charged canonical output, with a source-backed independent
   reference verifier, as recorded by the parent F4 spec's F4-A7 row.
-  C13-GLOBAL and F4-A8 now have bounded local candidate evidence. The A8
+  C13-GLOBAL and F4-A8 evidence is integrated. The A8
   registry covers all nine mutation families; its focused aggregate passed
   `2/2`, the complete F4 wall passed `509/509`, all `45` policy pins matched,
-  and independent review left no verified blocker. F4-A9, F4-A10, exhaustive
-  adversarial scaling, and full-scale closure remain unfinished. F4 is neither
-  accepted nor promoted; the F4 specification remains authoritative for
-  slice-level status, and no candidate result changes the terminal-gate ledger.
+  and independent review left no verified blocker. F4-A9's authenticated
+  1x/2x/4x/8x scale matrix passed `41/41`; the standalone complete F4 wall
+  passed `550/550`, with repeated module-density RSS samples inside the
+  calibrated policy wall. F4-A10 then passed the focused prerequisite and
+  adjacent product gates, exact `45/45` pins, deterministic authority
+  regeneration, and the cumulative `pnpm fitness:kern-5` wall. F4-A1 through
+  F4-A11 are therefore accepted and `kern-frontend-f4-declarations` is current
+  as a nonterminal `internal-oracle`. This does not promote the terminal
+  frontend gate or change the terminal ledger.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
   cutover, packed-release). Therefore the promoted prerequisite count remains
-  `2 / 8` terminal rows and `59 / 65` all prerequisite gates; neither count is
+  `2 / 8` terminal rows and `60 / 66` all prerequisite gates; neither count is
   evidence that the merged candidate source is shippable.
 - **[K5-CS5 DECIDED]** Retain the directional 54–64% completion heuristic. It
-  weighs the still-open ownership/cutover gates rather than the 59/65 row count;
+  weighs the still-open ownership/cutover gates rather than the 60/66 row count;
   it is not a repository metric or publication forecast.
 
 ### Authority boundary
@@ -194,9 +196,9 @@ its stated dependency is complete.
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
 | **M0 — candidate integration (source landed; acceptance receipt not attached)** | The integrated source baseline contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
-| **M1 — F4A semantic closure (locally verified candidate)** | F4-A1 through F4-A6 and F4-A11 have locally verified candidate evidence. A3a retains exact legacy parity, and A3b projects its frozen scalar source-form writes through public F4 with authenticated provenance and prospective occurrence ownership. M1 is locally closed as a bounded semantic candidate; aggregate F4 acceptance and promotion remain open; dependency: M0. | The A3b public-path binary/mutation oracle, adjacent wall, complete F4 declarations wall, exact pin validation, and independent review are green locally. No dependency or evidence slice alone promotes F4. |
-| **M2 — F4B canonical graph closure (locally verified candidate)** | The bounded F4-A7/C15 candidate provides deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Focused M2 `17/17`, adjacent `17/17` + `30/30` + `17/17`, complete F4 `481/481`, exact `43/43` pins, deterministic authority regeneration, and independent review are green locally. Whole-F4 acceptance and promotion remain open. |
-| **M3 — F4 scale and adversarial closure** | C13-GLOBAL and F4-A8 are locally verified. Close the remaining F4-A9/A10 declared scale caps, resource/work/byte walls, complete 26-form scale coverage, and full-slice independent review; dependency: M2. | A8 focused aggregate `2/2`, complete F4 `509/509`, exact `45/45` pins, lint, consistency, authority regeneration, and review are green locally. Remaining scaling oracles must prove no unclassified source form or quadratic authority scan remains. |
+| **M1 — F4A semantic closure (accepted)** | F4-A1 through F4-A6 and F4-A11 are accepted. A3a retains exact legacy parity, and A3b projects its frozen scalar source-form writes through public F4 with authenticated provenance and prospective occurrence ownership; dependency: M0. | The A3b public-path binary/mutation oracle, adjacent wall, complete F4 declarations wall, exact pin validation, and independent review passed. |
+| **M2 — F4B canonical graph closure (accepted)** | F4-A7/C15 provides deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Focused M2 `17/17`, adjacent `17/17` + `30/30` + `17/17`, complete F4 `481/481`, exact `43/43` pins, deterministic authority regeneration, and independent review passed. |
+| **M3 — F4 scale, adversarial closure, and promotion (accepted)** | C13-GLOBAL and F4-A8-A10 close the declared adversarial, scale, resource, work, byte, and promotion contract; dependency: M2. | A9 focused `41/41`, standalone complete F4 `550/550`, exact `45/45` pins, cumulative KERN 5 fitness, and independent review passed. F4 is current only as a nonterminal internal oracle. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
 | **M5 — F6/F7 frontend promotion** | Complete adversarial frontend closure and promote the terminal frontend gate only after F0–F6 converge; dependency: M4. | `pnpm test:kern-frontend` is added, current, and green; the ledger, policy, support matrix, and release train promote atomically. |
 | **M6 — remaining canonical ownership** | Complete compiler, fixed-point, interpreter-shadow, and canonical-cutover ownership serially; dependency: M5. | In order: `pnpm test:kern-compiler`, `pnpm test:selfhost-fixed-point`, `pnpm test:kern-interpreter-shadow`, and `pnpm test:kern-canonical-cutover` are each current and green. |

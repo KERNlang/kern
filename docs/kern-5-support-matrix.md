@@ -500,7 +500,9 @@ edges, records provisional decorator adjacency and recognized raw geometry, and
 emits bounded structural diagnostics. Continuation fixtures cover trailing
 same-line content and mixed composite reopeners; permutation mutations cover
 record and chunk order. This does not classify declarations, attach schema, or
-emit canonical KIR; F4-F7 remain unpromoted.
+emit canonical KIR. F4 now promotes declaration and closed-module-set semantics
+as `kern-frontend-f4-declarations: internal-oracle`; F5-F7 and the terminal
+frontend gate remain unpromoted.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a

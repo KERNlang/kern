@@ -1,6 +1,6 @@
 # KERN 5 Frontend F4 Declarations and Modules Contract
 
-**Status:** DECIDED — IMPLEMENTATION IN PROGRESS
+**Status:** IMPLEMENTED AND VERIFIED — CURRENT INTERNAL ORACLE
 
 **Date:** 2026-08-20
 
@@ -1387,15 +1387,18 @@ rather than a new host-owned F4 semantic path:
   direct full-table admission evidence; row deletion, reorder, duplicate,
   disposition drift, and same-length substitution reject. The exhaustive cyclic
   matrix invokes real F4 once per mutated row and retains structural loop canaries.
-- **[F4-A3 PROPOSED]** Every closed keyword/source form has positive, malformed,
+- **[F4-A3 IMPLEMENTED | VERIFIED]** Every closed keyword/source form has
+  positive, malformed,
   fallback, multiline, quoted, astral, and trailing-property evidence where
   applicable, with exact parity to hand-authored expectations. The A3a
   dependency is implemented and locally verified: one receipt-neutral KERN
   normalization kernel now owns the existing 52-case source-form decisions,
   while the legacy shadow adapter retains the exact pre-extraction receipt
-  digest. A3 remains proposed until A3b projects those writes through the real
-  F1 -> F3 -> one-root-F4 property path and closes its resource/occurrence
-  contract; no F4 production or format bytes changed in A3a.
+  digest. A3b projects those writes through the real F1 -> F3 -> one-root-F4
+  property path and closes its resource/occurrence contract. Its focused matrix
+  passed `35/35`, adjacent wall `246/246`, complete F4 wall `458/458`,
+  keyword-handler gate `23/23` plus its regression wall, and exact policy-pin
+  validation `41/41`.
 - **[F4-A4 IMPLEMENTED | VERIFIED]** The public-path A4 matrix covers plain
   multi-decorator runs, the independent export-prefixed control, EOF and
   indentation orphans, equal-F3 non-`fn` substitution, malformed syntax,
@@ -1448,15 +1451,22 @@ rather than a new host-owned F4 semantic path:
   candidate passed the focused aggregate `2/2`, complete F4 declarations wall
   `509/509`, lint, repository consistency, exact `45/45` pins, deterministic
   authority regeneration, and independent review. Evidence is pinned by the
-  A8 satellite spec and `a8-*.test.mjs`; F4-A9/A10 and whole-F4 promotion remain
-  open.
-- **[F4-A9 PROPOSED]** Frozen 1x/2x/4x/8x declaration, property, attachment,
+  A8 satellite spec and `a8-*.test.mjs`.
+- **[F4-A9 IMPLEMENTED | VERIFIED]** Frozen 1x/2x/4x/8x declaration, property,
+  attachment,
   decorator, and module-density families satisfy adjacent and absolute time,
   RSS, envelope-size, and work-step walls. Each document uses one F4A runtime
-  invocation and the closed set uses one F4B runtime invocation.
-- **[F4-A10 PROPOSED]** Focused F1/F2/F2B/F3/F4, runtime ABI, canonicalizer,
-  checker, formatter, lint, and cumulative KERN 5 gates pass before acceptance;
-  independent automatic-risk Agon review has no unresolved verified blocker.
+  invocation and the closed set uses one F4B runtime invocation. The focused A9
+  suite passed `41/41`, the complete F4 wall passed `550/550`, and three repeated
+  module-density runs stayed within the calibrated adjacent RSS wall.
+- **[F4-A10 IMPLEMENTED | VERIFIED]** Focused F1/F2/F2B/F3/F4, runtime ABI,
+  canonicalizer, checker, formatter, lint, build, repository consistency,
+  descriptor validation, and deterministic authority regeneration passed. The
+  cumulative `pnpm fitness:kern-5` wall then passed with F4 in the exact current
+  gate roster. Independent review has no unresolved verified blocker. This
+  promotes F4 only as a mandatory nonterminal `internal-oracle`; F5-F7, the
+  terminal frontend gate, canonical cutover, packed release, and publication
+  remain open.
 - **[F4-A11 IMPLEMENTED | VERIFIED]** Relational policy tests accept both valid endpoints and
   reject values immediately outside them. A safely scaled runtime pair passes
   immediately below the independent `B` ceiling and fails on the next local

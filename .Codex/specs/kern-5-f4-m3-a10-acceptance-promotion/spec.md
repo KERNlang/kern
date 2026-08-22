@@ -1,6 +1,6 @@
 # KERN 5 F4 M3 A10 Acceptance and Promotion
 
-**Status:** READY TO BUILD — ACCEPTANCE EVIDENCE PENDING
+**Status:** IMPLEMENTED AND VERIFIED — CURRENT INTERNAL ORACLE
 
 **Baseline:** `e10fc859`
 
@@ -148,3 +148,23 @@ Stop and redesign if any change:
 - treats 60/66 as a release percentage or terminal delivery claim;
 - leaves an unresolved verified review blocker or a required gate without an
   exact successful receipt.
+
+## Acceptance Evidence
+
+- **[A10-A1 VERIFIED]** The focused prerequisite chain passed: F1 `7/7`, F1
+  scan `8/8`, F2 `33/33`, F2B `33/33`, and F3 `22/22`. Runtime ABI, checker,
+  formatter, lint, build, and repository consistency also passed.
+- **[A10-A2 VERIFIED]** The standalone complete F4 declarations wall passed
+  `550/550`. Exact F4 authority, prerequisite, and composition validation
+  passed `45/45`, and deterministic authority regeneration produced zero diff.
+- **[A10-A3 VERIFIED]** The canonicalizer passed `850/850` Node tests plus its
+  golden, witness, profile, hostile-fixture, CLI, and `112/112` coverage
+  closures.
+- **[A10-A4 VERIFIED]** The promotion contract passed `18/18`. The cumulative
+  `pnpm fitness:kern-5` wall passed with exactly 60 current and six planned
+  general gates, including the newly current F4 gate. The terminal ledger
+  remains exactly two current and six planned rows.
+- **[A10-A5 VERIFIED]** Independent review of the promotion diff completed with
+  all required seats and no verified finding. The result establishes a current
+  nonterminal internal oracle, not a terminal frontend, release, tag,
+  publication, or KERN 5 completion claim.
