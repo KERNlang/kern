@@ -79,6 +79,29 @@ Runtime failure, `unsupported-runtime-input`, handler-link failure, thrown host
 error, missing capture, mutation no-op, multiple source replacements, or an
 unexpected diagnostic is a harness failure. None is an acceptable kill.
 
+### Bounded implementation slices
+
+The executable ledger is implemented in three independently attributable
+sub-slices. A sub-slice must pass before the next one begins; aggregate support
+must not hide a failing family behind a synthesized report.
+
+1. **A8.1 source ownership:** F2 and F3 plus their bounded source-structure
+   canaries. This slice performs no F4 runtime mutation and reports
+   `not-applicable` only after the pristine and mutant source scans both prove
+   target reachability.
+2. **A8.2 document runtime:** F1, F4, F5, F6, F8, F9, the six C13 claim
+   mutations, composition skew, and stale generated authority. Every runtime
+   family captures its own authentic ABI-109 vector and executes exactly one
+   mutated F4A root call.
+3. **A8.3 module-set runtime:** F7, twenty deterministic permutations, and the
+   M2 independent-oracle canaries. It captures authentic ABI-18 input for the
+   exact graph fixture and executes one mutated F4B root call.
+
+The registry aggregator only concatenates the three verified reports in ID
+order and validates uniqueness. Each support module remains below 500
+handwritten lines. A failed aggregate Forge candidate is evidence to narrow
+the implementation slice, never permission to weaken the designated killer.
+
 ## Designated Kill Matrix
 
 | ID | Family | One deliberate defect | Positive/reachability control | Designated killer |
