@@ -3,13 +3,21 @@ import { fail, isCanonicalModuleId, listTape, sha256 } from './decoder.mjs';
 const STATUSES = new Set(['linked', 'rejected', 'fatal']);
 const LINK_FACT_CODES = new Set([
   'missing-module', 'missing-export', 'kind-mismatch', 'duplicate-local-binding',
-  'duplicate-export', 'module-cycle', 'F4_INVALID_REQUEST', 'F4_LIMIT', 'FORCED_LATE_FAILURE',
+  'duplicate-export', 'module-cycle',
 ]);
+const FATAL_FACT_CODES = new Set(['F4_INVALID_REQUEST', 'F4_LIMIT', 'FORCED_LATE_FAILURE']);
 const RESOURCE_KINDS = new Set(['maxModules', 'maxSymbols', 'maxBindings']);
+const LINK_FACT_RANKS = new Map([
+  'missing-module', 'missing-export', 'kind-mismatch', 'duplicate-local-binding', 'duplicate-export', 'module-cycle',
+].map((code, rank) => [code, rank]));
 
 function rows(text, label) {
   return listTape(text, `${label} tape`).map((row, index) =>
     listTape(row, `${label} row ${index}`));
+}
+
+function frame(value) {
+  return `i${Array.from(value).length}:${value}`;
 }
 
 function exact(fields, count, label) {
@@ -27,6 +35,26 @@ function natural(value, label) {
 function sameStrings(actual, expected) {
   return Array.isArray(actual) && actual.length === expected.length &&
     actual.every((value, index) => value === expected[index]);
+}
+
+function compareValue(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareTuple(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    const order = compareValue(left[index], right[index]);
+    if (order !== 0) return order;
+  }
+  return 0;
+}
+
+function assertCanonical(items, compare, label) {
+  let prior = null;
+  for (const item of items) {
+    if (prior !== null && compare(item, prior) <= 0) fail(`${label} order`);
+    prior = item;
+  }
 }
 
 function proofArguments(context) {
@@ -50,6 +78,34 @@ function proofArguments(context) {
   };
 }
 
+function inputBindingPositions(context) {
+  const args = context.f4bArguments;
+  if (!Array.isArray(args) || args.length !== 18 || sha256(args) !== context.inputSeal) fail('module-set input');
+  const moduleIds = args[0];
+  const statuses = args[5];
+  const interfaceBlocks = args[7];
+  if (!sameStrings(moduleIds, context.moduleIds) || !Array.isArray(statuses) ||
+      !Array.isArray(interfaceBlocks) || statuses.length !== moduleIds.length ||
+      interfaceBlocks.length !== moduleIds.length) fail('module-set input');
+  const positions = new Set();
+  for (let index = 0; index < moduleIds.length; index += 1) {
+    const outer = listTape(interfaceBlocks[index], `module input block ${index}`);
+    if (outer.length !== 1) fail('module-set input');
+    const fields = listTape(outer[0], `module input fields ${index}`);
+    if (fields.length !== 2) fail('module-set input');
+    const bindingRows = rows(fields[1], `module input bindings ${index}`);
+    if (statuses[index] !== 'classified' && bindingRows.length) fail('module-set input');
+    for (const row of bindingRows) {
+      exact(row, 8, 'module input binding');
+      if (row[0] !== moduleIds[index]) fail('module-set input');
+      natural(row[6], 'module input ordinal');
+      natural(row[7], 'module input start');
+      positions.add(`${frame(row[0])}${frame(row[6])}${frame(row[7])}`);
+    }
+  }
+  return positions;
+}
+
 function blockCounts(block, moduleId, status, index) {
   const outer = listTape(block, `resource block ${index}`);
   if (outer.length !== 1) fail('resource witness input');
@@ -63,8 +119,10 @@ function blockCounts(block, moduleId, status, index) {
         row[2] === '' || (row[3] !== 'true' && row[3] !== 'false')) fail('resource witness input');
   }
   for (const row of bindingRows) {
-    if (row.length !== 6 || row[0] !== moduleId || !isCanonicalModuleId(row[1]) ||
+    if (row.length !== 8 || row[0] !== moduleId || !isCanonicalModuleId(row[1]) ||
         (row[5] !== 'true' && row[5] !== 'false')) fail('resource witness input');
+    natural(row[6], 'resource binding ordinal');
+    natural(row[7], 'resource binding start');
   }
   return { symbols: symbolRows.length, bindings: bindingRows.length };
 }
@@ -137,7 +195,7 @@ function proofWitness(field, context, terminal) {
 export function decodeModuleSet(fields, context) {
   if (!Array.isArray(fields) || fields.length !== 10 ||
       fields.some((field) => typeof field !== 'string')) fail('module-set field shape');
-  if (fields[0] !== 'kern.frontend.f4-module-set.3' || !STATUSES.has(fields[1])) fail('module-set identity');
+  if (fields[0] !== 'kern.frontend.f4-module-set.4' || !STATUSES.has(fields[1])) fail('module-set identity');
   const rejected = rows(fields[2], 'rejected').map((row) => {
     exact(row, 2, 'rejected');
     if (!isCanonicalModuleId(row[0])) fail('rejected module id');
@@ -149,22 +207,36 @@ export function decodeModuleSet(fields, context) {
     return { moduleId: row[0], rejectedDependency: row[1] };
   });
   const linkFacts = rows(fields[4], 'link fact').map((row) => {
-    exact(row, 3, 'link fact');
-    if (!LINK_FACT_CODES.has(row[0])) fail('link fact code');
-    return { code: row[0], detail: row[1], moduleId: row[2] };
+    exact(row, fields[1] === 'fatal' ? 3 : 5, 'link fact');
+    const allowedCodes = fields[1] === 'fatal' ? FATAL_FACT_CODES : LINK_FACT_CODES;
+    if (!allowedCodes.has(row[0])) fail('link fact code');
+    return {
+      code: row[0], detail: row[1], moduleId: row[2],
+      logicalOrdinal: row.length === 5 ? natural(row[3], 'link fact ordinal') : null,
+      startScalar: row.length === 5 ? natural(row[4], 'link fact start') : null,
+    };
   });
   const validatedComponents = rows(fields[5], 'component').map((row) => {
     exact(row, 2, 'component');
     if (!isCanonicalModuleId(row[0])) fail('component module id');
-    return { moduleIds: [row[0]], receiptSeal: row[1] };
+    const members = rows(row[1], 'component member').map((member) => {
+      exact(member, 2, 'component member');
+      if (!isCanonicalModuleId(member[0]) || !/^[0-9a-f]{64}$/u.test(member[1])) fail('component member identity');
+      return { moduleId: member[0], receiptSeal: member[1] };
+    });
+    if (!members.length || row[0] !== members[0].moduleId) fail('component minimum');
+    assertCanonical(members, (left, right) => compareValue(left.moduleId, right.moduleId), 'component member');
+    return { componentMinimumId: row[0], moduleIds: members.map((member) => member.moduleId), members };
   });
   const bindings = rows(fields[6], 'resolved binding').map((row) => {
-    exact(row, 6, 'resolved binding');
+    exact(row, 8, 'resolved binding');
     if (!isCanonicalModuleId(row[0]) || !isCanonicalModuleId(row[5])) fail('binding module id');
     if (row[4] !== 'true' && row[4] !== 'false') fail('resolved binding reexport');
     return {
       sourceModuleId: row[0], imported: row[1], local: row[2], kind: row[3],
       reexport: row[4] === 'true', importerModuleId: row[5],
+      logicalOrdinal: natural(row[6], 'resolved binding ordinal'),
+      startScalar: natural(row[7], 'resolved binding start'),
     };
   });
   const inputIdentityTape = rows(fields[7], 'input identity').map((row) => {
@@ -196,6 +268,67 @@ export function decodeModuleSet(fields, context) {
       if (!expected || actual.moduleId !== context.moduleIds[index] || actual.moduleId !== expected.moduleId ||
           actual.format !== expected.format || actual.status !== expected.status ||
           actual.seal !== expected.seal) fail('input identity drift');
+    }
+    const identities = new Map(inputIdentityTape.map((identity) => [identity.moduleId, identity]));
+    const inputPositions = bindings.length || linkFacts.length ? inputBindingPositions(context) : new Set();
+    assertCanonical(rejected, (left, right) => compareValue(left.moduleId, right.moduleId), 'rejected');
+    assertCanonical(blocked, (left, right) => compareValue(left.moduleId, right.moduleId), 'blocked');
+    assertCanonical(validatedComponents,
+      (left, right) => compareValue(left.componentMinimumId, right.componentMinimumId), 'component');
+    assertCanonical(bindings, (left, right) => compareTuple([
+      left.importerModuleId, left.startScalar, left.logicalOrdinal, left.sourceModuleId,
+      left.imported, left.local, left.kind, String(left.reexport), left.importerModuleId,
+    ], [
+      right.importerModuleId, right.startScalar, right.logicalOrdinal, right.sourceModuleId,
+      right.imported, right.local, right.kind, String(right.reexport), right.importerModuleId,
+    ]), 'resolved binding');
+    for (const binding of bindings) {
+      if (!inputPositions.has(`${frame(binding.importerModuleId)}${frame(String(binding.logicalOrdinal))}${frame(String(binding.startScalar))}`)) {
+        fail('resolved binding position');
+      }
+    }
+    const rejectedIds = new Set(rejected.map((row) => row.moduleId));
+    const blockedIds = new Set(blocked.map((row) => row.moduleId));
+    const visibleIds = new Set();
+    const componentOf = new Map();
+    for (const row of rejected) {
+      if (!identities.has(row.moduleId) || identities.get(row.moduleId).seal !== row.receiptSeal) fail('rejected identity');
+    }
+    for (const row of blocked) {
+      if (!identities.has(row.moduleId) || !rejectedIds.has(row.rejectedDependency) || rejectedIds.has(row.moduleId)) {
+        fail('blocked partition');
+      }
+    }
+    for (const component of validatedComponents) {
+      for (const member of component.members) {
+        if (!identities.has(member.moduleId) || identities.get(member.moduleId).seal !== member.receiptSeal ||
+            rejectedIds.has(member.moduleId) || blockedIds.has(member.moduleId) || visibleIds.has(member.moduleId)) {
+          fail('component partition');
+        }
+        visibleIds.add(member.moduleId);
+        componentOf.set(member.moduleId, component.componentMinimumId);
+      }
+    }
+    if (visibleIds.size + rejectedIds.size + blockedIds.size !== inputIdentityTape.length) fail('module partition coverage');
+    for (const identity of inputIdentityTape) {
+      if (!visibleIds.has(identity.moduleId) && !rejectedIds.has(identity.moduleId) && !blockedIds.has(identity.moduleId)) {
+        fail('module partition coverage');
+      }
+    }
+    assertCanonical(linkFacts, (left, right) => {
+      if (!componentOf.has(left.moduleId) || !componentOf.has(right.moduleId)) fail('link fact component');
+      return compareTuple([
+        componentOf.get(left.moduleId), left.moduleId, left.startScalar, LINK_FACT_RANKS.get(left.code) ?? -1,
+        left.code, left.detail, left.logicalOrdinal,
+      ], [
+        componentOf.get(right.moduleId), right.moduleId, right.startScalar, LINK_FACT_RANKS.get(right.code) ?? -1,
+        right.code, right.detail, right.logicalOrdinal,
+      ]);
+    }, 'link fact');
+    for (const fact of linkFacts) {
+      if (!inputPositions.has(`${frame(fact.moduleId)}${frame(String(fact.logicalOrdinal))}${frame(String(fact.startScalar))}`)) {
+        fail('link fact position');
+      }
     }
   }
   if (fields[1] === 'linked' && (rejected.length || blocked.length || linkFacts.length)) {

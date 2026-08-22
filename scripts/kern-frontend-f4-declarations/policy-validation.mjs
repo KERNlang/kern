@@ -39,6 +39,8 @@ export const ALL_COMPOSITION_PATHS = [
   'examples/kern-frontend/f4-module-set-f2-helpers.kern',
   'examples/kern-frontend/f4-module-set-output.kern',
   'examples/kern-frontend/f4-module-set-prefix.kern',
+  'examples/kern-frontend/f4-module-set-order.kern',
+  'examples/kern-frontend/f4-module-set-closure.kern',
   'examples/kern-frontend/f4-module-set-graph.kern',
   'examples/kern-frontend/f4-module-set-main.kern',
 ];
@@ -106,7 +108,7 @@ function frame(value) {
 
 function minimalModuleSetFailureBytes() {
   const fact = frame([frame('F4_LIMIT'), frame(''), frame('')].join(''));
-  const fields = ['kern.frontend.f4-module-set.3', 'fatal', '', '', fact, '', '', '', '', 'failure'];
+  const fields = ['kern.frontend.f4-module-set.4', 'fatal', '', '', fact, '', '', '', '', 'failure'];
   return fields.reduce((total, field) => total + new TextEncoder().encode(field).length, 0);
 }
 
@@ -122,7 +124,7 @@ export function validatePolicy(policy) {
   exactKeys(policy, POLICY_KEYS, 'policy');
   if (policy.format !== 'kern.frontend.f4-declarations-policy.4' ||
       policy.documentResultFormat !== 'kern.frontend.f4-document.2' ||
-      policy.moduleSetResultFormat !== 'kern.frontend.f4-module-set.3' ||
+      policy.moduleSetResultFormat !== 'kern.frontend.f4-module-set.4' ||
       !Array.isArray(policy.authorities) || policy.authorities.length !== 5 ||
       !Array.isArray(policy.composition) || policy.composition.length !== ALL_COMPOSITION_PATHS.length ||
       !Array.isArray(policy.prerequisites) ||

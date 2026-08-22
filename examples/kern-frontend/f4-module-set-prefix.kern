@@ -168,9 +168,9 @@ fn name=f4bprefixresult returns="string[]"
             assign target=bindingCursor value="Text.length(bindingTape)"
           else
             let name=row value="item[0]"
-            if cond="f4browcount(row) != 6"
+            if cond="f4browcount(row) != 8"
               assign target=invalid value=true
-            if cond="f4browcount(row) == 6"
+            if cond="f4browcount(row) == 8"
               if cond="f4browfield(row, 0) != f4aModuleIds[blockIndex]"
                 assign target=invalid value=true
               let name=target value="f4browfield(row, 1)"
@@ -183,6 +183,16 @@ fn name=f4bprefixresult returns="string[]"
                 assign target=invalid value=true
               let name=reexport value="f4browfield(row, 5)"
               if cond="reexport != \"true\" && reexport != \"false\""
+                assign target=invalid value=true
+              let name=logicalOrdinal value="f4browfield(row, 6)"
+              let name=startScalar value="f4browfield(row, 7)"
+              if cond="f2uint(logicalOrdinal) < 0"
+                assign target=invalid value=true
+              if cond="String(f2uint(logicalOrdinal)) != logicalOrdinal"
+                assign target=invalid value=true
+              if cond="f2uint(startScalar) < 0"
+                assign target=invalid value=true
+              if cond="String(f2uint(startScalar)) != startScalar"
                 assign target=invalid value=true
             assign target=bindings value="bindings + 1"
             assign target=work value="work + 1"

@@ -237,3 +237,72 @@ fn name=f4bfoldparts returns=string
       return value="\"\""
     let name=result value="Map.get(rightParts, \"0\")"
     return value=result
+
+fn name=f4bsortcharge returns="string[]"
+  param name=rows type="string[]"
+  param name=baseWork type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=workSteps value=baseWork
+    let name=width value=1
+    while cond="width < rows.length"
+      for name=rowIndex from=0 to=rows.length
+        assign target=workSteps value="workSteps + Text.length(rows[rowIndex]) + 2"
+        if cond="workSteps > maxWorkSteps"
+          return value="[\"limit\", String(workSteps)]"
+      assign target=width value="width + width"
+    return value="[\"ok\", String(workSteps)]"
+
+fn name=f4bfoldcharged returns="string[]"
+  param name=parts type="string[]"
+  param name=baseWork type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=workSteps value=baseWork
+    let name=leftLengths value="new Map()"
+    let name=rightLengths value="new Map()"
+    for name=inputIndex from=0 to=parts.length
+      do value="Map.set(leftLengths, String(inputIndex), Text.length(parts[inputIndex]))"
+    let name=currentCount value=parts.length
+    let name=readLeft value=true
+    while cond="currentCount > 1"
+      let name=inputIndex value=0
+      let name=outputCount value=0
+      while cond="inputIndex < currentCount"
+        let name=leftKey value="String(inputIndex)"
+        let name=leftLength value=0
+        if cond=readLeft
+          if cond="!Map.has(leftLengths, leftKey)"
+            return value="[\"drift\", \"\", String(workSteps)]"
+          assign target=leftLength value="Map.get(leftLengths, leftKey)"
+        else
+          if cond="!Map.has(rightLengths, leftKey)"
+            return value="[\"drift\", \"\", String(workSteps)]"
+          assign target=leftLength value="Map.get(rightLengths, leftKey)"
+        let name=combinedLength value=leftLength
+        let name=rightIndex value="inputIndex + 1"
+        if cond="rightIndex < currentCount"
+          let name=rightKey value="String(rightIndex)"
+          let name=rightLength value=0
+          if cond=readLeft
+            if cond="!Map.has(leftLengths, rightKey)"
+              return value="[\"drift\", \"\", String(workSteps)]"
+            assign target=rightLength value="Map.get(leftLengths, rightKey)"
+          else
+            if cond="!Map.has(rightLengths, rightKey)"
+              return value="[\"drift\", \"\", String(workSteps)]"
+            assign target=rightLength value="Map.get(rightLengths, rightKey)"
+          assign target=combinedLength value="leftLength + rightLength"
+        assign target=workSteps value="workSteps + combinedLength + 1"
+        if cond="workSteps > maxWorkSteps"
+          return value="[\"limit\", \"\", String(workSteps)]"
+        if cond=readLeft
+          do value="Map.set(rightLengths, String(outputCount), combinedLength)"
+        else
+          do value="Map.set(leftLengths, String(outputCount), combinedLength)"
+        assign target=outputCount value="outputCount + 1"
+        assign target=inputIndex value="inputIndex + 2"
+      assign target=currentCount value=outputCount
+      assign target=readLeft value="!readLeft"
+    let name=folded value="f4bfoldparts(parts)"
+    return value="[\"ok\", folded, String(workSteps)]"

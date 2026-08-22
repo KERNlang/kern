@@ -25,6 +25,8 @@ fn name=f4bfullgraph returns="string[]"
     let name=bindingLocals value="[]"
     let name=bindingKinds value="[]"
     let name=bindingReexports value="[]"
+    let name=bindingOrdinals value="[]"
+    let name=bindingStarts value="[]"
     let name=workSteps value=baseWork
     let name=invalidTransport value=false
     let name=pathLimit value=false
@@ -79,18 +81,28 @@ fn name=f4bfullgraph returns="string[]"
             assign target=bindingCursor value="Text.length(bindingTape)"
           else
             let name=row value="item[0]"
-            if cond="f4browcount(row) != 6"
+            if cond="f4browcount(row) != 8"
               assign target=invalidTransport value=true
-            if cond="f4browcount(row) == 6"
+            if cond="f4browcount(row) == 8"
               let name=owner value="f4browfield(row, 0)"
               let name=target value="f4browfield(row, 1)"
               let name=imported value="f4browfield(row, 2)"
               let name=localName value="f4browfield(row, 3)"
               let name=requestedKind value="f4browfield(row, 4)"
               let name=reexport value="f4browfield(row, 5)"
+              let name=logicalOrdinal value="f4browfield(row, 6)"
+              let name=startScalar value="f4browfield(row, 7)"
               if cond="owner != f4aModuleIds[blockIndex]"
                 assign target=invalidTransport value=true
               if cond="reexport != \"true\" && reexport != \"false\""
+                assign target=invalidTransport value=true
+              if cond="f2uint(logicalOrdinal) < 0"
+                assign target=invalidTransport value=true
+              if cond="String(f2uint(logicalOrdinal)) != logicalOrdinal"
+                assign target=invalidTransport value=true
+              if cond="f2uint(startScalar) < 0"
+                assign target=invalidTransport value=true
+              if cond="String(f2uint(startScalar)) != startScalar"
                 assign target=invalidTransport value=true
               let name=targetPath value="f4pathmoduleid(target, maxModuleIdScalars, maxModuleIdSegments)"
               let name=targetWork value="f2uint(targetPath[2])"
@@ -105,6 +117,8 @@ fn name=f4bfullgraph returns="string[]"
               do value="bindingLocals.push(localName)"
               do value="bindingKinds.push(requestedKind)"
               do value="bindingReexports.push(reexport)"
+              do value="bindingOrdinals.push(logicalOrdinal)"
+              do value="bindingStarts.push(startScalar)"
             assign target=workSteps value="workSteps + 1"
             assign target=bindingCursor value=next
     if cond=invalidTransport
@@ -123,11 +137,40 @@ fn name=f4bfullgraph returns="string[]"
       let name=bindingOverflow value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
       return value=bindingOverflow
 
+    let name=bindingIntentRows value="[]"
+    for name=bindingIntentIndex from=0 to=bindingModuleIds.length
+      let name=bindingIntentRow value="f4item(bindingSpecifiers[bindingIntentIndex]) + f4item(bindingImported[bindingIntentIndex]) + f4item(bindingLocals[bindingIntentIndex]) + f4item(bindingKinds[bindingIntentIndex]) + f4item(bindingReexports[bindingIntentIndex]) + f4item(bindingModuleIds[bindingIntentIndex]) + f4item(bindingOrdinals[bindingIntentIndex]) + f4item(bindingStarts[bindingIntentIndex])"
+      do value="bindingIntentRows.push(bindingIntentRow)"
+    let name=bindingIntentCharge value="f4bsortcharge(bindingIntentRows, workSteps, maxWorkSteps)"
+    if cond="bindingIntentCharge[0] != \"ok\""
+      let name=bindingIntentLimit value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=bindingIntentLimit
+    assign target=workSteps value="f2uint(bindingIntentCharge[1])"
+    let name=canonicalBindingIntents value="f4bsortrows(bindingIntentRows, \"binding-row\")"
+    if cond="canonicalBindingIntents.length != bindingIntentRows.length"
+      let name=bindingOrderFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=bindingOrderFailure
+    let name=canonicalBindingModuleIds value="[]"
+    let name=canonicalBindingSpecifiers value="[]"
+    let name=canonicalBindingImported value="[]"
+    let name=canonicalBindingLocals value="[]"
+    let name=canonicalBindingKinds value="[]"
+    let name=canonicalBindingReexports value="[]"
+    let name=canonicalBindingOrdinals value="[]"
+    let name=canonicalBindingStarts value="[]"
+    for name=canonicalBindingIndex from=0 to=canonicalBindingIntents.length
+      let name=canonicalBinding value="canonicalBindingIntents[canonicalBindingIndex]"
+      do value="canonicalBindingSpecifiers.push(f4browfield(canonicalBinding, 0))"
+      do value="canonicalBindingImported.push(f4browfield(canonicalBinding, 1))"
+      do value="canonicalBindingLocals.push(f4browfield(canonicalBinding, 2))"
+      do value="canonicalBindingKinds.push(f4browfield(canonicalBinding, 3))"
+      do value="canonicalBindingReexports.push(f4browfield(canonicalBinding, 4))"
+      do value="canonicalBindingModuleIds.push(f4browfield(canonicalBinding, 5))"
+      do value="canonicalBindingOrdinals.push(f4browfield(canonicalBinding, 6))"
+      do value="canonicalBindingStarts.push(f4browfield(canonicalBinding, 7))"
+
     let name=moduleSet value="new Map()"
     let name=sealMap value="new Map()"
-    let name=rejectedSet value="new Map()"
-    let name=rejectedReason value="new Map()"
-    let name=quarantineQueue value="[]"
     let name=identityRows value="[]"
     for name=moduleIndex from=0 to=moduleCount
       let name=moduleId value="f4aModuleIds[moduleIndex]"
@@ -135,11 +178,90 @@ fn name=f4bfullgraph returns="string[]"
       do value="identityRows.push(identityRow)"
       do value="Map.set(moduleSet, String(moduleId), moduleIndex)"
       do value="Map.set(sealMap, String(moduleId), f4aSeals[moduleIndex])"
-      if cond="f4aStatuses[moduleIndex] != \"classified\""
-        do value="Map.set(rejectedSet, String(moduleId), true)"
-        do value="Map.set(rejectedReason, String(moduleId), moduleId)"
-        do value="quarantineQueue.push(moduleId)"
       assign target=workSteps value="workSteps + 1"
+
+    let name=closure value="f4bgraphclosure(moduleIds, f4aStatuses, f4aSeals, canonicalBindingModuleIds, canonicalBindingSpecifiers, canonicalBindingOrdinals, canonicalBindingStarts, workSteps, maxWorkSteps)"
+    if cond="closure[0] == \"limit\""
+      let name=closureLimit value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=closureLimit
+    if cond="closure[0] != \"ok\""
+      let name=closureFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=closureFailure
+    assign target=workSteps value="f2uint(closure[6])"
+    let name=rejectedRows value="[]"
+    let name=blockedRows value="[]"
+    let name=componentRows value="[]"
+    let name=linkFacts value="[]"
+    let name=rejectedSet value="new Map()"
+    let name=blockedSet value="new Map()"
+    let name=componentOf value="new Map()"
+    let name=rejectedTape value="closure[1]"
+    let name=rejectedCursor value=0
+    while cond="rejectedCursor < Text.length(rejectedTape)"
+      let name=item value="f2batchmarked(rejectedTape, rejectedCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= rejectedCursor"
+        let name=rejectedCursorFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=rejectedCursorFailure
+      if cond="f4browcount(item[0]) != 2"
+        let name=rejectedShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=rejectedShapeFailure
+      do value="rejectedRows.push(item[0])"
+      do value="Map.set(rejectedSet, String(f4browfield(item[0], 0)), true)"
+      assign target=rejectedCursor value=next
+    let name=blockedTape value="closure[2]"
+    let name=blockedCursor value=0
+    while cond="blockedCursor < Text.length(blockedTape)"
+      let name=item value="f2batchmarked(blockedTape, blockedCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= blockedCursor"
+        let name=blockedCursorFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=blockedCursorFailure
+      if cond="f4browcount(item[0]) != 2"
+        let name=blockedShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=blockedShapeFailure
+      do value="blockedRows.push(item[0])"
+      do value="Map.set(blockedSet, String(f4browfield(item[0], 0)), true)"
+      assign target=blockedCursor value=next
+    let name=componentTape value="closure[3]"
+    let name=componentCursor value=0
+    while cond="componentCursor < Text.length(componentTape)"
+      let name=item value="f2batchmarked(componentTape, componentCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= componentCursor"
+        let name=componentCursorFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=componentCursorFailure
+      if cond="f4browcount(item[0]) != 2"
+        let name=componentShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=componentShapeFailure
+      do value="componentRows.push(item[0])"
+      assign target=componentCursor value=next
+    let name=cycleFactTape value="closure[4]"
+    let name=cycleFactCursor value=0
+    while cond="cycleFactCursor < Text.length(cycleFactTape)"
+      let name=item value="f2batchmarked(cycleFactTape, cycleFactCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= cycleFactCursor"
+        let name=cycleCursorFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=cycleCursorFailure
+      if cond="f4browcount(item[0]) != 5"
+        let name=cycleShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=cycleShapeFailure
+      do value="linkFacts.push(item[0])"
+      assign target=cycleFactCursor value=next
+    let name=assignmentTape value="closure[5]"
+    let name=assignmentCursor value=0
+    while cond="assignmentCursor < Text.length(assignmentTape)"
+      let name=item value="f2batchmarked(assignmentTape, assignmentCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= assignmentCursor"
+        let name=assignmentCursorFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=assignmentCursorFailure
+      if cond="f4browcount(item[0]) != 2"
+        let name=assignmentShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=assignmentShapeFailure
+      do value="Map.set(componentOf, String(f4browfield(item[0], 0)), f4browfield(item[0], 1))"
+      assign target=assignmentCursor value=next
 
     let name=exportKinds value="new Map()"
     let name=declaredLocals value="new Map()"
@@ -159,42 +281,10 @@ fn name=f4bfullgraph returns="string[]"
       assign target=workSteps value="workSteps + 1"
 
     let name=resolvedTargets value="[]"
-    let name=reverseEdges value="new Map()"
-    let name=outgoingEdges value="new Map()"
-    for name=bindingIndex from=0 to=bindingModuleIds.length
-      let name=bindingModule value="bindingModuleIds[bindingIndex]"
-      let name=target value="bindingSpecifiers[bindingIndex]"
+    for name=bindingIndex from=0 to=canonicalBindingModuleIds.length
+      let name=target value="canonicalBindingSpecifiers[bindingIndex]"
       do value="resolvedTargets.push(target)"
-      let name=priorReverse value="Map.has(reverseEdges, String(target)) ? Map.get(reverseEdges, String(target)) : \"\""
-      let name=priorOutgoing value="Map.has(outgoingEdges, String(bindingModule)) ? Map.get(outgoingEdges, String(bindingModule)) : \"\""
-      do value="Map.set(reverseEdges, String(target), priorReverse + f4item(bindingModule))"
-      do value="Map.set(outgoingEdges, String(bindingModule), priorOutgoing + f4item(target))"
       assign target=workSteps value="workSteps + 1"
-
-    let name=blockedSet value="new Map()"
-    let name=blockedReason value="new Map()"
-    for name=queueIndex from=0 to=moduleCount
-      if cond="queueIndex < quarantineQueue.length"
-        let name=quarantined value="quarantineQueue[queueIndex]"
-        let name=reason value="Map.get(rejectedReason, String(quarantined))"
-        let name=reverseTape value="Map.has(reverseEdges, String(quarantined)) ? Map.get(reverseEdges, String(quarantined)) : \"\""
-        let name=reverseCursor value=0
-        while cond="reverseCursor < Text.length(reverseTape)"
-          let name=reverseItem value="f2batchmarked(reverseTape, reverseCursor, \"i\")"
-          let name=reverseNext value="f2uint(reverseItem[1])"
-          if cond="reverseNext < 0"
-            let name=reverseFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
-            return value=reverseFailure
-          let name=importer value="reverseItem[0]"
-          if cond="!Map.has(rejectedSet, String(importer)) && !Map.has(blockedSet, String(importer))"
-            do value="Map.set(blockedSet, String(importer), true)"
-            do value="Map.set(blockedReason, String(importer), reason)"
-            do value="Map.set(rejectedReason, String(importer), reason)"
-            do value="quarantineQueue.push(importer)"
-          assign target=reverseCursor value=reverseNext
-          assign target=workSteps value="workSteps + 1"
-
-    let name=linkFacts value="[]"
     let name=resolvedBindings value="[]"
     let name=localNames value="new Map()"
     for name=localSymbolIndex from=0 to=symbolModuleIds.length
@@ -202,31 +292,31 @@ fn name=f4bfullgraph returns="string[]"
       do value="Map.set(localNames, String(localKey), symbolKinds[localSymbolIndex])"
 
     let name=firstBindingLocals value="new Map()"
-    for name=firstLocalBindingIndex from=0 to=bindingModuleIds.length
-      let name=localKey value="f4item(bindingModuleIds[firstLocalBindingIndex]) + f4item(bindingLocals[firstLocalBindingIndex])"
+    for name=firstLocalBindingIndex from=0 to=canonicalBindingModuleIds.length
+      let name=localKey value="f4item(canonicalBindingModuleIds[firstLocalBindingIndex]) + f4item(canonicalBindingLocals[firstLocalBindingIndex])"
       if cond="!Map.has(firstBindingLocals, String(localKey))"
         do value="Map.set(firstBindingLocals, String(localKey), String(firstLocalBindingIndex))"
       assign target=workSteps value="workSteps + 1"
 
     let name=pendingExports value="new Map()"
-    for name=reexportCandidateIndex from=0 to=bindingModuleIds.length
-      let name=bindingModule value="bindingModuleIds[reexportCandidateIndex]"
+    for name=reexportCandidateIndex from=0 to=canonicalBindingModuleIds.length
+      let name=bindingModule value="canonicalBindingModuleIds[reexportCandidateIndex]"
       let name=bindingEligible value=true
       if cond="Map.has(rejectedSet, String(bindingModule))"
         assign target=bindingEligible value=false
       if cond="Map.has(blockedSet, String(bindingModule))"
         assign target=bindingEligible value=false
-      if cond="bindingEligible && bindingReexports[reexportCandidateIndex] == \"true\" && bindingImported[reexportCandidateIndex] != \"\""
+      if cond="bindingEligible && canonicalBindingReexports[reexportCandidateIndex] == \"true\" && canonicalBindingImported[reexportCandidateIndex] != \"\""
         let name=target value="resolvedTargets[reexportCandidateIndex]"
         if cond="Map.has(moduleSet, String(target))"
-          let name=exportKey value="f4item(target) + f4item(bindingImported[reexportCandidateIndex])"
+          let name=exportKey value="f4item(target) + f4item(canonicalBindingImported[reexportCandidateIndex])"
           let name=pendingTape value="Map.has(pendingExports, String(exportKey)) ? Map.get(pendingExports, String(exportKey)) : \"\""
-          let name=pendingRow value="f4item(bindingModule) + f4item(bindingLocals[reexportCandidateIndex]) + f4item(bindingKinds[reexportCandidateIndex]) + f4item(String(reexportCandidateIndex))"
+          let name=pendingRow value="f4item(bindingModule) + f4item(canonicalBindingLocals[reexportCandidateIndex]) + f4item(canonicalBindingKinds[reexportCandidateIndex]) + f4item(String(reexportCandidateIndex))"
           do value="Map.set(pendingExports, String(exportKey), pendingTape + f4item(pendingRow))"
       assign target=workSteps value="workSteps + 1"
 
     let name=resolvedReexports value="new Map()"
-    let name=exportQueueLimit value="symbolModuleIds.length + bindingModuleIds.length"
+    let name=exportQueueLimit value="symbolModuleIds.length + canonicalBindingModuleIds.length"
     for name=exportQueueIndex from=0 to=exportQueueLimit
       if cond="exportQueueIndex < exportQueue.length"
         let name=exportKey value="exportQueue[exportQueueIndex]"
@@ -258,8 +348,8 @@ fn name=f4bfullgraph returns="string[]"
           assign target=pendingCursor value=pendingNext
           assign target=workSteps value="workSteps + 1"
 
-    for name=resolvedBindingIndex from=0 to=bindingModuleIds.length
-      let name=bindingModule value="bindingModuleIds[resolvedBindingIndex]"
+    for name=resolvedBindingIndex from=0 to=canonicalBindingModuleIds.length
+      let name=bindingModule value="canonicalBindingModuleIds[resolvedBindingIndex]"
       let name=bindingEligible value=true
       if cond="Map.has(rejectedSet, String(bindingModule))"
         assign target=bindingEligible value=false
@@ -267,30 +357,32 @@ fn name=f4bfullgraph returns="string[]"
         assign target=bindingEligible value=false
       if cond=bindingEligible
         let name=target value="resolvedTargets[resolvedBindingIndex]"
-        let name=imported value="bindingImported[resolvedBindingIndex]"
-        let name=localName value="bindingLocals[resolvedBindingIndex]"
-        let name=requestedKind value="bindingKinds[resolvedBindingIndex]"
-        let name=reexport value="bindingReexports[resolvedBindingIndex]"
+        let name=imported value="canonicalBindingImported[resolvedBindingIndex]"
+        let name=localName value="canonicalBindingLocals[resolvedBindingIndex]"
+        let name=requestedKind value="canonicalBindingKinds[resolvedBindingIndex]"
+        let name=reexport value="canonicalBindingReexports[resolvedBindingIndex]"
+        let name=logicalOrdinal value="canonicalBindingOrdinals[resolvedBindingIndex]"
+        let name=startScalar value="canonicalBindingStarts[resolvedBindingIndex]"
         if cond="!Map.has(moduleSet, String(target))"
-          let name=missingModuleFact value="f4item(\"missing-module\") + f4item(target) + f4item(bindingModule)"
+          let name=missingModuleFact value="f4item(\"missing-module\") + f4item(target) + f4item(bindingModule) + f4item(logicalOrdinal) + f4item(startScalar)"
           do value="linkFacts.push(missingModuleFact)"
         else
           if cond="imported != \"\""
             let name=exportKey value="f4item(target) + f4item(imported)"
             if cond="!Map.has(exportKinds, String(exportKey))"
-              let name=missingExportFact value="f4item(\"missing-export\") + f4item(imported) + f4item(bindingModule)"
+              let name=missingExportFact value="f4item(\"missing-export\") + f4item(imported) + f4item(bindingModule) + f4item(logicalOrdinal) + f4item(startScalar)"
               do value="linkFacts.push(missingExportFact)"
             else
               let name=actualKind value="Map.get(exportKinds, String(exportKey))"
               let name=effectiveKind value="requestedKind == \"\" ? actualKind : requestedKind"
               let name=bindingExportable value=true
               if cond="effectiveKind != actualKind"
-                let name=kindFact value="f4item(\"kind-mismatch\") + f4item(imported) + f4item(bindingModule)"
+                let name=kindFact value="f4item(\"kind-mismatch\") + f4item(imported) + f4item(bindingModule) + f4item(logicalOrdinal) + f4item(startScalar)"
                 do value="linkFacts.push(kindFact)"
                 assign target=bindingExportable value=false
               let name=localKey value="f4item(bindingModule) + f4item(localName)"
               if cond="Map.has(localNames, String(localKey))"
-                let name=duplicateLocalFact value="f4item(\"duplicate-local-binding\") + f4item(localName) + f4item(bindingModule)"
+                let name=duplicateLocalFact value="f4item(\"duplicate-local-binding\") + f4item(localName) + f4item(bindingModule) + f4item(logicalOrdinal) + f4item(startScalar)"
                 do value="linkFacts.push(duplicateLocalFact)"
                 assign target=bindingExportable value=false
               else
@@ -298,63 +390,49 @@ fn name=f4bfullgraph returns="string[]"
               if cond="reexport == \"true\""
                 if cond="bindingExportable && !Map.has(resolvedReexports, String(resolvedBindingIndex))"
                   if cond="Map.has(exportKinds, String(localKey))"
-                    let name=duplicateExportFact value="f4item(\"duplicate-export\") + f4item(localName) + f4item(bindingModule)"
+                    let name=duplicateExportFact value="f4item(\"duplicate-export\") + f4item(localName) + f4item(bindingModule) + f4item(logicalOrdinal) + f4item(startScalar)"
                     do value="linkFacts.push(duplicateExportFact)"
                   else
                     do value="Map.set(exportKinds, String(localKey), effectiveKind)"
-              let name=resolvedBinding value="f4item(target) + f4item(imported) + f4item(localName) + f4item(effectiveKind) + f4item(reexport) + f4item(bindingModule)"
+              let name=resolvedBinding value="f4item(target) + f4item(imported) + f4item(localName) + f4item(effectiveKind) + f4item(reexport) + f4item(bindingModule) + f4item(canonicalBindingOrdinals[resolvedBindingIndex]) + f4item(canonicalBindingStarts[resolvedBindingIndex])"
               do value="resolvedBindings.push(resolvedBinding)"
       assign target=workSteps value="workSteps + 1"
 
-    let name=indegree value="new Map()"
-    let name=validCount value=0
-    for name=eligibleModuleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[eligibleModuleIndex]"
-      let name=moduleEligible value=true
-      if cond="Map.has(rejectedSet, String(moduleId))"
-        assign target=moduleEligible value=false
-      if cond="Map.has(blockedSet, String(moduleId))"
-        assign target=moduleEligible value=false
-      if cond=moduleEligible
-        do value="Map.set(indegree, String(moduleId), 0)"
-        assign target=validCount value="validCount + 1"
-    for name=indegreeBindingIndex from=0 to=bindingModuleIds.length
-      let name=source value="bindingModuleIds[indegreeBindingIndex]"
-      let name=target value="resolvedTargets[indegreeBindingIndex]"
-      if cond="Map.has(indegree, String(source)) && Map.has(indegree, String(target))"
-        do value="Map.set(indegree, String(target), Map.get(indegree, String(target)) + 1)"
-    let name=topologyQueue value="[]"
-    for name=topologySeedModuleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[topologySeedModuleIndex]"
-      if cond="Map.has(indegree, String(moduleId)) && Map.get(indegree, String(moduleId)) == 0"
-        do value="topologyQueue.push(moduleId)"
-    let name=processed value="new Map()"
-    let name=processedCount value=0
-    for name=topologyQueueIndex from=0 to=moduleCount
-      if cond="topologyQueueIndex < topologyQueue.length"
-        let name=current value="topologyQueue[topologyQueueIndex]"
-        if cond="!Map.has(processed, String(current))"
-          do value="Map.set(processed, String(current), true)"
-          assign target=processedCount value="processedCount + 1"
-          let name=outgoingTape value="Map.has(outgoingEdges, String(current)) ? Map.get(outgoingEdges, String(current)) : \"\""
-          let name=outgoingCursor value=0
-          while cond="outgoingCursor < Text.length(outgoingTape)"
-            let name=outgoingItem value="f2batchmarked(outgoingTape, outgoingCursor, \"i\")"
-            let name=outgoingNext value="f2uint(outgoingItem[1])"
-            if cond="outgoingNext < 0"
-              let name=outgoingFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
-              return value=outgoingFailure
-            let name=target value="outgoingItem[0]"
-            if cond="Map.has(indegree, String(target))"
-              let name=nextDegree value="Map.get(indegree, String(target)) - 1"
-              do value="Map.set(indegree, String(target), nextDegree)"
-              if cond="nextDegree == 0"
-                do value="topologyQueue.push(target)"
-            assign target=outgoingCursor value=outgoingNext
-            assign target=workSteps value="workSteps + 1"
-    if cond="processedCount != validCount"
-      let name=cycleFact value="f4item(\"module-cycle\") + f4item(\"\") + f4item(\"\")"
-      do value="linkFacts.push(cycleFact)"
+    let name=resolvedBindingCharge value="f4bsortcharge(resolvedBindings, workSteps, maxWorkSteps)"
+    if cond="resolvedBindingCharge[0] != \"ok\""
+      let name=resolvedBindingLimit value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=resolvedBindingLimit
+    assign target=workSteps value="f2uint(resolvedBindingCharge[1])"
+    let name=orderedBindings value="f4bsortrows(resolvedBindings, \"binding-row\")"
+    if cond="orderedBindings.length != resolvedBindings.length"
+      let name=bindingSortFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=bindingSortFailure
+    let name=factWrappers value="[]"
+    for name=factIndex from=0 to=linkFacts.length
+      let name=fact value="linkFacts[factIndex]"
+      if cond="f4browcount(fact) != 5"
+        let name=factShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=factShapeFailure
+      let name=factModule value="f4browfield(fact, 2)"
+      if cond="!Map.has(componentOf, String(factModule))"
+        let name=factOwnerFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=factOwnerFailure
+      let name=factWrapper value="f4item(Map.get(componentOf, String(factModule))) + fact"
+      do value="factWrappers.push(factWrapper)"
+    let name=factCharge value="f4bsortcharge(factWrappers, workSteps, maxWorkSteps)"
+    if cond="factCharge[0] != \"ok\""
+      let name=factLimit value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=factLimit
+    assign target=workSteps value="f2uint(factCharge[1])"
+    let name=orderedFactWrappers value="f4bsortrows(factWrappers, \"fact-wrapper\")"
+    if cond="orderedFactWrappers.length != factWrappers.length"
+      let name=factSortFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=factSortFailure
+    let name=orderedFacts value="[]"
+    for name=orderedFactIndex from=0 to=orderedFactWrappers.length
+      let name=wrapper value="orderedFactWrappers[orderedFactIndex]"
+      let name=orderedFact value="f4item(f4browfield(wrapper, 1)) + f4item(f4browfield(wrapper, 2)) + f4item(f4browfield(wrapper, 3)) + f4item(f4browfield(wrapper, 4)) + f4item(f4browfield(wrapper, 5))"
+      do value="orderedFacts.push(orderedFact)"
     if cond="workSteps > maxWorkSteps"
       let name=workFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
       return value=workFailure
@@ -362,32 +440,8 @@ fn name=f4bfullgraph returns="string[]"
       let name=lateFailure value="f4bnonprooffailure(\"FORCED_LATE_FAILURE\")"
       return value=lateFailure
 
-    let name=rejectedRows value="[]"
-    let name=blockedRows value="[]"
-    let name=componentRows value="[]"
-    for name=resultModuleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[resultModuleIndex]"
-      if cond="Map.has(rejectedSet, String(moduleId))"
-        let name=rejectedRow value="f4item(moduleId) + f4item(Map.get(sealMap, String(moduleId)))"
-        do value="rejectedRows.push(rejectedRow)"
-      else
-        if cond="!Map.has(blockedSet, String(moduleId))"
-          let name=componentRow value="f4item(moduleId) + f4item(Map.get(sealMap, String(moduleId)))"
-          do value="componentRows.push(componentRow)"
-    let name=emittedBlocked value="new Map()"
-    for name=blockedPass from=0 to=moduleCount
-      let name=minimumBlocked value="\"\""
-      for name=moduleIndex from=0 to=moduleCount
-        let name=moduleId value="moduleIds[moduleIndex]"
-        if cond="Map.has(blockedSet, String(moduleId)) && !Map.has(emittedBlocked, String(moduleId))"
-          if cond="minimumBlocked == \"\" || moduleId < minimumBlocked"
-            assign target=minimumBlocked value=moduleId
-      if cond="minimumBlocked != \"\""
-        let name=blockedRow value="f4item(minimumBlocked) + f4item(Map.get(blockedReason, String(minimumBlocked)))"
-        do value="blockedRows.push(blockedRow)"
-        do value="Map.set(emittedBlocked, String(minimumBlocked), true)"
     let name=status value="\"linked\""
-    if cond="rejectedRows.length > 0 || blockedRows.length > 0 || linkFacts.length > 0"
+    if cond="rejectedRows.length > 0 || blockedRows.length > 0 || orderedFacts.length > 0"
       assign target=status value="\"rejected\""
-    let name=result value="f4bfullresult(status, moduleCount, rejectedRows, blockedRows, linkFacts, componentRows, resolvedBindings, identityRows, maxEncodedBytes)"
+    let name=result value="f4bfullresult(status, moduleCount, rejectedRows, blockedRows, orderedFacts, componentRows, orderedBindings, identityRows, maxEncodedBytes, workSteps, maxWorkSteps)"
     return value=result

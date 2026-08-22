@@ -1,7 +1,7 @@
 {
   "format": "kern.frontend.f4-declarations-policy.4",
   "documentResultFormat": "kern.frontend.f4-document.2",
-  "moduleSetResultFormat": "kern.frontend.f4-module-set.3",
+  "moduleSetResultFormat": "kern.frontend.f4-module-set.4",
   "documentPrivateAbi": {
     "arity": 109,
     "stateOrder": ["f1", "f2b", "f3"],
@@ -184,15 +184,23 @@
     },
     {
       "path": "examples/kern-frontend/f4-module-set-output.kern",
-      "sha256": "984d55d0c9c2e03296e5f271fd9a14c4889b7e6df98400d187a626f538a16642"
+      "sha256": "fced4993844be83264df5fd665459691d8ddbdbf19d4a9a38d01838db158c260"
     },
     {
       "path": "examples/kern-frontend/f4-module-set-prefix.kern",
-      "sha256": "abf5194779217bd80263cb19a5f7f9bb6ba623a1f737a9502518ed2e72f5cbdf"
+      "sha256": "d8234e2568394afed6050b859783f31dad6154794ba41441e4a4c5c1b166eaa0"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-order.kern",
+      "sha256": "3446f7ffe4ca961a469dbd7bca9dbdc6986a769434a8c23e5d9085d0bb1d269f"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-closure.kern",
+      "sha256": "b729ab8181687ef728d3d6891331e7c73be75c172ebd4dee33669cdf10ece68c"
     },
     {
       "path": "examples/kern-frontend/f4-module-set-graph.kern",
-      "sha256": "53230fb3065de27897e2f53e3ae0bb479d77e88df601ad410b29ed1b06350945"
+      "sha256": "fbf8888a6df36df6a6ff9d73c27167f2d104903b29059bede9dd84fe1eaae1cb"
     },
     {
       "path": "examples/kern-frontend/f4-module-set-main.kern",

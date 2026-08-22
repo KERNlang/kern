@@ -11,6 +11,8 @@ const COMPOSITION_PATHS = [
   'examples/kern-frontend/f4-path-contract.kern',
   'examples/kern-frontend/f4-module-set-output.kern',
   'examples/kern-frontend/f4-module-set-prefix.kern',
+  'examples/kern-frontend/f4-module-set-order.kern',
+  'examples/kern-frontend/f4-module-set-closure.kern',
   'examples/kern-frontend/f4-module-set-graph.kern',
   'examples/kern-frontend/f4-module-set-main.kern',
 ];
@@ -48,6 +50,7 @@ function interfaceBlock(receipt) {
   const bindings = receipt.bindings.map((row) => frame([
     receipt.header.moduleId, row.targetModuleId, row.imported, row.local,
     row.requestedKind, row.reexport ? 'true' : 'false',
+    String(row.logicalOrdinal), String(row.startScalar),
   ].map(frame).join(''))).join('');
   return frame([symbols, bindings].map(frame).join(''));
 }
