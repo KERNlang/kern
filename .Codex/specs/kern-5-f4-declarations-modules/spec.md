@@ -1428,10 +1428,16 @@ rather than a new host-owned F4 semantic path:
   swap drift, ABI/version identity, exact/cap-minus-one work, and structural
   source canaries in `a6-detached-closure.test.mjs`; the expanded complete F4
   declarations wall passed `383/383` on the final candidate.
-- **[F4-A7 PROPOSED]** Module-set tests cover the immutable valid/malformed F0
-  goldens, forward/backward imports, aliases, reexports, duplicates, missing
-  modules/symbols, wrong kinds, cycles, unsupported roots, and deterministic
-  diagnostic order.
+- **[F4-A7 IMPLEMENTED | VERIFIED]** F4B `.4` transports authenticated binding
+  positions and emits canonical `R/T/V`, SCC member identities, true sourced
+  cycle facts, normalized bindings, and ordered ordinary link facts. The
+  source-backed reference verifier independently recomputes the graph from
+  public F4A documents. The focused M2 matrix passed `17/17`, adjacent
+  module-set/resource/source-validity gates passed `17/17`, `30/30`, and
+  `17/17`, the complete F4 declarations wall passed `481/481`, and the
+  post-repair independent correctness review reported no findings. Evidence is
+  pinned by `m2-canonical-graph.test.mjs`, `m2-reference-graph.mjs`, and the M2
+  satellite spec. This does not close F4-A8 through F4-A10 or promote F4.
 - **[F4-A8 PROPOSED]** Mutations kill prerequisite forgery, semantic host
   delegation, shadow-receipt consumption, catalog omission, constant output,
   partial failure, post-hoc sorting, hardcoded limits, and seal drift.

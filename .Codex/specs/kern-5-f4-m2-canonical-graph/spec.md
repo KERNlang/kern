@@ -1,6 +1,7 @@
 # KERN 5 F4 M2 Canonical Graph Closure
 
-Status: READY FOR RED — implementation and acceptance pending
+Status: IMPLEMENTED AND LOCALLY VERIFIED — F4-wide promotion pending
+Prior status: READY FOR RED — retained as lifecycle provenance
 Baseline: `origin/main` `8f1d1934f4c951f9cb050a509c965321686c7f96`
 Scope: F4-A7 and F4-C15 only
 
@@ -135,7 +136,9 @@ This slice does not promote F4, implement F5, or close F4-A8 through F4-A10.
   adjacency and selects the lexicographically smallest true DFS back-edge.
   The fact uses the edge importer as `moduleId`, target as `detail`, and the
   edge binding's logical ordinal and start scalar. A chord that does not close
-  the DFS cycle is not a valid witness.
+  the DFS cycle is not a valid witness. When duplicate binding intents produce
+  the same topology edge, the edge witness is the canonical minimum
+  `(startScalar, logicalOrdinal)` occurrence selected before DFS.
 - **[M2-C18 DECIDED]** Ordinary link facts are ordered by:
 
   `(componentMinimumId, moduleId, startScalar, ruleRank, code, detail, logicalOrdinal)`.
@@ -214,7 +217,9 @@ This slice does not promote F4, implement F5, or close F4-A8 through F4-A10.
   collisions, and duplicate exports remain rejected and never seed exports.
 - **[M2-A9 DECIDED]** Duplicate topology edges do not change SCCs or quarantine
   and do not multiply graph-work debits; duplicate binding semantics remain
-  independently visible.
+  independently visible. A duplicate occurrence of the selected true DFS
+  back-edge proves that the emitted witness uses the canonical minimum
+  `(startScalar, logicalOrdinal)` occurrence.
 - **[M2-A10 DECIDED]** `.3` with widened rows, `.4` with old row arities, forged
   component membership/minimum/seal, forged T reason, decreasing fact/binding
   order, and stale terminal counts all reject at the decoder or trusted
@@ -287,3 +292,31 @@ dropped by the orchestrator.
 - The tribunal's rollout flag was rejected because no promoted/external `.3`
   consumer exists. Explicit `.4` identity plus the Git rollback boundary is the
   smaller truthful internal-oracle migration.
+
+## Local implementation evidence — 2026-08-22
+
+- **[M2-E1 VERIFIED]** The focused M2 matrix passed `17/17`, including
+  request-order invariance, whole-graph SCC/quarantine, self-loop and disjoint
+  cycle facts, chord rejection, duplicate-edge witness selection, all six
+  ordinary fact ranks, twenty re-export permutations, strict decoder
+  mutations, exact/cap-minus-one work, and monotone chain/cycle families.
+- **[M2-E2 VERIFIED]** The independent source-backed verifier in
+  `m2-reference-graph.mjs` recomputes `R/T/V`, SCC membership, propagated
+  rejected minima, true DFS back-edge witnesses, grounded re-exports, facts,
+  bindings, and every canonical graph partition from public F4A documents.
+- **[M2-E3 VERIFIED]** Adjacent module-set tests passed `17/17`; resource-prefix
+  tests passed `30/30`; resource-prefix decoder plus F4B source-validity tests
+  passed `17/17`.
+- **[M2-E4 VERIFIED]** The complete F4 declaration wall passed `481/481` after
+  the core build. Lint checked `1,377` files, repo consistency passed, all `43`
+  policy descriptors matched their exact bytes, and deterministic authority
+  regeneration produced no diff.
+- **[M2-E5 VERIFIED]** The initial high-risk role review used the complete live
+  six-engine roster. After its verified blockers were repaired, targeted
+  independent correctness review
+  `~/.agon/runs/review-1787396300358-783iyw-m2-review-fixes` reported no
+  findings.
+
+This evidence closes only F4-A7/C15 as a bounded local candidate. F4-A8 through
+F4-A10, C13-GLOBAL, whole-F4 promotion, terminal frontend promotion, release,
+publication, and deployment remain open.
