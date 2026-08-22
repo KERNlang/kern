@@ -32,6 +32,11 @@ test('A8.1 semantic ownership scanner kills exact host classifiers and ignores i
     ['parseDocument'],
     'an unreachable authored semantic call still violates ownership',
   );
+  assert.deepEqual(
+    scanSemanticOwnership('let "malformed prefix" name=x value="parseDocument(source)"'),
+    ['parseDocument'],
+    'a leading quoted token cannot hide a later authored value expression',
+  );
 });
 
 test('A8.1 shadow-closure scanner kills dependency sites and ignores comments and ordinary paths', () => {
