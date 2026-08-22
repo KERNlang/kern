@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { F4_COMPOSITION_PATHS } from './policy-validation.mjs';
+
 const ROOT_SOURCE = readFileSync(
   new URL('../../examples/kern-frontend/f4-declarations-main.kern', import.meta.url), 'utf8');
-const SEMANTIC_SOURCE = readFileSync(
-  new URL('../../examples/kern-frontend/f4-declarations-semantic.kern', import.meta.url), 'utf8');
+const F4_SOURCE = F4_COMPOSITION_PATHS.map((path) => readFileSync(
+  new URL(`../../${path}`, import.meta.url), 'utf8')).join('\n');
 const REPLAY_CALLS = [
   'f4pathmoduleid', 'f4authoritydrift', 'f4f1drift', 'f4f2bdrift',
   'structuref3document', 'f4f3sidecartapes',
@@ -56,6 +58,6 @@ test('F4 root authenticates each replay dependency exactly once', () => {
 });
 
 test('F4 semantic helper does not repeat root replay dependencies', () => {
-  assert.deepEqual(replayCounts(SEMANTIC_SOURCE, 'classifyf4available'), Object.fromEntries(
+  assert.deepEqual(replayCounts(F4_SOURCE, 'classifyf4available'), Object.fromEntries(
     REPLAY_CALLS.map((call) => [call, 0])));
 });

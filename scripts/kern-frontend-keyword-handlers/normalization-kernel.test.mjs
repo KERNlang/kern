@@ -29,11 +29,11 @@ function assertKernelStructure(kernel, simple) {
   assert.equal(count(simple, 'normalizekeywordhandlerwrites('), 1);
   assert.doesNotMatch(simple, /let name=bareName|let name=complexWrites/u);
   assert.match(kernel, /assign target=cursor value="initialCursor"/u);
-  for (const field of ['writeNames', 'writeKinds', 'writeValues']) {
-    assert.match(kernel, new RegExp(`out\\.push\\(${field}\\[writeIndex\\]\\)`, 'u'));
+  for (const field of ['writeName', 'writeKind', 'writeValue']) {
+    assert.match(kernel, new RegExp(`out\\.push\\(${field}\\)`, 'u'));
   }
-  for (const field of ['writeStarts', 'writeEnds']) {
-    assert.match(kernel, new RegExp(`out\\.push\\(String\\(${field}\\[writeIndex\\]\\)\\)`, 'u'));
+  for (const field of ['writeStart', 'writeEnd']) {
+    assert.match(kernel, new RegExp(`out\\.push\\(String\\(${field}\\)\\)`, 'u'));
   }
   assert.doesNotMatch(
     kernel,
@@ -94,20 +94,24 @@ function runLocalFields(content) {
 }
 
 function decodedKernel(fields) {
-  if (fields.length === 0) return { writes: [] };
-  assert.ok(fields.length >= 4 && (fields.length - 4) % 5 === 0);
+  assert.ok(fields.length >= 6 && (fields.length - 6) % 6 === 0);
+  const status = fields[0];
   const writes = [];
-  for (let cursor = 4; cursor < fields.length; cursor += 5) {
+  for (let cursor = 6; cursor < fields.length; cursor += 6) {
     writes.push({
       name: fields[cursor],
       kind: fields[cursor + 1],
       value: fields[cursor + 2],
       startScalar: Number(fields[cursor + 3]),
       endScalar: Number(fields[cursor + 4]),
+      provenance: fields[cursor + 5],
     });
   }
-  assert.equal(writes.length, Number(fields[3]));
-  return { type: fields[0], initialCursor: Number(fields[1]), finalCursor: Number(fields[2]), writes };
+  assert.equal(writes.length, Number(fields[4]));
+  return {
+    status, type: fields[1], initialCursor: Number(fields[2]), finalCursor: Number(fields[3]),
+    workSteps: Number(fields[5]), writes,
+  };
 }
 
 test('source-form normalization is owned by one receipt-neutral KERN kernel', () => {
@@ -118,16 +122,20 @@ test('neutral kernel preserves simple, raw, structured, collection, range, and f
   const route = decodedKernel(runKernel('route GET /users name=listUsers'));
   assert.equal(route.type, 'route');
   assert.deepEqual(route.writes, [
-    { name: 'method', kind: 'text', value: 'get', startScalar: 6, endScalar: 9 },
-    { name: 'path', kind: 'text', value: '/users', startScalar: 10, endScalar: 16 },
+    { name: 'method', kind: 'text', value: 'get', startScalar: 6, endScalar: 9,
+      provenance: 'authored-normalized-scalar' },
+    { name: 'path', kind: 'text', value: '/users', startScalar: 10, endScalar: 16,
+      provenance: 'authored-scalar' },
   ]);
   assert.ok(route.finalCursor < normalizeRetainedTokenStreamOracle('route GET /users name=listUsers', policy).tokens.length);
 
   assert.deepEqual(decodedKernel(runKernel('return first +\n  second')).writes, [
-    { name: 'value', kind: 'text', value: 'first +\n  second', startScalar: 7, endScalar: 23 },
+    { name: 'value', kind: 'text', value: 'first +\n  second', startScalar: 7, endScalar: 23,
+      provenance: 'authored-scalar' },
   ]);
   assert.deepEqual(decodedKernel(runKernel('doc "hello 🚀"')).writes, [
-    { name: 'text', kind: 'text', value: 'hello 🚀', startScalar: 4, endScalar: 13 },
+    { name: 'text', kind: 'text', value: 'hello 🚀', startScalar: 4, endScalar: 13,
+      provenance: 'authored-normalized-scalar' },
   ]);
 
   const fn = decodedKernel(runKernel('fn greet(name: string): Result<string> async=true'));
@@ -139,9 +147,10 @@ test('neutral kernel preserves simple, raw, structured, collection, range, and f
   assert.deepEqual(params.writes.map(({ name, kind }) => [name, kind]), [['items', 'params-items-v1']]);
 
   const fallback = decodedKernel(runKernel('fn name=legacy returns=void'));
+  assert.equal(fallback.status, 'success');
   assert.deepEqual(fallback.writes, []);
   assert.equal(fallback.finalCursor, fallback.initialCursor);
-  assert.deepEqual(runKernel('route GET /users', 1), []);
+  assert.equal(decodedKernel(runKernel('route GET /users', 1)).status, 'limit');
 });
 
 test('all 52 authored local receipts retain the exact pre-extraction byte digest', () => {

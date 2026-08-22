@@ -197,7 +197,7 @@ const FACT_CASES = [
   },
   {
     name: 'invalid child', moduleId: 'invalid-child.kern',
-    source: 'module name=app\n  list\n    text value="detached-one"\n    text value="detached-two"\n',
+    source: 'module name=app\n  list\n    text\n    text\n    text\n',
     code: 'invalid-child',
   },
   {

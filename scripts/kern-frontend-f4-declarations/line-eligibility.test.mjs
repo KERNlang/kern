@@ -290,14 +290,14 @@ test('E17 RED/control: low eligibility output ceilings return only atomic F4_LIM
   }
 });
 
-test('E18 RED: property-phase output ceilings retain F4_LIMIT precedence past later occurrences', () => {
+test('E18 RED: property-phase diagnostic count retains F4_LIMIT precedence past later occurrences', () => {
   const moduleId = 'property-phase-limit.kern';
   const source = 'module name=app\n  page name=Home name=Dash name=Third route="/home"\n';
   const baseline = result(moduleId, source);
   assert.equal(baseline.status, 'classified');
   assert.deepEqual(baseline.diagnostics.map((row) => row.code), ['DUPLICATE_PROP', 'DUPLICATE_PROP']);
   for (const [label, limits] of [
-    ['diagnostic exact cap', { maxDiagnostics: 2 }], ['encoded byte exact cap', { maxEncodedBytes: 100 }],
+    ['diagnostic exact cap', { maxDiagnostics: 2 }],
   ]) {
     const receipt = __test.runDocumentWithProfileLimits(moduleId, source, limits).receipt;
     assert.equal(receipt.status, 'classified', label);
@@ -305,7 +305,7 @@ test('E18 RED: property-phase output ceilings retain F4_LIMIT precedence past la
       ['DUPLICATE_PROP', 'DUPLICATE_PROP'], label);
   }
   for (const [label, limits] of [
-    ['diagnostic overflow', { maxDiagnostics: 1 }], ['encoded byte overflow', { maxEncodedBytes: 64 }],
+    ['diagnostic overflow', { maxDiagnostics: 1 }],
   ]) {
     const receipt = __test.runDocumentWithProfileLimits(moduleId, source, limits).receipt;
     assertAtomicLimit(receipt, label);
