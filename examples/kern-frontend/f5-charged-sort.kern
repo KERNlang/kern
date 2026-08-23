@@ -1,7 +1,8 @@
 fn name=f5chargedsort returns="string[]"
   param name=entryFrames type="string[]"
+  param name=entryWork type=number
   handler lang="kern"
-    let name=work value=0
+    let name=work value=entryWork
     let name=order value="[]"
     let name=positionToOrdinal value="new Map()"
     let name=previous value="\"\""
@@ -16,12 +17,14 @@ fn name=f5chargedsort returns="string[]"
             return value="[\"2\", String(work)]"
         else
           let name=candidateEntry value="f5rowread(List.index(entryFrames, candidateIndex))"
+          assign target=work value="work + f5rowcodecwork(List.index(entryFrames, candidateIndex), candidateEntry)"
           if cond="candidateEntry.length != 2"
             return value="[\"2\", String(work)]"
           if cond="selectedIndex < 0"
             assign target=selectedIndex value=candidateIndex
           else
             let name=currentEntry value="f5rowread(List.index(entryFrames, selectedIndex))"
+            assign target=work value="work + f5rowcodecwork(List.index(entryFrames, selectedIndex), currentEntry)"
             if cond="currentEntry.length != 2"
               return value="[\"2\", String(work)]"
             let name=candidateKey value="List.index(candidateEntry, 0)"
@@ -33,6 +36,7 @@ fn name=f5chargedsort returns="string[]"
       if cond="selectedIndex < 0"
         return value="[\"2\", String(work)]"
       let name=selectedEntry value="f5rowread(List.index(entryFrames, selectedIndex))"
+      assign target=work value="work + f5rowcodecwork(List.index(entryFrames, selectedIndex), selectedEntry)"
       if cond="selectedEntry.length != 2"
         return value="[\"2\", String(work)]"
       let name=selectedKey value="List.index(selectedEntry, 0)"

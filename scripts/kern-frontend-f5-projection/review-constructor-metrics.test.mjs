@@ -217,6 +217,45 @@ test('Amendment-2 source wall has one charged framed sorter and no result rewrap
     'duplicate drift retains the equality comparison and all prior sort work');
 });
 
+test('Amendment-2 ordinal composition has no hidden ordered payload arrays or helper rewraps', () => {
+  const directory = resolve(ROOT, 'examples/kern-frontend');
+  const files = readdirSync(directory).filter((name) => /^f5-.*\.kern$/u.test(name));
+  const source = files.map((name) => readFileSync(resolve(directory, name), 'utf8')).join('\n');
+  assert.ok(files.includes('f5-ordinal-composites.kern'));
+  assert.match(source, /fn name=f5recordordinals /u);
+  assert.match(source, /fn name=f5listordinals /u);
+  assert.doesNotMatch(source,
+    /(?:sorted|ordered)(?:Property|Export|Binding|Source|Module|Entry)*(?:Keys|Values|Entries)\s+value="\[\]"/u,
+    'the full composition retains no caller/helper ordered payload arrays');
+  assert.doesNotMatch(source,
+    /(?:sorted|ordered)(?:Property|Export|Binding|Source|Module|Entry)*(?:Keys|Values|Entries)\.push/u,
+    'helpers cannot hide a sorted payload rewrap');
+  assert.doesNotMatch(source, /let name=modules value="\[\]"/u,
+    'module projection retains final entry frames plus scalar ordinals, not a sorted module payload array');
+  const ordinalSource = readFileSync(resolve(directory, 'f5-ordinal-composites.kern'), 'utf8');
+  const ordinalRecord = ordinalSource.slice(ordinalSource.indexOf('fn name=f5recordordinals '),
+    ordinalSource.indexOf('\nfn name=f5listordinals '));
+  assert.doesNotMatch(ordinalRecord, /let name=(?:keys|values|entries) value="\[\]"/u,
+    'ordinal record construction never reconstructs a full payload array');
+  assert.doesNotMatch(ordinalSource, /let name=parts value="\[\]"/u,
+    'ordinal constructors retain only logarithmic balanced-fold buckets');
+});
+
+test('Amendment-2 sorter charges every row codec operation without hidden decodes', () => {
+  const directory = resolve(ROOT, 'examples/kern-frontend');
+  const files = readdirSync(directory).filter((name) => /^f5-.*\.kern$/u.test(name));
+  const source = files.map((name) => readFileSync(resolve(directory, name), 'utf8')).join('\n');
+  const sorter = readFileSync(resolve(directory, 'f5-charged-sort.kern'), 'utf8');
+  const rowReads = sorter.match(/f5rowread\(/gu)?.length ?? 0;
+  const codecCharges = sorter.match(/f5rowcodecwork\(/gu)?.length ?? 0;
+  assert.equal(codecCharges, rowReads,
+    'every actual sorter row decode has a colocated codec scan/copy charge');
+  const codec = source.slice(source.indexOf('fn name=f5rowcodecwork '),
+    source.indexOf('\nfn name=', source.indexOf('fn name=f5rowcodecwork ') + 1));
+  assert.doesNotMatch(codec, /f5rowread\(/u,
+    'the codec charge helper cannot hide an additional uncharged decode');
+});
+
 test('Amendment-2 duplicate drift carries charged sorter work into the public receipt', () => {
   const modules = [{
     moduleId: 'duplicate-work.kern',
@@ -227,6 +266,25 @@ test('Amendment-2 duplicate drift carries charged sorter work into the public re
   assert.equal(result.receipt.diagnostics[0].code, 'F5_F4_DRIFT');
   assert.ok(result.receipt.workSteps > 500,
     `duplicate discovery work must reach the public receipt: ${result.receipt.workSteps}`);
+});
+
+test('Amendment-2 duplicate drift has exact work at its cap and one-under', () => {
+  const modules = [{
+    moduleId: 'duplicate-work.kern',
+    source: 'fn name=main export=true\n  handler lang=kern\n    return value="{z: 1, a: 2}"\n',
+  }];
+  const result = __test.runProjectionWithF4Runner(modules, duplicateLateRecordKey);
+  assert.equal(result.receipt.workSteps, 9255,
+    'duplicate discovery includes exact child construction, entry encoding, codec, comparison, and move work');
+  const exact = __test.runProjectionWithF4RunnerAndProfileLimits(
+    modules, duplicateLateRecordKey, { maxWorkSteps: result.receipt.workSteps });
+  const under = __test.runProjectionWithF4RunnerAndProfileLimits(
+    modules, duplicateLateRecordKey, { maxWorkSteps: result.receipt.workSteps - 1 });
+  assert.equal(exact.receipt.diagnostics[0].code, 'F5_F4_DRIFT');
+  assert.equal(under.receipt.diagnostics[0].code, 'F5_F4_DRIFT');
+  assert.equal(exact.receipt.workSteps, result.receipt.workSteps);
+  assert.equal(under.receipt.workSteps, result.receipt.workSteps,
+    'drift precedence preserves the exact failure ledger at one-under');
 });
 
 test('Amendment-2 prices exact composite copies before gates and pins frame overhead', () => {
