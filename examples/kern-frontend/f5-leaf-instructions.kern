@@ -4,9 +4,14 @@ fn name=f5leaf returns=string
   param name=value type=string
   param name=countsString type=boolean
   handler lang="kern"
-    let name=text value="tag + String(Text.length(value)) + \":\" + value"
-    let name=maxString value="countsString ? Text.length(value) : 0"
-    return value="f5resultsuccess(limits, Text.length(text), 1, 1, 1, 0, maxString, text)"
+    let name=valueLength value="Text.length(value)"
+    let name=textLength value="1 + Text.length(String(valueLength)) + 1 + valueLength"
+    let name=maxString value="countsString ? valueLength : 0"
+    let name=gate value="f5resultgate(limits, textLength, 1, 1, 1, 0, maxString, textLength)"
+    if cond="!f5validuinttext(gate)"
+      return value=gate
+    let name=text value="tag + String(valueLength) + \":\" + value"
+    return value="f5resultcommit(textLength, f5uint(gate), 1, 1, 0, maxString, text)"
 
 fn name=f5text returns=string
   param name=limits type=string
@@ -30,10 +35,16 @@ fn name=f5bool returns=string
   param name=limits type=string
   param name=value type=boolean
   handler lang="kern"
+    let name=gate value="f5resultgate(limits, 2, 1, 1, 1, 0, 0, 2)"
+    if cond="!f5validuinttext(gate)"
+      return value=gate
     let name=text value="value ? \"B1\" : \"B0\""
-    return value="f5resultsuccess(limits, 2, 1, 1, 1, 0, 0, text)"
+    return value="f5resultcommit(2, f5uint(gate), 1, 1, 0, 0, text)"
 
 fn name=f5null returns=string
   param name=limits type=string
   handler lang="kern"
-    return value="f5resultsuccess(limits, 1, 1, 1, 1, 0, 0, \"N\")"
+    let name=gate value="f5resultgate(limits, 1, 1, 1, 1, 0, 0, 1)"
+    if cond="!f5validuinttext(gate)"
+      return value=gate
+    return value="f5resultcommit(1, f5uint(gate), 1, 1, 0, 0, \"N\")"

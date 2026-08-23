@@ -20,7 +20,7 @@ fn name=f5bindingvalue returns=string
     do value="values.push(kindValue)"
     do value="values.push(localValue)"
     do value="values.push(reexportValue)"
-    let name=binding value="f5record(limits, keys, values)"
+    let name=binding value="f5record(limits, keys, values, 0)"
     return value=binding
 
 fn name=f5exportvalue returns=string
@@ -42,7 +42,7 @@ fn name=f5exportvalue returns=string
     do value="values.push(kindValue)"
     do value="values.push(nameValue)"
     do value="values.push(sourceValue)"
-    let name=exported value="f5record(limits, keys, values)"
+    let name=exported value="f5record(limits, keys, values, 0)"
     return value=exported
 
 fn name=f5projectmodules returns=string
@@ -59,11 +59,14 @@ fn name=f5projectmodules returns=string
     let name=orderedRootTapes value="[]"
     let name=orderedSymbolTapes value="[]"
     let name=usedModuleOrdinals value="[]"
+    let name=orderingWork value="Text.length(resolvedBindingTape) + bindings.length"
     for name=sortIndex from=0 to=moduleIds.length
       let name=selectedIndex value="-1"
       for name=candidateIndex from=0 to=moduleIds.length
+        assign target=orderingWork value="orderingWork + 1"
         let name=used value="false"
         for name=usedIndex from=0 to=usedModuleOrdinals.length
+          assign target=orderingWork value="orderingWork + 1"
           if cond="usedModuleOrdinals[usedIndex] == candidateIndex"
             assign target=used value="true"
         if cond="!used"
@@ -72,8 +75,10 @@ fn name=f5projectmodules returns=string
           else
             let name=candidateModuleId value="List.index(moduleIds, candidateIndex)"
             let name=currentModuleId value="List.index(moduleIds, selectedIndex)"
+            assign target=orderingWork value="orderingWork + f5scalarcomparework(candidateModuleId, currentModuleId)"
             if cond="f5scalartextless(candidateModuleId, currentModuleId)"
               assign target=selectedIndex value=candidateIndex
+              assign target=orderingWork value="orderingWork + 1"
       if cond="selectedIndex < 0"
         return value="\"\""
       let name=selectedModuleId value="List.index(moduleIds, selectedIndex)"
@@ -83,6 +88,7 @@ fn name=f5projectmodules returns=string
       do value="orderedModuleIds.push(selectedModuleId)"
       do value="orderedRootTapes.push(selectedRootTape)"
       do value="orderedSymbolTapes.push(selectedSymbolTape)"
+      assign target=orderingWork value="orderingWork + 4"
     let name=modules value="[]"
     for name=moduleIndex from=0 to=orderedModuleIds.length
       let name=moduleId value="List.index(orderedModuleIds, moduleIndex)"
@@ -92,6 +98,7 @@ fn name=f5projectmodules returns=string
       let name=symbols value="f5rowread(symbolTape)"
       for name=symbolIndex from=0 to=symbols.length
         let name=symbolRowTape value="List.index(symbols, symbolIndex)"
+        assign target=orderingWork value="orderingWork + Text.length(symbolRowTape) + 1"
         let name=symbol value="f5rowread(symbolRowTape)"
         if cond="symbol.length == 5 && symbol[2] == \"true\""
           let name=symbolKind value="List.index(symbol, 0)"
@@ -101,6 +108,7 @@ fn name=f5projectmodules returns=string
           do value="exportValues.push(exportValue)"
       for name=reexportIndex from=0 to=bindings.length
         let name=reexportRowTape value="List.index(bindings, reexportIndex)"
+        assign target=orderingWork value="orderingWork + Text.length(reexportRowTape) + 1"
         let name=reexport value="f5rowread(reexportRowTape)"
         if cond="reexport.length == 8 && reexport[5] == moduleId && reexport[4] == \"true\""
           let name=reexportSource value="List.index(reexport, 0)"
@@ -109,6 +117,7 @@ fn name=f5projectmodules returns=string
           let name=reexportValue value="f5exportvalue(limits, reexportKind, reexportName, reexportSource)"
           do value="exportNames.push(reexportName)"
           do value="exportValues.push(reexportValue)"
+      assign target=orderingWork value="orderingWork + f5sortwork(exportNames)"
       let name=sortedExports value="f5sortproperties(exportNames, exportValues)"
       let name=sortedExportValues value="[]"
       for name=exportSortIndex from=1 to=sortedExports.length step=2
@@ -117,10 +126,12 @@ fn name=f5projectmodules returns=string
       let name=sources value="[]"
       for name=bindingIndex from=0 to=bindings.length
         let name=bindingRowTape value="List.index(bindings, bindingIndex)"
+        assign target=orderingWork value="orderingWork + Text.length(bindingRowTape) + 1"
         let name=binding value="f5rowread(bindingRowTape)"
         if cond="binding.length == 8 && binding[5] == moduleId"
           let name=known value="false"
           for name=sourceIndex from=0 to=sources.length
+            assign target=orderingWork value="orderingWork + 1"
             if cond="sources[sourceIndex] == binding[0]"
               assign target=known value="true"
           if cond="!known"
@@ -131,8 +142,10 @@ fn name=f5projectmodules returns=string
       for name=sourceSort from=0 to=sources.length
         let name=selectedSourceIndex value="-1"
         for name=sourceCandidateIndex from=0 to=sources.length
+          assign target=orderingWork value="orderingWork + 1"
           let name=sourceUsed value="false"
           for name=sourceUsedIndex from=0 to=usedSourceOrdinals.length
+            assign target=orderingWork value="orderingWork + 1"
             if cond="usedSourceOrdinals[sourceUsedIndex] == sourceCandidateIndex"
               assign target=sourceUsed value="true"
           if cond="!sourceUsed"
@@ -141,13 +154,16 @@ fn name=f5projectmodules returns=string
             else
               let name=candidateSource value="List.index(sources, sourceCandidateIndex)"
               let name=currentSource value="List.index(sources, selectedSourceIndex)"
+              assign target=orderingWork value="orderingWork + f5scalarcomparework(candidateSource, currentSource)"
               if cond="f5scalartextless(candidateSource, currentSource)"
                 assign target=selectedSourceIndex value=sourceCandidateIndex
+                assign target=orderingWork value="orderingWork + 1"
         if cond="selectedSourceIndex < 0"
           return value="\"\""
         let name=selectedSource value="List.index(sources, selectedSourceIndex)"
         do value="usedSourceOrdinals.push(selectedSourceIndex)"
         do value="orderedSources.push(selectedSource)"
+        assign target=orderingWork value="orderingWork + 2"
       let name=imports value="[]"
       for name=sourceIndex from=0 to=orderedSources.length
         let name=source value="List.index(orderedSources, sourceIndex)"
@@ -155,12 +171,14 @@ fn name=f5projectmodules returns=string
         let name=values value="[]"
         for name=matchingIndex from=0 to=bindings.length
           let name=matchingRowTape value="List.index(bindings, matchingIndex)"
+          assign target=orderingWork value="orderingWork + Text.length(matchingRowTape) + 1"
           let name=matching value="f5rowread(matchingRowTape)"
           if cond="matching[5] == moduleId && matching[0] == source"
             let name=matchingKey value="matching[1] + \"|\" + matching[3] + \"|\" + matching[2] + \"|\" + matching[4]"
             let name=matchingValue value="f5bindingvalue(limits, matching)"
             do value="keys.push(matchingKey)"
             do value="values.push(matchingValue)"
+        assign target=orderingWork value="orderingWork + f5sortwork(keys)"
         let name=sortedBindings value="f5sortproperties(keys, values)"
         let name=sortedBindingValues value="[]"
         for name=bindingSortIndex from=1 to=sortedBindings.length step=2
@@ -174,7 +192,7 @@ fn name=f5projectmodules returns=string
         let name=importValues value="[]"
         do value="importValues.push(bindingsValue)"
         do value="importValues.push(sourceValue)"
-        let name=importValue value="f5record(limits, importKeys, importValues)"
+        let name=importValue value="f5record(limits, importKeys, importValues, 0)"
         do value="imports.push(importValue)"
       let name=rootTape value="List.index(orderedRootTapes, moduleIndex)"
       let name=moduleRoots value="f5rowread(rootTape)"
@@ -192,7 +210,7 @@ fn name=f5projectmodules returns=string
       do value="moduleValues.push(moduleIdValue)"
       do value="moduleValues.push(importsValue)"
       do value="moduleValues.push(rootsValue)"
-      let name=moduleValue value="f5record(limits, moduleKeys, moduleValues)"
+      let name=moduleValue value="f5record(limits, moduleKeys, moduleValues, 0)"
       do value="modules.push(moduleValue)"
     let name=constitutionValue value="f5text(limits, \"kern.kir.structural.r1.5i.1\")"
     let name=emptyDiagnostics value="[]"
@@ -213,7 +231,7 @@ fn name=f5projectmodules returns=string
     let name=symbolValues value="[]"
     do value="symbolValues.push(admittedKindsValue)"
     do value="symbolValues.push(symbolFormatValue)"
-    let name=symbolCatalogValue value="f5record(limits, symbolKeys, symbolValues)"
+    let name=symbolCatalogValue value="f5record(limits, symbolKeys, symbolValues, 0)"
     let name=artifactKeys value="[]"
     do value="artifactKeys.push(\"constitution\")"
     do value="artifactKeys.push(\"diagnostics\")"
@@ -228,5 +246,5 @@ fn name=f5projectmodules returns=string
     do value="artifactValues.push(modulesValue)"
     do value="artifactValues.push(proofLabelValue)"
     do value="artifactValues.push(symbolCatalogValue)"
-    let name=artifact value="f5record(limits, artifactKeys, artifactValues)"
+    let name=artifact value="f5record(limits, artifactKeys, artifactValues, orderingWork)"
     return value=artifact

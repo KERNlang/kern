@@ -66,6 +66,18 @@ fn name=f5scalartextless returns=boolean
         return value="leftPoint < rightPoint"
     return value="leftLength < rightLength"
 
+fn name=f5scalarcomparework returns=number
+  param name=left type=string
+  param name=right type=string
+  handler lang="kern"
+    let name=leftLength value="Text.length(left)"
+    let name=rightLength value="Text.length(right)"
+    let name=shorter value="leftLength < rightLength ? leftLength : rightLength"
+    let name=index value=0
+    while cond="index < shorter && Text.charAt(left, index) == Text.charAt(right, index)"
+      assign target=index value="index + 1"
+    return value="index + 1"
+
 fn name=f5rowread returns="string[]"
   param name=tape type=string
   handler lang="kern"

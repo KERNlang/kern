@@ -5,7 +5,30 @@ fn name=f5resultfailure returns=string
   handler lang="kern"
     return value="status + \"\u001f\" + code + \"\u001f0\u001f\" + String(work) + \"\u001f0\u001f0\u001f0\u001f0\u001f0#\u001e\""
 
-fn name=f5resultbody returns=string
+fn name=f5resultgate returns=string
+  param name=limits type=string
+  param name=instructionScalars type=number
+  param name=baseWork type=number
+  param name=nodes type=number
+  param name=depth type=number
+  param name=maxCollection type=number
+  param name=maxString type=number
+  param name=textLength type=number
+  handler lang="kern"
+    let name=limitValues value="f5rowread(limits)"
+    if cond="limitValues.length != 6"
+      return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", baseWork + Text.length(limits))"
+    let name=fixedScalars value="11 + Text.length(String(instructionScalars)) + Text.length(String(nodes)) + Text.length(String(depth)) + Text.length(String(maxCollection)) + Text.length(String(maxString)) + Text.length(String(textLength)) + textLength"
+    let name=work value="baseWork + fixedScalars + Text.length(String(baseWork + fixedScalars))"
+    let name=next value="baseWork + fixedScalars + Text.length(String(work))"
+    while cond="next != work"
+      assign target=work value=next
+      assign target=next value="baseWork + fixedScalars + Text.length(String(work))"
+    if cond="instructionScalars > f5uint(limitValues[0]) || work > f5uint(limitValues[1]) || nodes > f5uint(limitValues[2]) || depth > f5uint(limitValues[3]) || maxCollection > f5uint(limitValues[4]) || maxString > f5uint(limitValues[5])"
+      return value="f5resultfailure(\"1\", \"F5_LIMIT\", work)"
+    return value="String(work)"
+
+fn name=f5resultcommit returns=string
   param name=instructionScalars type=number
   param name=work type=number
   param name=nodes type=number
@@ -15,30 +38,6 @@ fn name=f5resultbody returns=string
   param name=text type=string
   handler lang="kern"
     return value="\"0\u001f\u001f\" + String(instructionScalars) + \"\u001f\" + String(work) + \"\u001f\" + String(nodes) + \"\u001f\" + String(depth) + \"\u001f\" + String(maxCollection) + \"\u001f\" + String(maxString) + \"\u001f\" + String(Text.length(text)) + \"#\" + text + \"\u001e\""
-
-fn name=f5resultsuccess returns=string
-  param name=limits type=string
-  param name=instructionScalars type=number
-  param name=baseWork type=number
-  param name=nodes type=number
-  param name=depth type=number
-  param name=maxCollection type=number
-  param name=maxString type=number
-  param name=text type=string
-  handler lang="kern"
-    let name=work value=baseWork
-    let name=frame value="f5resultbody(instructionScalars, work, nodes, depth, maxCollection, maxString, text)"
-    let name=next value="baseWork + Text.length(frame)"
-    while cond="next != work"
-      assign target=work value=next
-      assign target=frame value="f5resultbody(instructionScalars, work, nodes, depth, maxCollection, maxString, text)"
-      assign target=next value="baseWork + Text.length(frame)"
-    let name=limitValues value="f5rowread(limits)"
-    if cond="limitValues.length != 6"
-      return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work)"
-    if cond="instructionScalars > f5uint(limitValues[0]) || work > f5uint(limitValues[1]) || nodes > f5uint(limitValues[2]) || depth > f5uint(limitValues[3]) || maxCollection > f5uint(limitValues[4]) || maxString > f5uint(limitValues[5])"
-      return value="f5resultfailure(\"1\", \"F5_LIMIT\", work)"
-    return value=frame
 
 fn name=f5resultread returns="string[]"
   param name=frame type=string

@@ -28,6 +28,34 @@ fn name=f5sortproperties returns="string[]"
       do value="out.push(selectedValue)"
     return value=out
 
+fn name=f5sortwork returns=number
+  param name=keys type="string[]"
+  handler lang="kern"
+    let name=work value=0
+    let name=usedOrdinals value="[]"
+    for name=outIndex from=0 to=keys.length
+      let name=selectedIndex value="-1"
+      for name=candidateIndex from=0 to=keys.length
+        assign target=work value="work + 1"
+        let name=used value=false
+        for name=usedIndex from=0 to=usedOrdinals.length
+          assign target=work value="work + 1"
+          if cond="usedOrdinals[usedIndex] == candidateIndex"
+            assign target=used value=true
+        if cond="!used"
+          if cond="selectedIndex < 0"
+            assign target=selectedIndex value=candidateIndex
+          else
+            let name=candidateKey value="List.index(keys, candidateIndex)"
+            let name=currentKey value="List.index(keys, selectedIndex)"
+            assign target=work value="work + f5scalarcomparework(candidateKey, currentKey)"
+            if cond="f5scalartextless(candidateKey, currentKey)"
+              assign target=selectedIndex value=candidateIndex
+              assign target=work value="work + 1"
+      do value="usedOrdinals.push(selectedIndex)"
+      assign target=work value="work + 3"
+    return value=work
+
 fn name=f5projecttree returns="string[]"
   param name=limits type=string
   param name=declarationTape type=string
@@ -85,8 +113,8 @@ fn name=f5projecttree returns="string[]"
         let name=seedNodeValues value="[]"
         do value="seedNodeValues.push(f5list(limits, seedChildren))"
         do value="seedNodeValues.push(f5text(limits, \"decorator\"))"
-        do value="seedNodeValues.push(f5record(limits, seedSortedKeys, seedSortedValues))"
-        let name=seedNode value="f5record(limits, seedNodeKeys, seedNodeValues)"
+        do value="seedNodeValues.push(f5record(limits, seedSortedKeys, seedSortedValues, f5sortwork(seedPropertyKeys)))"
+        let name=seedNode value="f5record(limits, seedNodeKeys, seedNodeValues, 0)"
         do value="Map.set(nodes, String(seedLogical), seedNode)"
     let name=cursor value="declarations.length - 1"
     while cond="cursor >= 0"
@@ -166,7 +194,7 @@ fn name=f5projecttree returns="string[]"
         do value="orderedChildren.push(orderedChild)"
       let name=childrenValue value="f5list(limits, orderedChildren)"
       let name=kindValue value="f5text(limits, kind)"
-      let name=propertiesValue value="f5record(limits, sortedPropertyKeys, sortedPropertyValues)"
+      let name=propertiesValue value="f5record(limits, sortedPropertyKeys, sortedPropertyValues, f5sortwork(propertyKeys))"
       let name=nodeKeys value="[]"
       do value="nodeKeys.push(\"children\")"
       do value="nodeKeys.push(\"kind\")"
@@ -175,7 +203,7 @@ fn name=f5projecttree returns="string[]"
       do value="nodeValues.push(childrenValue)"
       do value="nodeValues.push(kindValue)"
       do value="nodeValues.push(propertiesValue)"
-      let name=node value="f5record(limits, nodeKeys, nodeValues)"
+      let name=node value="f5record(limits, nodeKeys, nodeValues, 0)"
       do value="Map.set(nodes, String(logical), node)"
       assign target=cursor value="cursor - 1"
     let name=roots value="[]"

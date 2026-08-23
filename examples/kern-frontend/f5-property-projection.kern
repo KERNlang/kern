@@ -31,7 +31,7 @@ fn name=f5typekind returns=string
     do value="keys.push(\"kind\")"
     let name=values value="[]"
     do value="values.push(kindValue)"
-    let name=result value="f5record(limits, keys, values)"
+    let name=result value="f5record(limits, keys, values, 0)"
     return value=result
 
 fn name=f5typelist returns=string
@@ -46,7 +46,7 @@ fn name=f5typelist returns=string
     let name=values value="[]"
     do value="values.push(elementValue)"
     do value="values.push(kindValue)"
-    let name=result value="f5record(limits, keys, values)"
+    let name=result value="f5record(limits, keys, values, 0)"
     return value=result
 
 fn name=f5recordone returns=string
@@ -58,7 +58,7 @@ fn name=f5recordone returns=string
     do value="keys.push(key)"
     let name=values value="[]"
     do value="values.push(value)"
-    let name=result value="f5record(limits, keys, values)"
+    let name=result value="f5record(limits, keys, values, 0)"
     return value=result
 
 fn name=f5recordtwo returns=string
@@ -74,7 +74,7 @@ fn name=f5recordtwo returns=string
     let name=values value="[]"
     do value="values.push(firstValue)"
     do value="values.push(secondValue)"
-    let name=result value="f5record(limits, keys, values)"
+    let name=result value="f5record(limits, keys, values, 0)"
     return value=result
 
 fn name=f5handlertype returns=string

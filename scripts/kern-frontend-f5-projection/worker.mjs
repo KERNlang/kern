@@ -131,6 +131,12 @@ export const __test = Object.freeze({
   runProjectionWithF4Runner(modules, runner) {
     return runProjectionWith(modules, runner, decodeModuleKir);
   },
+  runProjectionWithF4RunnerAndProfileLimits(modules, runner, profileLimits) {
+    return runProjectionWith(modules, runner, decodeModuleKir, (state) => ({
+      ...state,
+      policy: { ...state.policy, profileLimits: { ...state.policy.profileLimits, ...profileLimits } },
+    }));
+  },
   runProjectionWithValidator(modules, validator) {
     return runProjectionWith(modules, runModuleSet, validator);
   },

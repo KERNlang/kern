@@ -112,21 +112,30 @@ fn name=projectf5moduleset returns="string[]" export=true
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
     if cond="moduleSetFieldCount != 10"
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
+    let name=validationWork value="moduleCount + documentFieldCount + moduleSetFieldCount + documentReceiptSeals.length"
+    for name=documentScanIndex from=0 to=documentFieldCount
+      assign target=validationWork value="validationWork + Text.length(List.index(documentFields, documentScanIndex)) + 1"
+    for name=moduleSetScanIndex from=0 to=moduleSetFieldCount
+      assign target=validationWork value="validationWork + Text.length(List.index(moduleSetFields, moduleSetScanIndex)) + 1"
+    for name=moduleIdScanIndex from=0 to=moduleCount
+      assign target=validationWork value="validationWork + Text.length(List.index(moduleIds, moduleIdScanIndex)) + 1"
+    for name=receiptSealScanIndex from=0 to=documentReceiptSeals.length
+      assign target=validationWork value="validationWork + Text.length(List.index(documentReceiptSeals, receiptSealScanIndex)) + 1"
     if cond="!f5validatemoduleset(moduleIds, documentFields, documentReceiptSeals, moduleSetFields)"
-      return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
+      return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(validationWork), \"failure\"]"
     for name=validationIndex from=0 to=moduleCount
       let name=validationFields value="[]"
       let name=validationOffset value="validationIndex * 17"
       for name=validationFieldIndex from=0 to=17
         do value="validationFields.push(List.index(documentFields, validationOffset + validationFieldIndex))"
       if cond="!f5validatedocument(validationFields, List.index(moduleIds, validationIndex))"
-        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(validationWork), \"failure\"]"
     if cond="moduleCount > maxModules"
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_LIMIT\", \"\", \"0\", \"failure\"]"
     let name=constructorLimits value="f5frame(\"i\", String(maxInstructionScalars)) + f5frame(\"i\", String(maxWorkSteps)) + f5frame(\"i\", String(maxNodes)) + f5frame(\"i\", String(maxDepth)) + f5frame(\"i\", String(maxCollectionLength)) + f5frame(\"i\", String(maxStringCodePoints))"
     let name=roots value="[]"
     let name=symbolTapes value="[]"
-    let name=work value="0"
+    let name=work value=validationWork
     for name=moduleIndex from=0 to=moduleCount
       let name=fields value="[]"
       let name=fieldOffset value="moduleIndex * 17"
