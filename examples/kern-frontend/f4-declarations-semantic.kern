@@ -122,6 +122,31 @@
       do value="lineDetachedFlags.push(lineDetached ? \"true\" : \"false\")"
       let name=lineSyntaxStart value=syntaxDiagnosticParts.length
       let name=lineSyntaxCount value=0
+      let name=indentJump value=false
+      for name=indentEdgeIndex from=0 to=edgeChildren.length
+        if cond="edgeChildren[indentEdgeIndex] == classifyLine && edgeParents[indentEdgeIndex] == -1 && lineIndents[classifyLine] > 0"
+          assign target=indentJump value=true
+      if cond=indentJump
+        let name=indentFact value="f4row6(\"structural\", \"invalid-child\", String(lineContentStarts[classifyLine]), String(lineEnds[classifyLine]), String(classifyLine), \"indent-jump\")"
+        let name=indentFactAdmission value="f4eligibilityleafadmit(indentFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
+        if cond="indentFactAdmission[0] != \"ok\""
+          let name=indentFactFailure value="f4fatal(indentFactAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+          return value=indentFactFailure
+        do value="factParts.push(indentFactAdmission[4])"
+        assign target=factCount value="f2uint(indentFactAdmission[1])"
+        assign target=factBytes value="f2uint(indentFactAdmission[2])"
+        assign target=workSteps value="f2uint(indentFactAdmission[3])"
+        let name=indentDiagnostic value="f4row5(\"INDENT_JUMP\", \"error\", String(lineContentStarts[classifyLine]), String(lineEnds[classifyLine]), String(classifyLine))"
+        let name=indentAdmission value="f4eligibilityleafadmit(indentDiagnostic, 5, eligibilityDiagnosticCount, eligibilityDiagnosticBytes, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
+        if cond="indentAdmission[0] != \"ok\""
+          let name=indentFailure value="f4fatal(indentAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+          return value=indentFailure
+        do value="syntaxDiagnosticParts.push(indentAdmission[4])"
+        assign target=eligibilityDiagnosticCount value="f2uint(indentAdmission[1])"
+        assign target=eligibilityDiagnosticBytes value="f2uint(indentAdmission[2])"
+        assign target=workSteps value="f2uint(indentAdmission[3])"
+        assign target=lineSyntaxCount value="lineSyntaxCount + 1"
+        do value="Map.set(rejectedByLine, String(classifyLine), true)"
       do value="decoratorExplicitExports.push(eligibilityStatus == \"decorator-valid\" ? eligibility[5] : \"false\")"
       do value="kinds.push(kind)"
       do value="Map.set(kindByLine, String(classifyLine), kind)"
@@ -372,6 +397,9 @@
             let name=admission value="f4propertyadmission(propertyKind, disposition, Map.get(propertyValuesMap, authorityKey), representation, unquotedValue)"
             let name=emittedValue value="admission[1]"
             let name=valueStart value="absoluteStart + equals + 1"
+            let name=admissionStart value=valueStart
+            if cond="disposition == \"excluded-raw-block\""
+              assign target=admissionStart value="lineContentStarts[classifyLine]"
             let name=occurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), kind, propertyName, String(propertyOrdinal), propertyKind, required, disposition, representation, String(segmentOrdinal), String(absoluteStart), String(absoluteEnd), emittedValue)"
             let name=occurrenceAdmission value="f4occurrenceadmit(occurrenceRow, occurrenceCount, occurrenceBytes, workSteps, maxOccurrences, maxEncodedBytes, maxWorkSteps)"
             if cond="occurrenceAdmission[0] != \"ok\""
@@ -381,7 +409,7 @@
             do value="occurrenceDispositions.push(disposition)"
             do value="occurrenceRepresentations.push(representation)"
             do value="occurrenceSegments.push(segmentOrdinal)"
-            do value="occurrenceValueStarts.push(valueStart)"
+            do value="occurrenceValueStarts.push(admissionStart)"
             do value="occurrenceValueEnds.push(absoluteEnd)"
             do value="occurrenceRawValues.push(rawValue)"
             do value="occurrenceDetachedFlags.push(lineDetached ? \"true\" : \"false\")"
@@ -390,7 +418,7 @@
             if cond="admission[0] == \"admit\""
               do value="Map.set(effectiveValues, String(effectiveKey), emittedValue)"
             else
-              let name=admissionFact value="f4row6(\"structural\", admission[3], String(valueStart), String(absoluteEnd), String(classifyLine), propertyName)"
+              let name=admissionFact value="f4row6(\"structural\", admission[3], String(admissionStart), String(absoluteEnd), String(classifyLine), propertyName)"
               let name=admissionFactAdmission value="f4eligibilityleafadmit(admissionFact, 6, factCount, factBytes, workSteps, maxFacts, maxEncodedBytes, maxWorkSteps)"
               if cond="admissionFactAdmission[0] != \"ok\""
                 let name=admissionFactFailure value="f4fatal(admissionFactAdmission[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"

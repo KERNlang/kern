@@ -8,7 +8,7 @@ fn name=f4diagrankvalid returns=boolean
       if cond="rule == 0"
         return value="code == \"DUPLICATE_PROP\""
       if cond="rule == 1"
-        return value="code == \"UNEXPECTED_TOKEN\""
+        return value="code == \"UNEXPECTED_TOKEN\" || code == \"INDENT_JUMP\""
       if cond="rule == 2"
         return value="code == \"FRONTEND_EXCLUDED_HOST_EXPRESSION\""
       if cond="rule == 3"
