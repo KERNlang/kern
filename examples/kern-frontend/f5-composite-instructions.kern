@@ -76,8 +76,10 @@ fn name=f5record returns=string
     for name=index from=0 to=keys.length
       let name=key value="List.index(keys, index)"
       assign target=work value="work + Text.length(key) + 1"
-      if cond="index > 0 && !f5scalartextless(previous, key)"
-        return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work)"
+      if cond="index > 0"
+        assign target=work value="work + f5scalarcomparework(previous, key)"
+        if cond="!f5scalartextless(previous, key)"
+          return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work)"
       assign target=previous value=key
       let name=childFrame value="List.index(values, index)"
       let name=child value="f5resultread(childFrame)"

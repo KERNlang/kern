@@ -1,42 +1,51 @@
 fn name=f5chargedsort returns="string[]"
-  param name=keys type="string[]"
-  param name=values type="string[]"
+  param name=entryFrames type="string[]"
   handler lang="kern"
-    if cond="keys.length != values.length"
-      return value="[]"
     let name=work value=0
-    let name=ordered value="[]"
-    let name=usedOrdinals value="[]"
+    let name=order value="[]"
+    let name=positionToOrdinal value="new Map()"
     let name=previous value="\"\""
-    for name=outIndex from=0 to=keys.length
+    for name=outIndex from=0 to=entryFrames.length
       let name=selectedIndex value="-1"
-      for name=candidateIndex from=0 to=keys.length
+      for name=candidateIndex from=0 to=entryFrames.length
         assign target=work value="work + 1"
-        let name=used value=false
-        for name=usedIndex from=0 to=usedOrdinals.length
-          assign target=work value="work + 1"
-          if cond="List.index(usedOrdinals, usedIndex) == candidateIndex"
-            assign target=used value=true
-        if cond="!used"
+        let name=positionKey value="String(candidateIndex)"
+        if cond="Map.has(positionToOrdinal, positionKey)"
+          let name=mappedPosition value="Map.get(positionToOrdinal, positionKey)"
+          if cond="mappedPosition < 0"
+            return value="[\"2\", String(work)]"
+        else
+          let name=candidateEntry value="f5rowread(List.index(entryFrames, candidateIndex))"
+          if cond="candidateEntry.length != 2"
+            return value="[\"2\", String(work)]"
           if cond="selectedIndex < 0"
             assign target=selectedIndex value=candidateIndex
           else
-            let name=candidateKey value="List.index(keys, candidateIndex)"
-            let name=currentKey value="List.index(keys, selectedIndex)"
+            let name=currentEntry value="f5rowread(List.index(entryFrames, selectedIndex))"
+            if cond="currentEntry.length != 2"
+              return value="[\"2\", String(work)]"
+            let name=candidateKey value="List.index(candidateEntry, 0)"
+            let name=currentKey value="List.index(currentEntry, 0)"
             assign target=work value="work + f5scalarcomparework(candidateKey, currentKey)"
             if cond="f5scalartextless(candidateKey, currentKey)"
               assign target=selectedIndex value=candidateIndex
               assign target=work value="work + 1"
       if cond="selectedIndex < 0"
-        return value="[]"
-      let name=selectedKey value="List.index(keys, selectedIndex)"
-      if cond="outIndex > 0 && selectedKey == previous"
-        return value="[]"
+        return value="[\"2\", String(work)]"
+      let name=selectedEntry value="f5rowread(List.index(entryFrames, selectedIndex))"
+      if cond="selectedEntry.length != 2"
+        return value="[\"2\", String(work)]"
+      let name=selectedKey value="List.index(selectedEntry, 0)"
+      if cond="outIndex > 0"
+        assign target=work value="work + f5scalarcomparework(selectedKey, previous)"
+        if cond="selectedKey == previous"
+          return value="[\"2\", String(work)]"
       assign target=previous value=selectedKey
-      let name=selectedValue value="List.index(values, selectedIndex)"
-      let name=selectedEntry value="f5frame(\"i\", selectedKey) + f5frame(\"i\", selectedValue)"
-      do value="usedOrdinals.push(selectedIndex)"
-      do value="ordered.push(selectedEntry)"
-      assign target=work value="work + Text.length(selectedEntry) + Text.length(selectedEntry) + 3"
-    do value="ordered.push(String(work))"
-    return value=ordered
+      do value="Map.set(positionToOrdinal, String(selectedIndex), outIndex)"
+      do value="order.push(String(selectedIndex))"
+    let name=result value="[]"
+    do value="result.push(\"0\")"
+    for name=orderIndex from=0 to=order.length
+      do value="result.push(List.index(order, orderIndex))"
+    do value="result.push(String(work))"
+    return value=result

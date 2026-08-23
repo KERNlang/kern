@@ -21,12 +21,12 @@
     { "path": "examples/kern-frontend/f5-framing.kern", "sha256": "c1afb8ac86a06cc307d67dfab213908fea0a645f8ac8f2dde644b890c4e4d51d" },
     { "path": "examples/kern-frontend/f5-result-frame.kern", "sha256": "66def62854a000248db22cd4a6b92b90e898bb463c9180184de323233c62dcc1" },
     { "path": "examples/kern-frontend/f5-leaf-instructions.kern", "sha256": "d054085c6ed331aae111a765adebfd0d877e4d35d0cb57eafc4c45f5d9ff33fa" },
-    { "path": "examples/kern-frontend/f5-composite-instructions.kern", "sha256": "4767a91256d6cbde41f45b7de0647b89d8ce44862234d73bd440ce14c05ff19e" },
-    { "path": "examples/kern-frontend/f5-charged-sort.kern", "sha256": "e306af7a150d48f718466a3d1159a9395f8835cfc3accea952346930a24ac011" },
-    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "2838df2ce824dc30b7d7461d9d36d601fe0569549e1a8d614d279905191117c5" },
+    { "path": "examples/kern-frontend/f5-composite-instructions.kern", "sha256": "4340ddb10f248787d55ce7318f6b3c82ecedb08bdbacc005f3648a20ba391ff1" },
+    { "path": "examples/kern-frontend/f5-charged-sort.kern", "sha256": "ddaad88e15cdfb1d574e644c123f463eedeab55581ffd598f674ddad73462ed5" },
+    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "62eb43d1b50446813933afed80aa9dbc9b4c681a8b3c033086b6a1ec2ea56819" },
     { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "2db601683ecb9a09756f0a3bbd14ad1cae81ade17d75638d3b67ed2ba9724a0c" },
-    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "e72a5826c2aa5f83a34a7f5c4dc8d490a34215fd868f56643e8db2bfe6db92ab" },
-    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "5f9d0af99300672d127005488cb01ae8b07687f1a1dab3272c1d5c24adfcb456" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "487b2fdf91f9f63ab26d69ed38a7812a94967d993c9e903ad639b432cabc7f8b" },
+    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "e158c9a080727c15650ec61942986492047f0043c33df52964861a7bf9b0a2b9" },
     { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "dde5a43e1040a40a5b6cb86dde2e3f99b7f39110378df71857472be79bdce81f" }
   ],
   "profileLimits": {

@@ -123,7 +123,23 @@ test('F5-R12 record sort charges exact reverse, rotation, and equal-prefix delta
   assert.equal(work('{b: 2, c: 3, a: 1}') - sorted, 1);
   const longPrefix = work('{aaaaaaaa: 1, aaaaaaab: 2, aaaaaaac: 3}');
   const earlyDifference = work('{aaaaaaaa: 1, baaaaaaa: 2, caaaaaaa: 3}');
-  assert.equal(longPrefix - earlyDifference, 21, 'seven extra probes in each of three comparisons');
+  assert.equal(longPrefix - earlyDifference, 49,
+    'sort selection, duplicate validation, and f5record order validation charge exact probes');
+});
+
+test('Amendment-2 record-order work admits exact and rejects one-under', () => {
+  const modules = [{
+    moduleId: 'record-order-limit.kern',
+    source: 'fn name=unit export=true\n  handler lang=kern\n    return value="{aaaaaaaa: 1, aaaaaaab: 2, aaaaaaac: 3}"\n',
+  }];
+  const baseline = runProjection(modules);
+  const exact = __test.runProjectionWithProfileLimits(
+    modules, { maxWorkSteps: baseline.receipt.workSteps });
+  const under = __test.runProjectionWithProfileLimits(
+    modules, { maxWorkSteps: baseline.receipt.workSteps - 1 });
+  assert.equal(exact.receipt.status, 'projected');
+  assert.equal(under.receipt.status, 'fatal');
+  assert.equal(under.receipt.diagnostics[0].code, 'F5_LIMIT');
 });
 
 test('F5-R12 every added F4 row and binding increases owning root work', () => {
@@ -188,7 +204,29 @@ test('Amendment-2 source wall has one charged framed sorter and no result rewrap
   assert.doesNotMatch(source, /f5sortwork|f5sortproperties|f5resultaddwork/u);
   assert.doesNotMatch(source, /selectedKey\s*\+\s*\\?"\\u001f/u);
   const sorter = readFileSync(resolve(directory, 'f5-charged-sort.kern'), 'utf8');
-  assert.doesNotMatch(sorter, /let name=entries value=/u, 'the sorter retains no second full entry artifact');
+  assert.match(sorter, /param name=entryFrames type="string\[\]"/u);
+  assert.doesNotMatch(sorter, /param name=(?:keys|values)/u,
+    'the sorter does not accept parallel payload arrays');
+  assert.doesNotMatch(sorter, /(?:ordered|sortedEntries)\.push\([^)]*(?:Entry|Frame)/u,
+    'the sorter retains no second ordered full-payload array');
+  assert.doesNotMatch(sorter, /usedOrdinal|for name=usedIndex/u,
+    'membership is not a nested ordinal scan');
+  assert.match(sorter, /Map\.has\([^\n]+\)[\s\S]*Map\.get\(/u,
+    'position-to-ordinal lookup has guarded Map provenance');
+  assert.match(sorter, /f5scalarcomparework\([^\n]+\)[\s\S]*return value="\[\\"2\\", String\(work\)\]"/u,
+    'duplicate drift retains the equality comparison and all prior sort work');
+});
+
+test('Amendment-2 duplicate drift carries charged sorter work into the public receipt', () => {
+  const modules = [{
+    moduleId: 'duplicate-work.kern',
+    source: 'fn name=main export=true\n  handler lang=kern\n    return value="{z: 1, a: 2}"\n',
+  }];
+  const result = __test.runProjectionWithF4Runner(modules, duplicateLateRecordKey);
+  assert.equal(result.receipt.status, 'fatal');
+  assert.equal(result.receipt.diagnostics[0].code, 'F5_F4_DRIFT');
+  assert.ok(result.receipt.workSteps > 500,
+    `duplicate discovery work must reach the public receipt: ${result.receipt.workSteps}`);
 });
 
 test('Amendment-2 prices exact composite copies before gates and pins frame overhead', () => {
