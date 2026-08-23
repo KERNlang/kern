@@ -1,8 +1,9 @@
 fn name=f5uint returns=number
   param name=value type=string
   handler lang="kern"
-    let name=result value=0
-    for name=index from=0 to="Text.length(value)"
+    let name=result value="0"
+    let name=length value="Text.length(value)"
+    for name=index from=0 to=length
       assign target=result value="result * 10 + Text.indexOf(\"0123456789\", Text.charAt(value, index))"
     return value=result
 
@@ -17,7 +18,8 @@ fn name=f5join returns=string
   handler lang="kern"
     let name=out value="\"\""
     for name=index from=0 to=parts.length
-      assign target=out value="out + parts[index]"
+      let name=part value="parts[index]"
+      assign target=out value="out + part"
     return value=out
 
 fn name=f5text returns=string
@@ -51,7 +53,8 @@ fn name=f5list returns=string
   handler lang="kern"
     let name=out value="\"L\" + String(values.length) + \"[\""
     for name=index from=0 to=values.length
-      assign target=out value="out + values[index]"
+      let name=value value="values[index]"
+      assign target=out value="out + value"
     return value="out + \"]\""
 
 fn name=f5key returns=string
@@ -67,20 +70,23 @@ fn name=f5record returns=string
       return value="\"\""
     let name=out value="\"R\" + String(keys.length) + \"{\""
     for name=index from=0 to=keys.length
-      assign target=out value="out + f5key(keys[index]) + values[index]"
+      let name=key value="keys[index]"
+      let name=value value="values[index]"
+      let name=encodedKey value="f5key(key)"
+      assign target=out value="out + encodedKey + value"
     return value="out + \"}\""
 
 fn name=f5rowread returns="string[]"
   param name=tape type=string
   handler lang="kern"
     let name=values value="[]"
-    let name=cursor value=0
+    let name=cursor value="0"
     while cond="cursor < Text.length(tape)"
       if cond="Text.charAt(tape, cursor) != \"i\""
         return value="[]"
       assign target=cursor value="cursor + 1"
-      let name=length value=0
-      let name=digits value=0
+      let name=length value="0"
+      let name=digits value="0"
       while cond="cursor < Text.length(tape) && Text.charAt(tape, cursor) != \":\""
         let name=digit value="Text.indexOf(\"0123456789\", Text.charAt(tape, cursor))"
         if cond="digit < 0"

@@ -17,12 +17,12 @@
     { "path": "packages/core/src/kir-structural/module-path.ts", "sha256": "3cc5012cb5000496f7995fe31e53891880d2201b95e9cec1c000c45dbbae4e44" }
   ],
   "composition": [
-    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "fe08f1d0f580c002acb7f7599debc12189195e9ba88efdaac43023b0e3fa7003" },
-    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "a9adafa4b5cff956c9a875a94cfd5e292d6596316e467af49cff1783db42911e" },
-    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "91eccc3fa1a7b11214d40bcc6a510d22ec8bbcc786e985a43bdab2be3051ea86" },
-    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "c9be33581a8098e870b21d97d2471d3b79628c74c707ac5bc79e0787a7eadf9e" },
-    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "ceff86d17019ee108ea642db780984ebc1fd614b5e0399ed0946170ebdf71c78" },
-    { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "14e60330f4b7e654541e46147bbd79f7793bc8d3edcd426ea0879e3fe8833c92" }
+    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "70479c8cab6e03f071f3de41d2150150ba5ef0e63c68b0906ec24e35906d8227" },
+    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "967223bc7f7f3215e1461efc81b48445475935ad660eb1dd74571f621c14ab23" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "3a8cbe5219d37496d1ff5f8f8c6da1a13752978d192e9f07bf8fa87aa6a9a95b" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "be8d0f4860163a3e81f15c0c71c00503b151d8e8cf4f63ee2f8e9fcbc41cabcd" },
+    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "c3deaa11daa2bb225542e8a97428423abc426efbaf533c4aa1141312b58ef7b9" },
+    { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "d185dc0c29ed4cde381b5a105f3cb1796019613870537cf4cde6b9d084c01335" }
   ],
   "profileLimits": {
     "maxModules": 256,

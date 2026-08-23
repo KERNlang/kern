@@ -65,7 +65,7 @@ function receipt(status, diagnostics, policyHash, workSteps = 0) {
 function executeProjection(modules, f4, state) {
   const args = [
     modules.map((module) => module.moduleId),
-    ...Array.from({ length: 17 }, (_, field) => f4.documents.map((document) => document.fields[field])),
+    f4.documents.flatMap((document) => document.fields),
     f4.fields,
     state.policy.profileLimits.maxWorkSteps,
     state.policy.profileLimits.maxInstructionScalars,
