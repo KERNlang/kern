@@ -237,3 +237,11 @@ test('F5 validator output is discard-only and cannot replace staged KIR bytes', 
   assertProjected(result, expected, 'discard-only validator');
   assert.notDeepEqual(Buffer.from(result.bytes), replacement);
 });
+
+test('F5 projects an exported function with an explicit void return', () => {
+  const modules = [{
+    moduleId: 'm.kern',
+    source: 'fn name=f returns=void export=true\n',
+  }];
+  assertProjected(runProjection(modules), bootstrapBytes(modules), 'explicit void return');
+});

@@ -82,7 +82,7 @@ fn name=f5handlertype returns=string
     if cond="source == \"number\""
       let name=result value="f5typekind(\"integer\")"
       return value=result
-    if cond="source == \"boolean\" || source == \"unknown\" || source == \"json\""
+    if cond="source == \"boolean\" || source == \"unknown\" || source == \"json\" || source == \"void\""
       let name=result value="f5typekind(source)"
       return value=result
     if cond="Text.length(source) > 2 && Text.slice(source, Text.length(source) - 2, Text.length(source)) == \"[]\""

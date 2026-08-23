@@ -19,7 +19,7 @@
   "composition": [
     { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "232ddb4981516f450da606af4138d4047b7676eceb722730b99411e55f7dddd3" },
     { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "967223bc7f7f3215e1461efc81b48445475935ad660eb1dd74571f621c14ab23" },
-    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "4d753dd256f4e89b4ef442e56112da4bd29931746bcacf82b47ea650e19d0f83" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "e1185593f425fb198ef6ade1ff83cd05e1bc835d09c9d5d7a32775d0830a63af" },
     { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "04dbcfd7da8bc9bd18d19a67535fa2f4b04c7234c2252a5e44acd58f3184f6c6" },
     { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "18d0e8423712f1036612b1a5d3855b3a0c8b0c012eb49b5e7155866212eb95b1" },
     { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "d185dc0c29ed4cde381b5a105f3cb1796019613870537cf4cde6b9d084c01335" }
