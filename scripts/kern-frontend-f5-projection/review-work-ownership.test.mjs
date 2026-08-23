@@ -22,7 +22,9 @@ test('F5-A3-E1 expression tapes are adopted once at the expression root', () => 
   assert.match(source, /let name=expressionWork value="f5rowcodecwork\(kindTape, kindTexts\) \+ f5rowcodecwork\(flagTape, flagTexts\) \+ f5rowcodecwork\(payloadTape, payloadTapes\) \+ f5rowcodecwork\(childTape, childTapes\)"/u);
   assert.match(source, /let name=recordEntryWork value=0/u);
   assert.doesNotMatch(source, /let name=recordEntryWork value=expressionWork/u);
-  assert.match(source, /let name=rootWork value="nodeReadWork \+ \(index == kindIds\.length - 1 \? expressionWork : 0\)"/u);
+  assert.doesNotMatch(source, /projectedLocalTreeWorks|childSubtreeLocalWork/u);
+  assert.match(source, /index == kindIds\.length - 1 && childSubtreeWork != completedExpressionWork/u);
+  assert.match(source, /let name=rootWork value="nodeReadWork \+ \(index == kindIds\.length - 1 \? expressionWork \+ expressionInspectionWork : 0\)"/u);
 });
 
 test('F5-A3-E2 record and list limited children never re-adopt child work', () => {
@@ -68,7 +70,7 @@ test('F5-A3-E6 ordinal dry runs prospectively price every post-gate decode', () 
 test('F5-A3-E7 tree projection returns status, work, and roots without length proxies', () => {
   const tree = functionBody(kern('f5-tree-projection.kern'), 'f5projecttree');
   const main = kern('f5-projection-main.kern');
-  assert.match(tree, /result\.push\(\\"0\\"\)[\s\S]*result\.push\(String\(work\)\)/u);
+  assert.match(tree, /result\.push\(\\"0\\"\)[\s\S]*result\.push\(String\(work \+ treeInspectionWork \+ discardedTreeWork \+ unadoptedSeedWork\)\)/u);
   assert.doesNotMatch(tree, /return value="\[\\"__F5_|return value="\[\]"/u);
   assert.doesNotMatch(main, /f5worklength\(/u);
 });

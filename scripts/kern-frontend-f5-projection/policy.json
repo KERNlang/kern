@@ -23,11 +23,11 @@
     { "path": "examples/kern-frontend/f5-leaf-instructions.kern", "sha256": "d054085c6ed331aae111a765adebfd0d877e4d35d0cb57eafc4c45f5d9ff33fa" },
     { "path": "examples/kern-frontend/f5-composite-instructions.kern", "sha256": "4340ddb10f248787d55ce7318f6b3c82ecedb08bdbacc005f3648a20ba391ff1" },
     { "path": "examples/kern-frontend/f5-charged-sort.kern", "sha256": "d480eef0ce7991b483987d677b53de6652f958040f9f7f765b60a89054d91149" },
-    { "path": "examples/kern-frontend/f5-ordinal-composites.kern", "sha256": "d9abf17c44025507ad5a4718810cc6be2db85cab55312a1dbf7e20dba541b1a3" },
-    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "7450e0bca6675a56d775fad0c170b49e4180ddd02ba1f72b20d3e2f0aa859f39" },
+    { "path": "examples/kern-frontend/f5-ordinal-composites.kern", "sha256": "952fe785cc1c50cf4d96dc862f0e930b83798341f3ce05c982f987b7c92da3e5" },
+    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "f913efd53270b0b5bf31c5344c56eae00d64a214cae46d0b88b49ddd81196a3e" },
     { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "2db601683ecb9a09756f0a3bbd14ad1cae81ade17d75638d3b67ed2ba9724a0c" },
-    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "0f8cfdde65015105a5dda72209cf3ef764964b868ffe3ac44a2df4878ccffcaa" },
-    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "1b09cd8c1ba2dcfb32877ee4fbddf552f05a99ba1132075cff60c0ca7aaf71e8" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "7a887a4aa2e641f8a4a3d020d20cd70488500db938ff0b53bfbdd89e705d373d" },
+    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "5ffd53e7986243da2cb9fcddbb81fab2d620d5a36c5794acda53a4c1e00eaa87" },
     { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "155f1019dab32c15c975855e30c327ed5a7abfdf345d720fc95cd3b096be612c" }
   ],
   "profileLimits": {
