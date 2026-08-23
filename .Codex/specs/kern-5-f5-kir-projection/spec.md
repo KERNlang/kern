@@ -1,6 +1,6 @@
 # KERN 5 M4 — F5 KIR Projection
 
-**Status:** READY TO BUILD — TRIBUNAL CORRECTIONS APPLIED
+**Status:** IMPLEMENTATION REVIEW BLOCKED — REVIEW AMENDMENT 1 DECIDED
 **Date:** 2026-08-23
 **Baseline:** `a7587da97f0e83f0b36ed150ecfe2eeb4fe32c40`
 **Tribunal:** `tribunal-1787460641694-4ij0sc-kern5-f5-architecture`
@@ -369,6 +369,13 @@ reused after merge.
   versioned private F5 envelope; no KIR schema or public codec is added.
 - **[F5-T6 DECIDED]** F5 is implemented before its nonterminal gate is promoted;
   the terminal frontend gate remains planned.
+
+## Review Amendment 1
+
+The first integrated high-risk review rejected `3ae1a6b4`. The normative repair
+contract is `.Codex/specs/kern-5-f5-kir-projection-review-amendment/spec.md`.
+Its decided claims supersede ambiguous remedy wording here; the original F5
+ownership, format, nonpromotion, and out-of-scope boundaries remain unchanged.
 
 ## Corrections Log
 
