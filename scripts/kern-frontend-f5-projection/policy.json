@@ -17,11 +17,11 @@
     { "path": "packages/core/src/kir-structural/module-path.ts", "sha256": "3cc5012cb5000496f7995fe31e53891880d2201b95e9cec1c000c45dbbae4e44" }
   ],
   "composition": [
-    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "70479c8cab6e03f071f3de41d2150150ba5ef0e63c68b0906ec24e35906d8227" },
+    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "232ddb4981516f450da606af4138d4047b7676eceb722730b99411e55f7dddd3" },
     { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "967223bc7f7f3215e1461efc81b48445475935ad660eb1dd74571f621c14ab23" },
-    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "3a8cbe5219d37496d1ff5f8f8c6da1a13752978d192e9f07bf8fa87aa6a9a95b" },
-    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "8fc159fc9cef5d11cfdb81307d82868013f0415ef1dab210f82ac2e814e9077e" },
-    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "c3deaa11daa2bb225542e8a97428423abc426efbaf533c4aa1141312b58ef7b9" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "4d753dd256f4e89b4ef442e56112da4bd29931746bcacf82b47ea650e19d0f83" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "04dbcfd7da8bc9bd18d19a67535fa2f4b04c7234c2252a5e44acd58f3184f6c6" },
+    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "18d0e8423712f1036612b1a5d3855b3a0c8b0c012eb49b5e7155866212eb95b1" },
     { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "d185dc0c29ed4cde381b5a105f3cb1796019613870537cf4cde6b9d084c01335" }
   ],
   "profileLimits": {

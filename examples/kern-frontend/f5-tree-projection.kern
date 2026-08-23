@@ -17,7 +17,7 @@ fn name=f5sortproperties returns="string[]"
           else
             let name=candidateKey value="List.index(keys, candidateIndex)"
             let name=currentKey value="List.index(keys, selectedIndex)"
-            if cond="candidateKey < currentKey"
+            if cond="f5scalartextless(candidateKey, currentKey)"
               assign target=selectedIndex value=candidateIndex
       if cond="selectedIndex < 0"
         return value="[]"

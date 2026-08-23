@@ -69,7 +69,7 @@ fn name=f5projectmodules returns=string
           else
             let name=candidateModuleId value="List.index(moduleIds, candidateIndex)"
             let name=currentModuleId value="List.index(moduleIds, selectedIndex)"
-            if cond="candidateModuleId < currentModuleId"
+            if cond="f5scalartextless(candidateModuleId, currentModuleId)"
               assign target=selectedIndex value=candidateIndex
       if cond="selectedIndex < 0"
         return value="\"\""
@@ -138,7 +138,7 @@ fn name=f5projectmodules returns=string
             else
               let name=candidateSource value="List.index(sources, sourceCandidateIndex)"
               let name=currentSource value="List.index(sources, selectedSourceIndex)"
-              if cond="candidateSource < currentSource"
+              if cond="f5scalartextless(candidateSource, currentSource)"
                 assign target=selectedSourceIndex value=sourceCandidateIndex
         if cond="selectedSourceIndex < 0"
           return value="\"\""

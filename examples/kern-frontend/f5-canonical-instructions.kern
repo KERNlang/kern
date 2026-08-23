@@ -22,6 +22,25 @@ fn name=f5join returns=string
       assign target=out value="out + part"
     return value=out
 
+fn name=f5scalartextless returns=boolean
+  param name=left type=string
+  param name=right type=string
+  handler lang="kern"
+    let name=leftLength value="Text.length(left)"
+    let name=rightLength value="Text.length(right)"
+    for name=index from=0 to=leftLength
+      if cond="index >= rightLength"
+        return value=false
+      let name=leftPoint value="Text.charAt(left, index)"
+      let name=rightPoint value="Text.charAt(right, index)"
+      if cond="leftPoint != rightPoint"
+        let name=leftAstral value="Text.utf8Length(leftPoint) == 4"
+        let name=rightAstral value="Text.utf8Length(rightPoint) == 4"
+        if cond="leftAstral != rightAstral"
+          return value="!leftAstral"
+        return value="leftPoint < rightPoint"
+    return value="leftLength < rightLength"
+
 fn name=f5text returns=string
   param name=value type=string
   handler lang="kern"

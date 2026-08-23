@@ -96,41 +96,19 @@ fn name=f5branchpath returns=string
   param name=value type=string
   param name=quoted type=boolean
   handler lang="kern"
-    if cond=quoted
-      let name=kindValue value="f5text(\"literal\")"
-      let name=literalValue value="f5text(value)"
-      let name=result value="f5recordtwo(\"kind\", kindValue, \"value\", literalValue)"
-      return value=result
-    let name=segments value="[]"
-    let name=cursor value="0"
-    while cond="cursor < Text.length(value)"
-      let name=suffix value="Text.slice(value, cursor, Text.length(value))"
-      let name=dot value="Text.indexOf(suffix, \".\")"
-      let name=end value="dot < 0 ? Text.length(value) : cursor + dot"
-      let name=segment value="Text.slice(value, cursor, end)"
-      let name=segmentValue value="f5text(segment)"
-      do value="segments.push(segmentValue)"
-      assign target=cursor value="end + 1"
-    let name=kindValue value="f5text(\"reference\")"
-    let name=segmentsValue value="f5list(segments)"
-    let name=result value="f5recordtwo(\"kind\", kindValue, \"segments\", segmentsValue)"
+    let name=form value="quoted ? \"quoted-text\" : \"unquoted-expression\""
+    let name=formValue value="f5text(form)"
+    let name=sourceValue value="f5text(value)"
+    let name=result value="f5recordtwo(\"form\", formValue, \"source\", sourceValue)"
     return value=result
 
 fn name=f5eachcollection returns=string
   param name=value type=string
   handler lang="kern"
-    let name=segments value="[]"
-    let name=cursor value="0"
-    while cond="cursor < Text.length(value)"
-      let name=suffix value="Text.slice(value, cursor, Text.length(value))"
-      let name=dot value="Text.indexOf(suffix, \".\")"
-      let name=end value="dot < 0 ? Text.length(value) : cursor + dot"
-      let name=segment value="Text.slice(value, cursor, end)"
-      let name=segmentValue value="f5text(segment)"
-      do value="segments.push(segmentValue)"
-      assign target=cursor value="end + 1"
-    let name=segmentsValue value="f5list(segments)"
-    let name=result value="f5recordone(\"segments\", segmentsValue)"
+    let name=form value="Text.indexOf(value, \".\") < 0 ? \"binding\" : \"record-array-field\""
+    let name=formValue value="f5text(form)"
+    let name=sourceValue value="f5text(value)"
+    let name=result value="f5recordtwo(\"form\", formValue, \"source\", sourceValue)"
     return value=result
 
 fn name=f5projectproperty returns=string
