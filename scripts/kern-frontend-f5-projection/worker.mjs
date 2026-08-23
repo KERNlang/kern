@@ -116,16 +116,7 @@ function runProjectionWith(modules, f4Runner, validator, stateTransform = (state
     };
   }
   const staged = encodeCanonicalValue(result.instructions, state.policy.canonicalLimits);
-  try {
-    validator(staged, state.policy.canonicalLimits);
-  } catch (error) {
-    if (error?.name !== 'StructuralKirError') throw error;
-    return {
-      receipt: receipt('fatal', [{ code: 'F5_AUTHORITY_DRIFT', severity: 'error' }],
-        state.sha256, result.workSteps),
-      bytes: null, f4RuntimeInvocations: f4Invocations, f5RuntimeInvocations: 1,
-    };
-  }
+  validator(staged, state.policy.canonicalLimits);
   return {
     receipt: receipt('projected', [], state.sha256, result.workSteps),
     bytes: new Uint8Array(staged), f4RuntimeInvocations: f4Invocations, f5RuntimeInvocations: 1,

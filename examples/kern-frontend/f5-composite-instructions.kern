@@ -1,0 +1,80 @@
+fn name=f5list returns=string
+  param name=limits type=string
+  param name=values type="string[]"
+  handler lang="kern"
+    let name=parts value="[]"
+    let name=header value="\"L\" + String(values.length) + \"[\""
+    do value="parts.push(header)"
+    let name=instructionScalars value="Text.length(header) + 1"
+    let name=work value=0
+    let name=nodes value=1
+    let name=depth value=1
+    let name=maxCollection value=values.length
+    let name=maxString value=0
+    for name=index from=0 to=values.length
+      let name=childFrame value="List.index(values, index)"
+      let name=child value="f5resultread(childFrame)"
+      if cond="child.length != 9"
+        return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work + Text.length(childFrame))"
+      if cond="child[0] != \"0\""
+        return value=childFrame
+      let name=childText value="List.index(child, 8)"
+      do value="parts.push(childText)"
+      assign target=instructionScalars value="instructionScalars + f5uint(child[2])"
+      assign target=work value="work + f5uint(child[3]) + Text.length(childFrame) + Text.length(childText)"
+      assign target=nodes value="nodes + f5uint(child[4])"
+      if cond="f5uint(child[5]) + 1 > depth"
+        assign target=depth value="f5uint(child[5]) + 1"
+      if cond="f5uint(child[6]) > maxCollection"
+        assign target=maxCollection value="f5uint(child[6])"
+      if cond="f5uint(child[7]) > maxString"
+        assign target=maxString value="f5uint(child[7])"
+    do value="parts.push(\"]\")"
+    let name=text value="f5join(parts)"
+    return value="f5resultsuccess(limits, instructionScalars, work + Text.length(text), nodes, depth, maxCollection, maxString, text)"
+
+fn name=f5record returns=string
+  param name=limits type=string
+  param name=keys type="string[]"
+  param name=values type="string[]"
+  handler lang="kern"
+    if cond="keys.length != values.length"
+      return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", keys.length + values.length)"
+    let name=parts value="[]"
+    let name=header value="\"R\" + String(keys.length) + \"{\""
+    do value="parts.push(header)"
+    let name=instructionScalars value="Text.length(header) + 1"
+    let name=work value=0
+    let name=nodes value=1
+    let name=depth value=1
+    let name=maxCollection value=keys.length
+    let name=maxString value=0
+    let name=previous value="\"\""
+    for name=index from=0 to=keys.length
+      let name=key value="List.index(keys, index)"
+      if cond="index > 0 && !f5scalartextless(previous, key)"
+        return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work + index + 1)"
+      assign target=previous value=key
+      let name=childFrame value="List.index(values, index)"
+      let name=child value="f5resultread(childFrame)"
+      if cond="child.length != 9"
+        return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work + Text.length(childFrame))"
+      if cond="child[0] != \"0\""
+        return value=childFrame
+      let name=keyText value="\"K\" + String(Text.length(key)) + \":\" + key"
+      let name=childText value="List.index(child, 8)"
+      do value="parts.push(keyText + childText)"
+      assign target=instructionScalars value="instructionScalars + Text.length(keyText) + f5uint(child[2])"
+      assign target=work value="work + f5uint(child[3]) + Text.length(childFrame) + Text.length(keyText) + Text.length(childText)"
+      assign target=nodes value="nodes + f5uint(child[4])"
+      if cond="f5uint(child[5]) + 1 > depth"
+        assign target=depth value="f5uint(child[5]) + 1"
+      if cond="f5uint(child[6]) > maxCollection"
+        assign target=maxCollection value="f5uint(child[6])"
+      if cond="Text.length(key) > maxString"
+        assign target=maxString value="Text.length(key)"
+      if cond="f5uint(child[7]) > maxString"
+        assign target=maxString value="f5uint(child[7])"
+    do value="parts.push(\"}\")"
+    let name=text value="f5join(parts)"
+    return value="f5resultsuccess(limits, instructionScalars, work + Text.length(text), nodes, depth, maxCollection, maxString, text)"

@@ -1,0 +1,89 @@
+fn name=f5resultfailure returns=string
+  param name=status type=string
+  param name=code type=string
+  param name=work type=number
+  handler lang="kern"
+    return value="status + \"\u001f\" + code + \"\u001f0\u001f\" + String(work) + \"\u001f0\u001f0\u001f0\u001f0\u001f0#\u001e\""
+
+fn name=f5resultbody returns=string
+  param name=instructionScalars type=number
+  param name=work type=number
+  param name=nodes type=number
+  param name=depth type=number
+  param name=maxCollection type=number
+  param name=maxString type=number
+  param name=text type=string
+  handler lang="kern"
+    return value="\"0\u001f\u001f\" + String(instructionScalars) + \"\u001f\" + String(work) + \"\u001f\" + String(nodes) + \"\u001f\" + String(depth) + \"\u001f\" + String(maxCollection) + \"\u001f\" + String(maxString) + \"\u001f\" + String(Text.length(text)) + \"#\" + text + \"\u001e\""
+
+fn name=f5resultsuccess returns=string
+  param name=limits type=string
+  param name=instructionScalars type=number
+  param name=baseWork type=number
+  param name=nodes type=number
+  param name=depth type=number
+  param name=maxCollection type=number
+  param name=maxString type=number
+  param name=text type=string
+  handler lang="kern"
+    let name=work value=baseWork
+    let name=frame value="f5resultbody(instructionScalars, work, nodes, depth, maxCollection, maxString, text)"
+    let name=next value="baseWork + Text.length(frame)"
+    while cond="next != work"
+      assign target=work value=next
+      assign target=frame value="f5resultbody(instructionScalars, work, nodes, depth, maxCollection, maxString, text)"
+      assign target=next value="baseWork + Text.length(frame)"
+    let name=limitValues value="f5rowread(limits)"
+    if cond="limitValues.length != 6"
+      return value="f5resultfailure(\"2\", \"F5_F4_DRIFT\", work)"
+    if cond="instructionScalars > f5uint(limitValues[0]) || work > f5uint(limitValues[1]) || nodes > f5uint(limitValues[2]) || depth > f5uint(limitValues[3]) || maxCollection > f5uint(limitValues[4]) || maxString > f5uint(limitValues[5])"
+      return value="f5resultfailure(\"1\", \"F5_LIMIT\", work)"
+    return value=frame
+
+fn name=f5resultread returns="string[]"
+  param name=frame type=string
+  handler lang="kern"
+    let name=fields value="[]"
+    let name=cursor value=0
+    for name=fieldIndex from=0 to=8
+      let name=start value=cursor
+      while cond="cursor < Text.length(frame) && Text.charAt(frame, cursor) != \"\u001f\""
+        assign target=cursor value="cursor + 1"
+      if cond="cursor >= Text.length(frame)"
+        return value="[]"
+      do value="fields.push(Text.slice(frame, start, cursor))"
+      assign target=cursor value="cursor + 1"
+    let name=lengthStart value=cursor
+    while cond="cursor < Text.length(frame) && Text.charAt(frame, cursor) != \"#\""
+      assign target=cursor value="cursor + 1"
+    if cond="cursor >= Text.length(frame)"
+      return value="[]"
+    let name=lengthText value="Text.slice(frame, lengthStart, cursor)"
+    if cond="!f5validuinttext(lengthText)"
+      return value="[]"
+    assign target=cursor value="cursor + 1"
+    let name=payloadEnd value="cursor + f5uint(lengthText)"
+    if cond="payloadEnd >= Text.length(frame) || Text.charAt(frame, payloadEnd) != \"\u001e\" || payloadEnd + 1 != Text.length(frame)"
+      return value="[]"
+    let name=payload value="Text.slice(frame, cursor, payloadEnd)"
+    do value="fields.push(payload)"
+    if cond="fields.length != 9"
+      return value="[]"
+    for name=numberIndex from=2 to=8
+      if cond="!f5validuinttext(List.index(fields, numberIndex))"
+        return value="[]"
+    if cond="fields[0] == \"0\""
+      if cond="fields[1] != \"\" || f5uint(fields[2]) != Text.length(fields[8]) || f5uint(fields[4]) == 0 || f5uint(fields[5]) == 0"
+        return value="[]"
+    else
+      if cond="(fields[0] != \"1\" && fields[0] != \"2\") || fields[1] == \"\" || fields[8] != \"\" || fields[2] != \"0\" || fields[4] != \"0\" || fields[5] != \"0\" || fields[6] != \"0\" || fields[7] != \"0\""
+        return value="[]"
+    return value=fields
+
+fn name=f5resultpayload returns=string
+  param name=frame type=string
+  handler lang="kern"
+    let name=fields value="f5resultread(frame)"
+    if cond="fields.length != 9 || fields[0] != \"0\""
+      return value="\"\""
+    return value="List.index(fields, 8)"

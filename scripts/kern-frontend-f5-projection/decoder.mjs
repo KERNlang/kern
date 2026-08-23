@@ -81,7 +81,7 @@ export function decodeInstructionStream(source, limits) {
     fail(`instruction tag ${tag}`);
   }
 
-  const result = value(0);
+  const result = value(1);
   if (cursor !== points.length) fail('instruction trailing data');
   return result;
 }

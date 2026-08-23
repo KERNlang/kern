@@ -36,8 +36,8 @@ test('A10 exact and one-over node, collection, string, and depth limits discrimi
   assert.throws(() => decodeInstructionStream('L2[NN]', { ...LIMITS, maxCollectionLength: 1 }), /list limit/u);
   assert.doesNotThrow(() => decodeInstructionStream('T2:\ud83c\udf0da', { ...LIMITS, maxStringCodePoints: 2 }));
   assert.throws(() => decodeInstructionStream('T2:\ud83c\udf0da', { ...LIMITS, maxStringCodePoints: 1 }), /payload/u);
-  assert.doesNotThrow(() => decodeInstructionStream('L1[L1[N]]', { ...LIMITS, maxDepth: 2 }));
-  assert.throws(() => decodeInstructionStream('L1[L1[N]]', { ...LIMITS, maxDepth: 1 }), /depth/u);
+  assert.doesNotThrow(() => decodeInstructionStream('L1[L1[N]]', { ...LIMITS, maxDepth: 3 }));
+  assert.throws(() => decodeInstructionStream('L1[L1[N]]', { ...LIMITS, maxDepth: 2 }), /depth/u);
 });
 
 test('A10 projected/fatal result envelopes are mutually exclusive and atomic', () => {

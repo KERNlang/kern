@@ -66,65 +66,6 @@ fn name=f5scalartextless returns=boolean
         return value="leftPoint < rightPoint"
     return value="leftLength < rightLength"
 
-fn name=f5text returns=string
-  param name=value type=string
-  handler lang="kern"
-    return value="f5frame(\"T\", value)"
-
-fn name=f5int returns=string
-  param name=value type=string
-  handler lang="kern"
-    return value="f5frame(\"I\", value)"
-
-fn name=f5decimal returns=string
-  param name=value type=string
-  handler lang="kern"
-    return value="f5frame(\"D\", value)"
-
-fn name=f5bool returns=string
-  param name=value type=boolean
-  handler lang="kern"
-    if cond=value
-      return value="\"B1\""
-    return value="\"B0\""
-
-fn name=f5null returns=string
-  handler lang="kern"
-    return value="\"N\""
-
-fn name=f5list returns=string
-  param name=values type="string[]"
-  handler lang="kern"
-    let name=parts value="[]"
-    do value="parts.push(\"L\" + String(values.length) + \"[\")"
-    for name=index from=0 to=values.length
-      let name=value value="values[index]"
-      do value="parts.push(value)"
-    do value="parts.push(\"]\")"
-    return value="f5join(parts)"
-
-fn name=f5key returns=string
-  param name=value type=string
-  handler lang="kern"
-    return value="f5frame(\"K\", value)"
-
-fn name=f5record returns=string
-  param name=keys type="string[]"
-  param name=values type="string[]"
-  handler lang="kern"
-    if cond="keys.length != values.length"
-      return value="\"\""
-    let name=parts value="[]"
-    do value="parts.push(\"R\" + String(keys.length) + \"{\")"
-    for name=index from=0 to=keys.length
-      let name=key value="keys[index]"
-      let name=value value="values[index]"
-      let name=encodedKey value="f5key(key)"
-      do value="parts.push(encodedKey)"
-      do value="parts.push(value)"
-    do value="parts.push(\"}\")"
-    return value="f5join(parts)"
-
 fn name=f5rowread returns="string[]"
   param name=tape type=string
   handler lang="kern"

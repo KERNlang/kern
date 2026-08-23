@@ -1,0 +1,39 @@
+fn name=f5leaf returns=string
+  param name=limits type=string
+  param name=tag type=string
+  param name=value type=string
+  param name=countsString type=boolean
+  handler lang="kern"
+    let name=text value="tag + String(Text.length(value)) + \":\" + value"
+    let name=maxString value="countsString ? Text.length(value) : 0"
+    return value="f5resultsuccess(limits, Text.length(text), 1, 1, 1, 0, maxString, text)"
+
+fn name=f5text returns=string
+  param name=limits type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5leaf(limits, \"T\", value, true)"
+
+fn name=f5int returns=string
+  param name=limits type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5leaf(limits, \"I\", value, true)"
+
+fn name=f5decimal returns=string
+  param name=limits type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5leaf(limits, \"D\", value, true)"
+
+fn name=f5bool returns=string
+  param name=limits type=string
+  param name=value type=boolean
+  handler lang="kern"
+    let name=text value="value ? \"B1\" : \"B0\""
+    return value="f5resultsuccess(limits, 2, 1, 1, 1, 0, 0, text)"
+
+fn name=f5null returns=string
+  param name=limits type=string
+  handler lang="kern"
+    return value="f5resultsuccess(limits, 1, 1, 1, 1, 0, 0, \"N\")"

@@ -1,4 +1,5 @@
 fn name=f5expression returns=string
+  param name=limits type=string
   param name=kindTape type=string
   param name=flagTape type=string
   param name=payloadTape type=string
@@ -42,7 +43,7 @@ fn name=f5expression returns=string
         assign target=kindName value="\"identifier\""
         do value="fieldKeys.push(\"name\")"
         let name=identifierText value="List.index(payload, 0)"
-        let name=identifierValue value="f5text(identifierText)"
+        let name=identifierValue value="f5text(limits, identifierText)"
         do value="fieldValues.push(identifierValue)"
       else
         if cond="kind == 1"
@@ -52,7 +53,7 @@ fn name=f5expression returns=string
             assign target=kindName value="\"boolean\""
             do value="fieldKeys.push(\"value\")"
             let name=booleanText value="List.index(payload, 0)"
-            let name=booleanValue value="f5bool(booleanText == \"true\")"
+            let name=booleanValue value="f5bool(limits, booleanText == \"true\")"
             do value="fieldValues.push(booleanValue)"
           else
             if cond="kind == 3 || kind == 4 || kind == 5"
@@ -60,20 +61,20 @@ fn name=f5expression returns=string
               do value="fieldKeys.push(\"value\")"
               let name=literalText value="List.index(payload, 0)"
               if cond="kind == 3"
-                let name=integerValue value="f5int(literalText)"
+                let name=integerValue value="f5int(limits, literalText)"
                 do value="fieldValues.push(integerValue)"
               else
                 if cond="kind == 4"
-                  let name=decimalValue value="f5decimal(literalText)"
+                  let name=decimalValue value="f5decimal(limits, literalText)"
                   do value="fieldValues.push(decimalValue)"
                 else
-                  let name=textValue value="f5text(literalText)"
+                  let name=textValue value="f5text(limits, literalText)"
                   do value="fieldValues.push(textValue)"
             else
               if cond="kind == 6"
                 assign target=kindName value="\"list\""
                 do value="fieldKeys.push(\"items\")"
-                let name=itemsValue value="f5list(children)"
+                let name=itemsValue value="f5list(limits, children)"
                 do value="fieldValues.push(itemsValue)"
               else
                 if cond="kind == 7"
@@ -102,7 +103,7 @@ fn name=f5expression returns=string
                     do value="sortedKeys.push(selectedKey)"
                     do value="sortedValues.push(List.index(children, selected))"
                   do value="fieldKeys.push(\"entries\")"
-                  let name=entriesValue value="f5record(sortedKeys, sortedValues)"
+                  let name=entriesValue value="f5record(limits, sortedKeys, sortedValues)"
                   do value="fieldValues.push(entriesValue)"
                 else
                   if cond="kind == 8"
@@ -112,9 +113,9 @@ fn name=f5expression returns=string
                     do value="fieldKeys.push(\"property\")"
                     let name=memberObject value="List.index(children, 0)"
                     let name=memberFlag value="List.index(flags, index)"
-                    let name=memberOptional value="f5bool(memberFlag == 1)"
+                    let name=memberOptional value="f5bool(limits, memberFlag == 1)"
                     let name=memberPropertyText value="List.index(payload, 0)"
-                    let name=memberProperty value="f5text(memberPropertyText)"
+                    let name=memberProperty value="f5text(limits, memberPropertyText)"
                     do value="fieldValues.push(memberObject)"
                     do value="fieldValues.push(memberOptional)"
                     do value="fieldValues.push(memberProperty)"
@@ -127,7 +128,7 @@ fn name=f5expression returns=string
                       let name=indexValue value="List.index(children, 1)"
                       let name=indexObject value="List.index(children, 0)"
                       let name=indexFlag value="List.index(flags, index)"
-                      let name=indexOptional value="f5bool(indexFlag == 1)"
+                      let name=indexOptional value="f5bool(limits, indexFlag == 1)"
                       do value="fieldValues.push(indexValue)"
                       do value="fieldValues.push(indexObject)"
                       do value="fieldValues.push(indexOptional)"
@@ -141,10 +142,10 @@ fn name=f5expression returns=string
                         do value="fieldKeys.push(\"args\")"
                         do value="fieldKeys.push(\"callee\")"
                         do value="fieldKeys.push(\"optional\")"
-                        let name=argsValue value="f5list(args)"
+                        let name=argsValue value="f5list(limits, args)"
                         let name=calleeValue value="List.index(children, 0)"
                         let name=callFlag value="List.index(flags, index)"
-                        let name=callOptional value="f5bool(callFlag == 1)"
+                        let name=callOptional value="f5bool(limits, callFlag == 1)"
                         do value="fieldValues.push(argsValue)"
                         do value="fieldValues.push(calleeValue)"
                         do value="fieldValues.push(callOptional)"
@@ -153,9 +154,9 @@ fn name=f5expression returns=string
                           assign target=kindName value="\"new\""
                           do value="fieldKeys.push(\"args\")"
                           do value="fieldKeys.push(\"constructor\")"
-                          let name=newArgs value="f5list(children)"
+                          let name=newArgs value="f5list(limits, children)"
                           let name=constructorText value="List.index(payload, 0)"
-                          let name=constructorValue value="f5text(constructorText)"
+                          let name=constructorValue value="f5text(limits, constructorText)"
                           do value="fieldValues.push(newArgs)"
                           do value="fieldValues.push(constructorValue)"
                         else
@@ -164,12 +165,12 @@ fn name=f5expression returns=string
                             let name=params value="[]"
                             for name=paramIndex from=0 to=payload.length
                               let name=paramText value="List.index(payload, paramIndex)"
-                              let name=paramValue value="f5text(paramText)"
+                              let name=paramValue value="f5text(limits, paramText)"
                               do value="params.push(paramValue)"
                             do value="fieldKeys.push(\"body\")"
                             do value="fieldKeys.push(\"params\")"
                             let name=lambdaBody value="List.index(children, 0)"
-                            let name=paramsValue value="f5list(params)"
+                            let name=paramsValue value="f5list(limits, params)"
                             do value="fieldValues.push(lambdaBody)"
                             do value="fieldValues.push(paramsValue)"
                           else
@@ -180,7 +181,7 @@ fn name=f5expression returns=string
                               do value="fieldKeys.push(\"right\")"
                               let name=binaryLeft value="List.index(children, 0)"
                               let name=binaryOpText value="List.index(payload, 0)"
-                              let name=binaryOp value="f5text(binaryOpText)"
+                              let name=binaryOp value="f5text(limits, binaryOpText)"
                               let name=binaryRight value="List.index(children, 1)"
                               do value="fieldValues.push(binaryLeft)"
                               do value="fieldValues.push(binaryOp)"
@@ -192,7 +193,7 @@ fn name=f5expression returns=string
                                 do value="fieldKeys.push(\"op\")"
                                 let name=unaryArgument value="List.index(children, 0)"
                                 let name=unaryOpText value="List.index(payload, 0)"
-                                let name=unaryOp value="f5text(unaryOpText)"
+                                let name=unaryOp value="f5text(limits, unaryOpText)"
                                 do value="fieldValues.push(unaryArgument)"
                                 do value="fieldValues.push(unaryOp)"
                               else
@@ -208,15 +209,15 @@ fn name=f5expression returns=string
                                 do value="fieldValues.push(alternateValue)"
                                 do value="fieldValues.push(consequentValue)"
                                 do value="fieldValues.push(testValue)"
-      let name=fields value="f5record(fieldKeys, fieldValues)"
-      let name=kindValue value="f5text(kindName)"
+      let name=fields value="f5record(limits, fieldKeys, fieldValues)"
+      let name=kindValue value="f5text(limits, kindName)"
       let name=projectedKeys value="[]"
       do value="projectedKeys.push(\"fields\")"
       do value="projectedKeys.push(\"kind\")"
       let name=projectedValues value="[]"
       do value="projectedValues.push(fields)"
       do value="projectedValues.push(kindValue)"
-      let name=projectedValue value="f5record(projectedKeys, projectedValues)"
+      let name=projectedValue value="f5record(limits, projectedKeys, projectedValues)"
       do value="projected.push(projectedValue)"
       assign target=result value=projectedValue
     return value=result
