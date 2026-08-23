@@ -5,7 +5,7 @@
   "moduleSetFormat": "kern.frontend.f4-module-set.4",
   "f4Policy": {
     "path": "scripts/kern-frontend-f4-declarations/policy.json",
-    "sha256": "7a8c34f1ab8f085a97fa4f16a9f75c8fea773d4fbecaad052bfc0140902822dd"
+    "sha256": "211bb1d98a06968083777ae97d5ae95494139f4da8706b2075bcfc2a6119e06f"
   },
   "mappingAuthorities": [
     { "path": "packages/core/src/kir-structural/expression.ts", "sha256": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957" },
@@ -17,12 +17,13 @@
     { "path": "packages/core/src/kir-structural/module-path.ts", "sha256": "3cc5012cb5000496f7995fe31e53891880d2201b95e9cec1c000c45dbbae4e44" }
   ],
   "composition": [
-    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "232ddb4981516f450da606af4138d4047b7676eceb722730b99411e55f7dddd3" },
-    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "967223bc7f7f3215e1461efc81b48445475935ad660eb1dd74571f621c14ab23" },
-    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "e1185593f425fb198ef6ade1ff83cd05e1bc835d09c9d5d7a32775d0830a63af" },
-    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "04dbcfd7da8bc9bd18d19a67535fa2f4b04c7234c2252a5e44acd58f3184f6c6" },
+    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "2ba5b19f8fbe8c0962b93fa598f26d5f5142563fb0516270a1c044c5ac9b3336" },
+    { "path": "examples/kern-frontend/f5-framing.kern", "sha256": "c1afb8ac86a06cc307d67dfab213908fea0a645f8ac8f2dde644b890c4e4d51d" },
+    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "b86a02486bc15ac55ea676ad4009ba0d327af2c2506bd5c18c2373e453c62df4" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "a14bdc3d6cabd79fe8de512aa77a97ee53ada1346d17211deca90a74eddf5658" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "69b4c57a2c25a7337bc0c927bd2ae82d800f304a23323583a6aa3f33d22259f0" },
     { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "18d0e8423712f1036612b1a5d3855b3a0c8b0c012eb49b5e7155866212eb95b1" },
-    { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "d185dc0c29ed4cde381b5a105f3cb1796019613870537cf4cde6b9d084c01335" }
+    { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "4bbd3b3d05d2c2d95851cfe57c02810b1ae5a37cdb22a832538c5f7209848348" }
   ],
   "profileLimits": {
     "maxModules": 256,

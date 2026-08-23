@@ -427,7 +427,7 @@ fn name=f4expressionevidence returns="string[]"
               return value="[\"drift\", \"\", \"\", \"\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\"]"
             assign target=spanTape value="localSpans[1]"
           else
-            if cond="normalizedFlag == \"true\" && occurrenceRepresentations[occurrence] == \"bare\""
+            if cond="occurrenceRepresentations[occurrence] == \"bare\""
               assign target=origin value="\"f4-local\""
               assign target=localCalls value="localCalls + 1"
               assign target=decoded value="occurrenceRawValues[occurrence]"

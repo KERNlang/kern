@@ -74,6 +74,7 @@ fn name=f5recordtwo returns=string
 
 fn name=f5handlertype returns=string
   param name=value type=string
+  param name=position type=string
   handler lang="kern"
     let name=source value="f5trim(value)"
     if cond="source == \"string\""
@@ -82,20 +83,72 @@ fn name=f5handlertype returns=string
     if cond="source == \"number\""
       let name=result value="f5typekind(\"integer\")"
       return value=result
-    if cond="source == \"boolean\" || source == \"unknown\" || source == \"json\" || source == \"void\""
+    if cond="source == \"boolean\" || (source == \"void\" && position == \"return\")"
       let name=result value="f5typekind(source)"
       return value=result
     if cond="Text.length(source) > 2 && Text.slice(source, Text.length(source) - 2, Text.length(source)) == \"[]\""
       let name=elementSource value="Text.slice(source, 0, Text.length(source) - 2)"
-      let name=element value="elementSource == \"string\" ? \"text\" : elementSource == \"number\" ? \"integer\" : elementSource"
+      if cond="elementSource != \"string\" && elementSource != \"number\" && elementSource != \"boolean\""
+        return value="\"__F5_AUTHORITY_DRIFT__\""
+      let name=element value="elementSource == \"string\" ? \"text\" : elementSource == \"number\" ? \"integer\" : \"boolean\""
       let name=result value="f5typelist(element)"
       return value=result
-    return value="\"\""
+    return value="\"__F5_AUTHORITY_DRIFT__\""
+
+fn name=f5identifier returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) == 0"
+      return value=false
+    let name=first value="Text.charAt(value, 0)"
+    if cond="Text.indexOf(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_\", first) < 0"
+      return value=false
+    let name=length value="Text.length(value)"
+    for name=index from=1 to=length
+      if cond="Text.indexOf(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789\", Text.charAt(value, index)) < 0"
+        return value=false
+    return value=true
+
+fn name=f5canonicalnumber returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    let name=cursor value=0
+    let name=negative value=false
+    if cond="Text.length(value) > 0 && Text.charAt(value, 0) == \"-\""
+      assign target=negative value=true
+      assign target=cursor value=1
+    if cond="cursor >= Text.length(value)"
+      return value=false
+    let name=integerStart value=cursor
+    while cond="cursor < Text.length(value) && Text.indexOf(\"0123456789\", Text.charAt(value, cursor)) >= 0"
+      assign target=cursor value="cursor + 1"
+    if cond="cursor == integerStart || (cursor - integerStart > 1 && Text.charAt(value, integerStart) == \"0\")"
+      return value=false
+    let name=nonzero value=false
+    for name=digitIndex from=integerStart to=cursor
+      if cond="Text.charAt(value, digitIndex) != \"0\""
+        assign target=nonzero value=true
+    if cond="cursor < Text.length(value)"
+      if cond="Text.charAt(value, cursor) != \".\""
+        return value=false
+      assign target=cursor value="cursor + 1"
+      let name=fractionStart value=cursor
+      while cond="cursor < Text.length(value) && Text.indexOf(\"0123456789\", Text.charAt(value, cursor)) >= 0"
+        if cond="Text.charAt(value, cursor) != \"0\""
+          assign target=nonzero value=true
+        assign target=cursor value="cursor + 1"
+      if cond="cursor == fractionStart"
+        return value=false
+    return value="cursor == Text.length(value) && !(negative && !nonzero)"
 
 fn name=f5branchpath returns=string
   param name=value type=string
   param name=quoted type=boolean
   handler lang="kern"
+    if cond="!quoted"
+      if cond="!f5identifier(value)"
+        if cond="!f5canonicalnumber(value)"
+          return value="\"__F5_AUTHORITY_DRIFT__\""
     let name=form value="quoted ? \"quoted-text\" : \"unquoted-expression\""
     let name=formValue value="f5text(form)"
     let name=sourceValue value="f5text(value)"
@@ -105,7 +158,20 @@ fn name=f5branchpath returns=string
 fn name=f5eachcollection returns=string
   param name=value type=string
   handler lang="kern"
-    let name=form value="Text.indexOf(value, \".\") < 0 ? \"binding\" : \"record-array-field\""
+    let name=dot value="Text.indexOf(value, \".\")"
+    if cond="dot < 0"
+      if cond="!f5identifier(value)"
+        return value="\"__F5_AUTHORITY_DRIFT__\""
+    else
+      let name=owner value="Text.slice(value, 0, dot)"
+      let name=member value="Text.slice(value, dot + 1, Text.length(value))"
+      if cond="Text.indexOf(member, \".\") >= 0"
+        return value="\"__F5_AUTHORITY_DRIFT__\""
+      if cond="!f5identifier(owner)"
+        return value="\"__F5_AUTHORITY_DRIFT__\""
+      if cond="!f5identifier(member)"
+        return value="\"__F5_AUTHORITY_DRIFT__\""
+    let name=form value="dot < 0 ? \"binding\" : \"record-array-field\""
     let name=formValue value="f5text(form)"
     let name=sourceValue value="f5text(value)"
     let name=result value="f5recordtwo(\"form\", formValue, \"source\", sourceValue)"
@@ -117,13 +183,14 @@ fn name=f5projectproperty returns=string
   param name=value type=string
   param name=representation type=string
   param name=expressionValue type=string
+  param name=position type=string
   handler lang="kern"
     if cond="disposition == \"included-value\""
       return value="f5includedproperty(schemaKind, value)"
     if cond="disposition == \"lowered-import-path\""
       return value="f5text(value)"
     if cond="disposition == \"lowered-type\""
-      return value="f5handlertype(value)"
+      return value="f5handlertype(value, position)"
     if cond="disposition == \"lowered-branch-path-value\""
       return value="f5branchpath(value, representation == \"quoted\")"
     if cond="disposition == \"lowered-each-collection-reference\""

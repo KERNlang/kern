@@ -1,3 +1,5 @@
+import { compareCodePoints } from '../../packages/core/dist/canonical-value/validate.js';
+
 const UINT = /^(?:0|[1-9][0-9]*)$/u;
 
 function fail(detail) {
@@ -69,7 +71,7 @@ export function decodeInstructionStream(source, limits) {
       for (let index = 0; index < length; index += 1) {
         if (take() !== 'K') fail('instruction record key');
         const key = payload();
-        if (previous !== undefined && previous >= key) fail('instruction record order');
+        if (previous !== undefined && compareCodePoints(previous, key) >= 0) fail('instruction record order');
         previous = key;
         entries.push({ key, value: value(depth + 1) });
       }

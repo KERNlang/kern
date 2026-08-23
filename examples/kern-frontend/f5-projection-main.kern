@@ -93,9 +93,15 @@ fn name=f5decodef2nodes returns="string[]"
 fn name=projectf5moduleset returns="string[]" export=true
   param name=moduleIds type="string[]"
   param name=documentFields type="string[]"
+  param name=documentReceiptSeals type="string[]"
   param name=moduleSetFields type="string[]"
-  param name=maxWorkSteps type=number
+  param name=maxModules type=number
   param name=maxInstructionScalars type=number
+  param name=maxWorkSteps type=number
+  param name=maxNodes type=number
+  param name=maxDepth type=number
+  param name=maxCollectionLength type=number
+  param name=maxStringCodePoints type=number
   handler lang="kern"
     let name=moduleCount value=moduleIds.length
     let name=documentFieldCount value=documentFields.length
@@ -106,10 +112,17 @@ fn name=projectf5moduleset returns="string[]" export=true
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
     if cond="moduleSetFieldCount != 10"
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
-    if cond="moduleSetFields[0] != \"kern.frontend.f4-module-set.4\""
+    if cond="!f5validatemoduleset(moduleIds, documentFields, documentReceiptSeals, moduleSetFields)"
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
-    if cond="moduleSetFields[1] != \"linked\""
-      return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
+    for name=validationIndex from=0 to=moduleCount
+      let name=validationFields value="[]"
+      let name=validationOffset value="validationIndex * 17"
+      for name=validationFieldIndex from=0 to=17
+        do value="validationFields.push(List.index(documentFields, validationOffset + validationFieldIndex))"
+      if cond="!f5validatedocument(validationFields, List.index(moduleIds, validationIndex))"
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", \"0\", \"failure\"]"
+    if cond="moduleCount > maxModules"
+      return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_LIMIT\", \"\", \"0\", \"failure\"]"
     let name=roots value="[]"
     let name=symbolTapes value="[]"
     let name=work value="0"
@@ -150,6 +163,8 @@ fn name=projectf5moduleset returns="string[]" export=true
         let name=childRows value="List.index(nodes, 2)"
         let name=rootOrdinal value="List.index(nodes, 3)"
         let name=expressionValue value="f5expression(nodeRows, payloadRows, childRows, rootOrdinal)"
+        if cond="expressionValue == \"__F5_F4_DRIFT__\""
+          return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
         if cond="expressionValue == \"\""
           return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
         let name=ordinalText value="List.index(evidence, 1)"
@@ -159,6 +174,10 @@ fn name=projectf5moduleset returns="string[]" export=true
         let name=decodedNodeRows value="f5rowread(nodeRows)"
         assign target=work value="work + decodedNodeRows.length + Text.length(receiptTape)"
       let name=moduleRoots value="f5projecttree(declarationTape, propertyOccurrenceTape, propertyPresenceTape, attachmentTape, decoratorTape, expressionOrdinals, expressionValues)"
+      if cond="moduleRoots.length == 1 && List.index(moduleRoots, 0) == \"__F5_AUTHORITY_DRIFT__\""
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_AUTHORITY_DRIFT\", \"\", String(work), \"failure\"]"
+      if cond="moduleRoots.length == 1 && List.index(moduleRoots, 0) == \"__F5_F4_DRIFT__\""
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
       let name=rootTapeParts value="[]"
       for name=rootTapeIndex from=0 to=moduleRoots.length
         let name=moduleRoot value="List.index(moduleRoots, rootTapeIndex)"
@@ -175,6 +194,22 @@ fn name=projectf5moduleset returns="string[]" export=true
         return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_LIMIT\", \"\", String(work), \"failure\"]"
     let name=resolvedBindingTape value="List.index(moduleSetFields, 6)"
     let name=instructions value="f5projectmodules(moduleIds, roots, symbolTapes, resolvedBindingTape)"
-    if cond="instructions == \"\" || Text.length(instructions) > maxInstructionScalars"
+    let name=requiredNodes value="moduleCount + 1"
+    let name=requiredCollection value=moduleCount
+    let name=requiredString value=1
+    for name=metricIndex from=0 to=moduleCount
+      let name=metricId value="List.index(moduleIds, metricIndex)"
+      if cond="Text.length(metricId) > requiredString"
+        assign target=requiredString value="Text.length(metricId)"
+      let name=metricOffset value="metricIndex * 17"
+      let name=metricDeclarationTape value="List.index(documentFields, metricOffset + 4)"
+      let name=metricDeclarationRows value="f5rowread(metricDeclarationTape)"
+      let name=metricDeclarations value=metricDeclarationRows.length
+      assign target=requiredNodes value="requiredNodes + metricDeclarations * 4"
+      if cond="metricDeclarations > requiredCollection"
+        assign target=requiredCollection value=metricDeclarations
+    if cond="instructions == \"\""
+      return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
+    if cond="Text.length(instructions) > maxInstructionScalars || work > maxWorkSteps || requiredNodes > maxNodes || 8 > maxDepth || requiredCollection > maxCollectionLength || requiredString > maxStringCodePoints"
       return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_LIMIT\", \"\", String(work), \"failure\"]"
     return value="[\"kern.frontend.f5-projection.1\", \"projected\", \"\", instructions, String(work), \"projection:closed\"]"

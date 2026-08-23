@@ -152,7 +152,7 @@
     },
     {
       "path": "examples/kern-frontend/f4-expression-evidence.kern",
-      "sha256": "4ade007220585170fd459b068992d6e0512ce5748f1a3b70ad06e8539c109407"
+      "sha256": "5562899fb4d23db95b12fe91d6831a345d0bd0a723007dc9c60480b71cea839f"
     },
     {
       "path": "examples/kern-frontend/f4-diagnostic-merge.kern",

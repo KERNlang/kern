@@ -1,0 +1,131 @@
+fn name=f5validuinttext returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) == 0 || (Text.length(value) > 1 && Text.charAt(value, 0) == \"0\")"
+      return value=false
+    let name=length value="Text.length(value)"
+    for name=index from=0 to=length
+      if cond="Text.indexOf(\"0123456789\", Text.charAt(value, index)) < 0"
+        return value=false
+    return value=true
+
+fn name=f5validinttext returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) > 0 && Text.charAt(value, 0) == \"-\""
+      if cond="value == \"-0\""
+        return value=true
+      return value="f5validuinttext(Text.slice(value, 1, Text.length(value)))"
+    return value="f5validuinttext(value)"
+
+fn name=f5rowsarity returns=boolean
+  param name=tape type=string
+  param name=arity type=number
+  handler lang="kern"
+    let name=rows value="f5rowread(tape)"
+    if cond="tape != \"\" && rows.length == 0"
+      return value=false
+    for name=index from=0 to=rows.length
+      let name=rowTape value="List.index(rows, index)"
+      let name=row value="f5rowread(rowTape)"
+      if cond="row.length != arity"
+        return value=false
+    return value=true
+
+fn name=f5splitcolon returns="string[]"
+  param name=value type=string
+  handler lang="kern"
+    let name=parts value="[]"
+    let name=start value=0
+    let name=length value="Text.length(value)"
+    for name=index from=0 to=length
+      if cond="Text.charAt(value, index) == \":\""
+        do value="parts.push(Text.slice(value, start, index))"
+        assign target=start value="index + 1"
+    do value="parts.push(Text.slice(value, start, length))"
+    return value=parts
+
+fn name=f5documentterminal returns=string
+  param name=fields type="string[]"
+  handler lang="kern"
+    let name=seal value="List.index(fields, 16)"
+    let name=parts value="f5splitcolon(seal)"
+    if cond="parts.length != 20"
+      return value="\"\""
+    let name=out value="[]"
+    do value="out.push(\"document\")"
+    do value="out.push(List.index(fields, 1))"
+    for name=fieldIndex from=4 to=15
+      let name=field value="List.index(fields, fieldIndex)"
+      let name=fieldLength value="Text.length(field)"
+      let name=fieldLengthText value="String(fieldLength)"
+      do value="out.push(fieldLengthText)"
+    for name=aggregateIndex from=13 to=19
+      let name=aggregate value="List.index(parts, aggregateIndex)"
+      if cond="!f5validuinttext(aggregate)"
+        return value="\"\""
+      do value="out.push(aggregate)"
+    do value="out.push(\"closed\")"
+    let name=fragments value="[]"
+    for name=fragmentIndex from=0 to=out.length
+      if cond="fragmentIndex > 0"
+        do value="fragments.push(\":\")"
+      do value="fragments.push(List.index(out, fragmentIndex))"
+    return value="f5join(fragments)"
+
+fn name=f5validatedocument returns=boolean
+  param name=fields type="string[]"
+  param name=moduleId type=string
+  handler lang="kern"
+    if cond="fields.length != 17 || fields[0] != \"kern.frontend.f4-document.2\" || fields[1] != \"classified\" || fields[2] != moduleId || !f5validuinttext(fields[3]) || !f5validuinttext(fields[15])"
+      return value=false
+    let name=arities value="[10, 13, 3, 3, 6, 5, 8, 5, 6, 1, 12]"
+    for name=arityIndex from=0 to=arities.length
+      let name=fieldIndex value="arityIndex + 4"
+      if cond="!f5rowsarity(List.index(fields, fieldIndex), List.index(arities, arityIndex))"
+        return value=false
+    if cond="f5documentterminal(fields) != fields[16]"
+      return value=false
+    let name=declarations value="f5rowread(fields[4])"
+    for name=declarationIndex from=0 to=declarations.length
+      let name=row value="f5rowread(List.index(declarations, declarationIndex))"
+      if cond="row[0] != String(declarationIndex) || !f5validuinttext(row[1]) || !f5validuinttext(row[3]) || !f5validuinttext(row[6]) || !f5validuinttext(row[7]) || !f5validinttext(row[8]) || (row[9] != \"true\" && row[9] != \"false\")"
+        return value=false
+    let name=decorators value="f5rowread(fields[8])"
+    let name=attached value="new Map()"
+    for name=decoratorIndex from=0 to=decorators.length
+      let name=row value="f5rowread(List.index(decorators, decoratorIndex))"
+      if cond="row[1] != \"attached\" && row[1] != \"dropped\""
+        return value=false
+      if cond="row[1] == \"attached\""
+        if cond="Map.has(attached, String(row[0]) + \"@\" + String(row[2]))"
+          return value=false
+        do value="Map.set(attached, String(row[0]) + \"@\" + String(row[2]), \"true\")"
+    return value=true
+
+fn name=f5validatemoduleset returns=boolean
+  param name=moduleIds type="string[]"
+  param name=documentFields type="string[]"
+  param name=documentReceiptSeals type="string[]"
+  param name=fields type="string[]"
+  handler lang="kern"
+    if cond="fields.length != 10 || fields[0] != \"kern.frontend.f4-module-set.4\" || fields[1] != \"linked\" || fields[2] != \"\" || fields[3] != \"\" || fields[4] != \"\" || fields[8] != \"\""
+      return value=false
+    if cond="documentReceiptSeals.length != moduleIds.length || !f5rowsarity(fields[5], 2) || !f5rowsarity(fields[6], 8) || !f5rowsarity(fields[7], 4)"
+      return value=false
+    let name=identities value="f5rowread(fields[7])"
+    if cond="identities.length != moduleIds.length"
+      return value=false
+    for name=identityIndex from=0 to=moduleIds.length
+      let name=identity value="f5rowread(List.index(identities, identityIndex))"
+      let name=offset value="identityIndex * 17"
+      if cond="identity[0] != List.index(moduleIds, identityIndex) || identity[0] != List.index(documentFields, offset + 2) || identity[1] != List.index(documentFields, offset) || identity[2] != List.index(documentFields, offset + 1) || identity[3] != List.index(documentReceiptSeals, identityIndex)"
+        return value=false
+    let name=components value="f5rowread(fields[5])"
+    for name=componentIndex from=0 to=components.length
+      let name=component value="f5rowread(List.index(components, componentIndex))"
+      if cond="!f5rowsarity(component[1], 2)"
+        return value=false
+    let name=resolvedBindings value="f5rowread(fields[6])"
+    let name=expected value="\"module-set:linked:\" + String(moduleIds.length) + \":0:0:0:\" + String(components.length) + \":\" + String(resolvedBindings.length) + \":\" + String(Text.length(fields[7])) + \":0:full:closed\""
+    return value="fields[9] == expected"

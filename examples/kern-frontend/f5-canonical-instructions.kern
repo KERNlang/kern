@@ -1,7 +1,7 @@
 fn name=f5uint returns=number
   param name=value type=string
   handler lang="kern"
-    let name=result value="0"
+    let name=result value=0
     let name=length value="Text.length(value)"
     for name=index from=0 to=length
       assign target=result value="result * 10 + Text.indexOf(\"0123456789\", Text.charAt(value, index))"
@@ -16,11 +16,36 @@ fn name=f5frame returns=string
 fn name=f5join returns=string
   param name=parts type="string[]"
   handler lang="kern"
-    let name=out value="\"\""
-    for name=index from=0 to=parts.length
-      let name=part value="parts[index]"
-      assign target=out value="out + part"
-    return value=out
+    let name=partByIndex value="new Map()"
+    for name=partIndex from=0 to=parts.length
+      do value="Map.set(partByIndex, String(partIndex), List.index(parts, partIndex))"
+    let name=activeCount value=parts.length
+    while cond="activeCount > 1"
+      let name=inputIndex value=0
+      let name=outputIndex value=0
+      while cond="inputIndex < activeCount"
+        let name=leftKey value="String(inputIndex)"
+        if cond="!Map.has(partByIndex, leftKey)"
+          return value="\"\""
+        let name=left value="Map.get(partByIndex, leftKey)"
+        let name=rightIndex value="inputIndex + 1"
+        if cond="rightIndex < activeCount"
+          let name=rightKey value="String(rightIndex)"
+          if cond="!Map.has(partByIndex, rightKey)"
+            return value="\"\""
+          let name=right value="Map.get(partByIndex, rightKey)"
+          let name=combined value="left + right"
+          do value="Map.set(partByIndex, String(outputIndex), combined)"
+        else
+          do value="Map.set(partByIndex, String(outputIndex), left)"
+        assign target=inputIndex value="inputIndex + 2"
+        assign target=outputIndex value="outputIndex + 1"
+      assign target=activeCount value=outputIndex
+    if cond="parts.length == 0"
+      return value="\"\""
+    if cond="!Map.has(partByIndex, \"0\")"
+      return value="\"\""
+    return value="Map.get(partByIndex, \"0\")"
 
 fn name=f5scalartextless returns=boolean
   param name=left type=string
@@ -70,11 +95,13 @@ fn name=f5null returns=string
 fn name=f5list returns=string
   param name=values type="string[]"
   handler lang="kern"
-    let name=out value="\"L\" + String(values.length) + \"[\""
+    let name=parts value="[]"
+    do value="parts.push(\"L\" + String(values.length) + \"[\")"
     for name=index from=0 to=values.length
       let name=value value="values[index]"
-      assign target=out value="out + value"
-    return value="out + \"]\""
+      do value="parts.push(value)"
+    do value="parts.push(\"]\")"
+    return value="f5join(parts)"
 
 fn name=f5key returns=string
   param name=value type=string
@@ -87,13 +114,16 @@ fn name=f5record returns=string
   handler lang="kern"
     if cond="keys.length != values.length"
       return value="\"\""
-    let name=out value="\"R\" + String(keys.length) + \"{\""
+    let name=parts value="[]"
+    do value="parts.push(\"R\" + String(keys.length) + \"{\")"
     for name=index from=0 to=keys.length
       let name=key value="keys[index]"
       let name=value value="values[index]"
       let name=encodedKey value="f5key(key)"
-      assign target=out value="out + encodedKey + value"
-    return value="out + \"}\""
+      do value="parts.push(encodedKey)"
+      do value="parts.push(value)"
+    do value="parts.push(\"}\")"
+    return value="f5join(parts)"
 
 fn name=f5rowread returns="string[]"
   param name=tape type=string

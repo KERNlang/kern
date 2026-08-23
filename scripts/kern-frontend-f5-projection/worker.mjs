@@ -66,9 +66,15 @@ function executeProjection(modules, f4, state) {
   const args = [
     modules.map((module) => module.moduleId),
     f4.documents.flatMap((document) => document.fields),
+    f4.documents.map((document) => document.receipt.seal),
     f4.fields,
-    state.policy.profileLimits.maxWorkSteps,
+    state.policy.profileLimits.maxModules,
     state.policy.profileLimits.maxInstructionScalars,
+    state.policy.profileLimits.maxWorkSteps,
+    state.policy.profileLimits.maxNodes,
+    state.policy.profileLimits.maxDepth,
+    state.policy.profileLimits.maxCollectionLength,
+    state.policy.profileLimits.maxStringCodePoints,
   ];
   const envelope = executeKernRuntimeHandlerSync({
     abi: KERN_RUNTIME_HANDLER_ABI,
@@ -110,7 +116,16 @@ function runProjectionWith(modules, f4Runner, validator, stateTransform = (state
     };
   }
   const staged = encodeCanonicalValue(result.instructions, state.policy.canonicalLimits);
-  validator(staged, state.policy.canonicalLimits);
+  try {
+    validator(staged, state.policy.canonicalLimits);
+  } catch (error) {
+    if (error?.name !== 'StructuralKirError') throw error;
+    return {
+      receipt: receipt('fatal', [{ code: 'F5_AUTHORITY_DRIFT', severity: 'error' }],
+        state.sha256, result.workSteps),
+      bytes: null, f4RuntimeInvocations: f4Invocations, f5RuntimeInvocations: 1,
+    };
+  }
   return {
     receipt: receipt('projected', [], state.sha256, result.workSteps),
     bytes: new Uint8Array(staged), f4RuntimeInvocations: f4Invocations, f5RuntimeInvocations: 1,

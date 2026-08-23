@@ -79,9 +79,30 @@ fn name=f5expression returns=string
                 if cond="kind == 7"
                   assign target=kindName value="\"record\""
                   if cond="payload.length != children.length"
-                    return value="\"\""
+                    return value="\"__F5_F4_DRIFT__\""
+                  let name=sortedKeys value="[]"
+                  let name=sortedValues value="[]"
+                  let name=usedOrdinals value="[]"
+                  for name=outIndex from=0 to=payload.length
+                    let name=selected value="-1"
+                    for name=candidate from=0 to=payload.length
+                      let name=candidateUsed value=false
+                      for name=usedIndex from=0 to=usedOrdinals.length
+                        if cond="List.index(usedOrdinals, usedIndex) == candidate"
+                          assign target=candidateUsed value=true
+                      if cond="!candidateUsed"
+                        if cond="selected < 0 || f5scalartextless(List.index(payload, candidate), List.index(payload, selected))"
+                          assign target=selected value=candidate
+                    if cond="selected < 0"
+                      return value="\"__F5_F4_DRIFT__\""
+                    let name=selectedKey value="List.index(payload, selected)"
+                    if cond="sortedKeys.length > 0 && List.index(sortedKeys, sortedKeys.length - 1) == selectedKey"
+                      return value="\"__F5_F4_DRIFT__\""
+                    do value="usedOrdinals.push(selected)"
+                    do value="sortedKeys.push(selectedKey)"
+                    do value="sortedValues.push(List.index(children, selected))"
                   do value="fieldKeys.push(\"entries\")"
-                  let name=entriesValue value="f5record(payload, children)"
+                  let name=entriesValue value="f5record(sortedKeys, sortedValues)"
                   do value="fieldValues.push(entriesValue)"
                 else
                   if cond="kind == 8"
