@@ -86,14 +86,14 @@ function executeProjection(modules, f4, state) {
   return decodeResult(materialize(envelope.result.value), state.policy);
 }
 
-function runProjectionWith(modules, f4Runner, validator) {
+function runProjectionWith(modules, f4Runner, validator, stateTransform = (state) => state) {
   if (!Array.isArray(modules) || modules.length === 0 || modules.some((module) =>
     module === null || typeof module !== 'object' || Array.isArray(module) ||
     Object.keys(module).sort().join('|') !== 'moduleId|source' ||
     typeof module.moduleId !== 'string' || typeof module.source !== 'string')) {
     throw new TypeError('F5 projection worker: request shape');
   }
-  const state = loadPolicy();
+  const state = stateTransform(loadPolicy());
   const f4 = f4Runner(modules);
   const f4Invocations = f4.documentRuntimeInvocations + f4.moduleSetRuntimeInvocations;
   if (f4.receipt.status !== 'linked' || f4.documents.some((document) => document.receipt.status !== 'classified')) {
@@ -127,5 +127,11 @@ export const __test = Object.freeze({
   },
   runProjectionWithValidator(modules, validator) {
     return runProjectionWith(modules, runModuleSet, validator);
+  },
+  runProjectionWithProfileLimits(modules, profileLimits) {
+    return runProjectionWith(modules, runModuleSet, decodeModuleKir, (state) => ({
+      ...state,
+      policy: { ...state.policy, profileLimits: { ...state.policy.profileLimits, ...profileLimits } },
+    }));
   },
 });

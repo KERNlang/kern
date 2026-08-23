@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { encodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
+import { decodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
 import { parseDocumentStrict } from '../../packages/core/dist/parser.js';
 import { runModuleSet } from '../kern-frontend-f4-declarations/worker.mjs';
 import { __test, runProjection } from './worker.mjs';
@@ -34,6 +35,16 @@ function bootstrapBytes(modules) {
     id: moduleId ?? id,
     roots: parseDocumentStrict(source).children ?? [],
   })), LIMITS));
+}
+
+function permutations(values) {
+  if (values.length < 2) return [values];
+  return values.flatMap((value, index) =>
+    permutations(values.filter((_, candidate) => candidate !== index)).map((rest) => [value, ...rest]));
+}
+
+function property(node, name) {
+  return node.properties.find(({ key }) => key === name)?.value;
 }
 
 function assertProjected(result, expected, label) {
@@ -71,8 +82,83 @@ test('F5 matches an independently generated three-module and disconnected-module
     { moduleId: 'zeta/disconnected.kern', source: 'fn name=omega export=true\n' },
   ];
   const expected = bootstrapBytes(modules);
-  assertProjected(runProjection(modules), expected, 'three modules');
-  assertProjected(runProjection([modules[2], modules[0], modules[1]]), expected, 'permuted modules');
+  for (const [index, permutation] of permutations(modules).entries()) {
+    assertProjected(runProjection(permutation), expected, `three-module permutation ${index + 1}/6`);
+  }
+});
+
+test('F5 uses Unicode scalar ordering for non-BMP module identities', () => {
+  const modules = [
+    { moduleId: '\ud83d\ude00.kern', source: 'fn name=grin export=true\n' },
+    { moduleId: '\ue000.kern', source: 'fn name=privateUse export=true\n' },
+    { moduleId: '\ud800\udc00.kern', source: 'fn name=astral export=true\n' },
+  ];
+  const result = runProjection([modules[0], modules[2], modules[1]]);
+  assertProjected(result, bootstrapBytes(modules), 'Unicode scalar modules');
+  const artifact = decodeModuleKir(result.bytes, LIMITS);
+  assert.deepEqual(artifact.modules.map(({ id }) => id), ['\ue000.kern', '\ud800\udc00.kern', '\ud83d\ude00.kern']);
+});
+
+test('F5 closes property dispositions, LWW omission, trees, branches, each, and handler metadata', () => {
+  const modules = [{
+    moduleId: 'closure.kern',
+    source: 'module name=app\n' +
+      '  page name=Omega route="hello \ud83c\udf0d" async=true\n' +
+      '  path value="segment"\n' +
+      'fn name=main returns=number export=true\n' +
+      '  param name=value type=number\n' +
+      '  handler lang=kern\n' +
+      '    each name=item in=items\n' +
+      '    return value="value + 1"\n',
+  }];
+  const expected = bootstrapBytes(modules);
+  const result = runProjection(modules);
+  assertProjected(result, expected, 'property/tree closure');
+  const artifact = decodeModuleKir(result.bytes, LIMITS);
+  const fn = artifact.modules[0].roots.find(({ kind }) => kind === 'fn');
+  assert.equal(property(fn, 'params'), undefined, 'absent fn.params omitted');
+  assert.equal(property(fn, 'returns').value[0].value.value, 'integer');
+  assert.deepEqual(fn.children.map(({ kind }) => kind), ['param', 'handler']);
+  assert.equal(property(fn.children[0], 'type').value[0].value.value, 'integer');
+  assert.equal(property(fn.children[1].children[0], 'in').value[0].value.value, 'binding');
+  assert.equal(property(fn.children[1].children[1], 'value').value[1].value.value, 'binary');
+  const page = artifact.modules[0].roots[0].children.find(({ kind }) => kind === 'page');
+  assert.equal(property(page, 'name').value, 'Omega');
+  assert.equal(property(page, 'async').value, true);
+});
+
+test('F5 raw F4 tape rejects document deletion, duplication, reorder, and identity substitution', () => {
+  const modules = request(STATIC_GOLDENS.valid.modules);
+  const baseline = runModuleSet(modules);
+  const mutants = [
+    (f4) => { f4.documents = f4.documents.slice(1); },
+    (f4) => { f4.documents = [f4.documents[0], f4.documents[0], f4.documents[1]]; },
+    (f4) => { f4.documents = [...f4.documents].reverse(); },
+    (f4) => { f4.documents[0].fields[2] = 'x'.repeat(Array.from(f4.documents[0].fields[2]).length); },
+  ];
+  for (const [index, mutate] of mutants.entries()) {
+    const f4 = structuredClone(baseline);
+    mutate(f4);
+    const result = __test.runProjectionWithF4Runner(modules, () => f4);
+    assert.equal(result.receipt.status, 'fatal', `raw F4 mutant ${index}`);
+    assert.equal(result.bytes, null, `raw F4 mutant ${index} atomic bytes`);
+    assert.equal(result.receipt.diagnostics[0].code, 'F5_F4_DRIFT', `raw F4 mutant ${index} code`);
+  }
+});
+
+test('F5 work profile accepts the exact boundary and rejects one-over atomically', () => {
+  const modules = [{ moduleId: 'limit.kern', source: 'fn name=limit export=true\n' }];
+  const baseline = runProjection(modules);
+  assert.equal(baseline.receipt.status, 'projected');
+  assert.ok(baseline.receipt.workSteps > 1);
+  const exact = __test.runProjectionWithProfileLimits(modules, { maxWorkSteps: baseline.receipt.workSteps });
+  assert.equal(exact.receipt.status, 'projected');
+  assert.ok(exact.bytes instanceof Uint8Array);
+  const crossing = __test.runProjectionWithProfileLimits(modules,
+    { maxWorkSteps: baseline.receipt.workSteps - 1 });
+  assert.equal(crossing.receipt.status, 'fatal');
+  assert.equal(crossing.receipt.diagnostics[0].code, 'F5_LIMIT');
+  assert.equal(crossing.bytes, null);
 });
 
 test('F5 projects all frozen expression kinds from F2 evidence instead of reparsing source', () => {
