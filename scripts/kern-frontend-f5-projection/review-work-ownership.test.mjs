@@ -97,3 +97,33 @@ test('F5-A3-E9 ownership source closure rejects known double-charge and workless
   assert.doesNotMatch(all, /List\.join\(/u);
   assert.doesNotMatch(all, /let name=(?:sorted|ordered)(?:Payloads|Entries|Values) value="\[\]"/u);
 });
+
+test('F5-A3-RED completed but unreturned work has an explicit failure owner', () => {
+  const expression = functionBody(kern('f5-expression-projection.kern'), 'f5expression');
+  const tree = functionBody(kern('f5-tree-projection.kern'), 'f5projecttree');
+  const modules = functionBody(kern('f5-module-projection.kern'), 'f5projectmodules');
+  assert.match(expression, /let name=completedExpressionWork value=0/u,
+    'an early expression failure must retain completed sibling construction work');
+  assert.match(tree, /let name=completedTreeWork value=0/u,
+    'an early tree failure must retain completed node construction work not returned as roots');
+  assert.match(modules, /let name=currentModuleWork value=0/u,
+    'an early module failure must retain successful current-module sibling frames');
+  assert.match(modules, /assign target=currentModuleWork value=0/u,
+    'current-module failure ownership resets only after the module entry adopts its children');
+});
+
+test('F5-A3-RED every physical ordinal decode is priced before the gate', () => {
+  const source = kern('f5-ordinal-composites.kern');
+  for (const name of ['f5recordordinals', 'f5listordinals']) {
+    const body = functionBody(source, name);
+    const gate = body.indexOf('f5resultgate(');
+    const before = body.slice(0, gate);
+    const after = body.slice(gate);
+    const rowReads = occurrences(body, /f5rowread\(/gu);
+    const resultReads = occurrences(body, /f5resultread\(/gu);
+    assert.equal(occurrences(before, /f5rowcodecwork\(/gu), rowReads, `${name} row-read pricing`);
+    assert.equal(occurrences(before, /name=(?:validation|measure|copy)ResultReadWork/gu), resultReads,
+      `${name} result-read pricing`);
+    assert.ok(occurrences(after, /f5rowread\(/gu) > 0, `${name} exercises a post-gate copy decode`);
+  }
+});
