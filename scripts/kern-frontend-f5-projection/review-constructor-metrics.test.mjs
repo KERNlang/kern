@@ -274,7 +274,7 @@ test('Amendment-2 duplicate drift has exact work at its cap and one-under', () =
     source: 'fn name=main export=true\n  handler lang=kern\n    return value="{z: 1, a: 2}"\n',
   }];
   const result = __test.runProjectionWithF4Runner(modules, duplicateLateRecordKey);
-  assert.equal(result.receipt.workSteps, 9255,
+  assert.equal(result.receipt.workSteps, 13854,
     'duplicate discovery includes exact child construction, entry encoding, codec, comparison, and move work');
   const exact = __test.runProjectionWithF4RunnerAndProfileLimits(
     modules, duplicateLateRecordKey, { maxWorkSteps: result.receipt.workSteps });

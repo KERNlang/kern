@@ -28,11 +28,6 @@ fn name=f5fieldread returns="string[]"
       assign target=expected value="expected + 1"
     return value=values
 
-fn name=f5worklength returns=number
-  param name=value type=string
-  handler lang="kern"
-    return value="Text.length(value)"
-
 fn name=f5decodef2nodes returns="string[]"
   param name=tape type=string
   handler lang="kern"
@@ -183,23 +178,22 @@ fn name=projectf5moduleset returns="string[]" export=true
         do value="expressionValues.push(expressionValue)"
         let name=decodedNodeRows value="f5rowread(nodeRows)"
         assign target=work value="work + decodedNodeRows.length + Text.length(receiptTape)"
-      let name=moduleRoots value="f5projecttree(constructorLimits, declarationTape, propertyOccurrenceTape, propertyPresenceTape, attachmentTape, decoratorTape, expressionOrdinals, expressionValues)"
-      if cond="moduleRoots.length == 1 && List.index(moduleRoots, 0) == \"__F5_AUTHORITY_DRIFT__\""
-        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_AUTHORITY_DRIFT\", \"\", String(work), \"failure\"]"
-      if cond="moduleRoots.length == 1 && List.index(moduleRoots, 0) == \"__F5_F4_DRIFT__\""
+      let name=treeResult value="f5projecttree(constructorLimits, declarationTape, propertyOccurrenceTape, propertyPresenceTape, attachmentTape, decoratorTape, expressionOrdinals, expressionValues)"
+      if cond="treeResult.length < 2"
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
+      assign target=work value="work + f5uint(List.index(treeResult, 1))"
+      if cond="List.index(treeResult, 0) == \"2\""
+        return value="[\"kern.frontend.f5-projection.1\", \"fatal\", List.index(treeResult, 2), \"\", String(work), \"failure\"]"
+      if cond="List.index(treeResult, 0) != \"0\""
         return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_F4_DRIFT\", \"\", String(work), \"failure\"]"
       let name=rootTapeParts value="[]"
-      for name=rootTapeIndex from=0 to=moduleRoots.length
-        let name=moduleRoot value="List.index(moduleRoots, rootTapeIndex)"
+      for name=rootTapeIndex from=2 to=treeResult.length
+        let name=moduleRoot value="List.index(treeResult, rootTapeIndex)"
         let name=rootFrame value="f5frame(\"i\", moduleRoot)"
         do value="rootTapeParts.push(rootFrame)"
       let name=rootTape value="f5join(rootTapeParts)"
       do value="roots.push(rootTape)"
       do value="symbolTapes.push(symbolTape)"
-      let name=declarationWork value="f5worklength(declarationTape)"
-      let name=occurrenceWork value="f5worklength(propertyOccurrenceTape)"
-      let name=presenceWork value="f5worklength(propertyPresenceTape)"
-      assign target=work value="work + declarationWork + occurrenceWork + presenceWork"
       if cond="work > maxWorkSteps"
         return value="[\"kern.frontend.f5-projection.1\", \"fatal\", \"F5_LIMIT\", \"\", String(work), \"failure\"]"
     let name=resolvedBindingTape value="List.index(moduleSetFields, 6)"
