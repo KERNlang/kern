@@ -82,39 +82,22 @@ fn name=f5expression returns=string
                   assign target=kindName value="\"record\""
                   if cond="payload.length != children.length"
                     return value="\"__F5_F4_DRIFT__\""
+                  let name=sortedEntries value="f5chargedsort(payload, children)"
+                  if cond="sortedEntries.length != payload.length + 1"
+                    return value="\"__F5_F4_DRIFT__\""
                   let name=sortedKeys value="[]"
                   let name=sortedValues value="[]"
-                  let name=usedOrdinals value="[]"
+                  let name=recordSortWork value="f5uint(List.index(sortedEntries, payload.length))"
                   for name=outIndex from=0 to=payload.length
-                    let name=selected value="-1"
-                    for name=candidate from=0 to=payload.length
-                      assign target=expressionWork value="expressionWork + 1"
-                      let name=candidateUsed value=false
-                      for name=usedIndex from=0 to=usedOrdinals.length
-                        assign target=expressionWork value="expressionWork + 1"
-                        if cond="List.index(usedOrdinals, usedIndex) == candidate"
-                          assign target=candidateUsed value=true
-                      if cond="!candidateUsed"
-                        if cond="selected < 0"
-                          assign target=selected value=candidate
-                        else
-                          let name=candidateKey value="List.index(payload, candidate)"
-                          let name=currentKey value="List.index(payload, selected)"
-                          assign target=expressionWork value="expressionWork + f5scalarcomparework(candidateKey, currentKey)"
-                          if cond="f5scalartextless(candidateKey, currentKey)"
-                            assign target=selected value=candidate
-                            assign target=expressionWork value="expressionWork + 1"
-                    if cond="selected < 0"
+                    let name=sortedEntryFrame value="List.index(sortedEntries, outIndex)"
+                    let name=sortedEntry value="f5rowread(sortedEntryFrame)"
+                    if cond="sortedEntry.length != 2"
                       return value="\"__F5_F4_DRIFT__\""
-                    let name=selectedKey value="List.index(payload, selected)"
-                    if cond="sortedKeys.length > 0 && List.index(sortedKeys, sortedKeys.length - 1) == selectedKey"
-                      return value="\"__F5_F4_DRIFT__\""
-                    assign target=expressionWork value="expressionWork + Text.length(selectedKey) + 3"
-                    do value="usedOrdinals.push(selected)"
-                    do value="sortedKeys.push(selectedKey)"
-                    do value="sortedValues.push(List.index(children, selected))"
+                    assign target=recordSortWork value="recordSortWork + Text.length(sortedEntryFrame) + 3 + Text.length(List.index(sortedEntry, 0)) + Text.length(List.index(sortedEntry, 1))"
+                    do value="sortedKeys.push(List.index(sortedEntry, 0))"
+                    do value="sortedValues.push(List.index(sortedEntry, 1))"
                   do value="fieldKeys.push(\"entries\")"
-                  let name=entriesValue value="f5record(limits, sortedKeys, sortedValues, expressionWork)"
+                  let name=entriesValue value="f5record(limits, sortedKeys, sortedValues, recordSortWork)"
                   do value="fieldValues.push(entriesValue)"
                 else
                   if cond="kind == 8"
@@ -228,7 +211,8 @@ fn name=f5expression returns=string
       let name=projectedValues value="[]"
       do value="projectedValues.push(fields)"
       do value="projectedValues.push(kindValue)"
-      let name=projectedValue value="f5record(limits, projectedKeys, projectedValues, 0)"
+      let name=rootWork value="index == kindIds.length - 1 ? expressionWork : 0"
+      let name=projectedValue value="f5record(limits, projectedKeys, projectedValues, rootWork)"
       do value="projected.push(projectedValue)"
       assign target=result value=projectedValue
     return value=result

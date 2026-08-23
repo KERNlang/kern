@@ -5,10 +5,16 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { __test, runProjection } from './worker.mjs';
+import { decodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
 import { listTape } from '../kern-frontend-f4-declarations/decoder.mjs';
 import { runModuleSet } from '../kern-frontend-f4-declarations/worker.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const CANONICAL_LIMITS = Object.freeze({
+  maxBytes: 16_777_216, maxCollectionLength: 262_144, maxDecimalChars: 128, maxDepth: 256,
+  maxFractionDigits: 64, maxIntegerDigits: 512, maxMapEntries: 262_144, maxNodes: 1_048_576,
+  maxRecordFields: 262_144, maxStringBytes: 16_777_216,
+});
 
 function limited(expression) {
   return __test.runProjectionWithProfileLimits([{
@@ -130,4 +136,92 @@ test('F5-R12 every added F4 row and binding increases owning root work', () => {
     { moduleId: 'main.kern', source: 'use path="./lib"\n  from name=a kind=fn\nfn name=main export=true\n' },
   ], {}).receipt.workSteps;
   assert.ok(linked > plain, `binding/row work must increase root work: ${plain} -> ${linked}`);
+});
+
+test('Amendment-2 reports validation work when maxModules rejects', () => {
+  const result = __test.runProjectionWithProfileLimits([
+    { moduleId: 'a.kern', source: 'fn name=a export=true\n' },
+    { moduleId: 'b.kern', source: 'fn name=b export=true\n' },
+  ], { maxModules: 1 });
+  assert.equal(result.receipt.status, 'fatal');
+  assert.equal(result.receipt.diagnostics[0].code, 'F5_LIMIT');
+  assert.ok(result.receipt.workSteps > 0, `validation work must be positive: ${result.receipt.workSteps}`);
+});
+
+test('Amendment-2 charges zero-record expression tapes once and keeps sibling sort deltas local', () => {
+  const zeroRecord = runProjection([{
+    moduleId: 'zero-record.kern',
+    source: 'fn name=zero export=true\n  handler lang=kern\n    return value="1 + 2"\n',
+  }]).receipt.workSteps;
+  assert.ok(zeroRecord > 0);
+
+  const work = (expression) => runProjection([{
+    moduleId: 'siblings.kern',
+    source: `fn name=s export=true\n  handler lang=kern\n    return value=${JSON.stringify(expression)}\n`,
+  }]).receipt.workSteps;
+  const sorted = work('[{a: 1, b: 2}, {c: 3, d: 4}]');
+  assert.equal(work('[{b: 2, a: 1}, {c: 3, d: 4}]') - sorted, 1);
+  assert.equal(work('[{a: 1, b: 2}, {d: 4, c: 3}]') - sorted, 1,
+    'the second record must not inherit the first sibling sort accumulator');
+});
+
+test('Amendment-2 framed sorting preserves a U+001F record key byte-for-byte', () => {
+  const expression = '{"a\\u001fb": 1, a: 2}';
+  const result = runProjection([{
+    moduleId: 'framed-key.kern',
+    source: `fn name=s export=true\n  handler lang=kern\n    return value=${JSON.stringify(expression)}\n`,
+  }]);
+  assert.equal(result.receipt.status, 'projected');
+  const artifact = decodeModuleKir(result.bytes, CANONICAL_LIMITS);
+  const record = artifact.modules[0].roots[0].children[0].children[0].properties[0].value;
+  const fields = record.value.find(({ key }) => key === 'fields')?.value;
+  const entries = fields?.value.find(({ key }) => key === 'entries')?.value;
+  assert.deepEqual(entries?.value.map(({ key }) => key), ['a', 'a\u001fb']);
+});
+
+test('Amendment-2 source wall has one charged framed sorter and no result rewrap', () => {
+  const directory = resolve(ROOT, 'examples/kern-frontend');
+  const files = readdirSync(directory).filter((name) => /^f5-.*\.kern$/u.test(name));
+  const source = files.map((name) => readFileSync(resolve(directory, name), 'utf8')).join('\n');
+  assert.ok(files.includes('f5-charged-sort.kern'));
+  assert.match(source, /fn name=f5chargedsort /u);
+  assert.doesNotMatch(source, /f5sortwork|f5sortproperties|f5resultaddwork/u);
+  assert.doesNotMatch(source, /selectedKey\s*\+\s*\\?"\\u001f/u);
+  const sorter = readFileSync(resolve(directory, 'f5-charged-sort.kern'), 'utf8');
+  assert.doesNotMatch(sorter, /let name=entries value=/u, 'the sorter retains no second full entry artifact');
+});
+
+test('Amendment-2 prices exact composite copies before gates and pins frame overhead', () => {
+  const composite = readFileSync(resolve(ROOT, 'examples/kern-frontend/f5-composite-instructions.kern'), 'utf8');
+  for (const name of ['f5list', 'f5record']) {
+    const start = composite.indexOf(`fn name=${name} `);
+    const end = composite.indexOf('\nfn name=', start + 1);
+    const body = composite.slice(start, end < 0 ? composite.length : end);
+    const gate = body.indexOf('f5resultgate(');
+    assert.ok(body.indexOf('materializationWork') > 0);
+    assert.ok(body.indexOf('materializationWork') < gate, `${name} copy work precedes its gate`);
+    assert.match(body, /Text\.length\(materializationFrame\) \+ 1/u);
+    assert.match(body, /f5uint\(materializationChild\[2\]\)/u);
+    assert.doesNotMatch(body, /work \+ instructionScalars/u,
+      `${name} uses the prospective composite formula without AGY's extra instructionScalars`);
+  }
+  const frame = readFileSync(resolve(ROOT, 'examples/kern-frontend/f5-result-frame.kern'), 'utf8');
+  assert.match(frame, /fn name=f5resultframeoverhead /u);
+  assert.doesNotMatch(frame, /let name=fixedScalars value="11 \+/u);
+  const overheadStart = frame.indexOf('fn name=f5resultframeoverhead ');
+  const gateStart = frame.indexOf('\nfn name=f5resultgate ', overheadStart);
+  const overhead = frame.slice(overheadStart, gateStart);
+  const commitStart = frame.indexOf('fn name=f5resultcommit ');
+  const readStart = frame.indexOf('\nfn name=f5resultread ', commitStart);
+  const commit = frame.slice(commitStart, readStart);
+  assert.equal(overhead.match(/\\u001f/gu)?.length, commit.match(/\\u001f/gu)?.length);
+  assert.equal(overhead.match(/\\u001e/gu)?.length, commit.match(/\\u001e/gu)?.length);
+  assert.equal(overhead.match(/#/gu)?.length, commit.match(/#/gu)?.length);
+});
+
+test('Amendment-2 source wall fails closed on unknown statuses and malformed bindings', () => {
+  const composite = readFileSync(resolve(ROOT, 'examples/kern-frontend/f5-composite-instructions.kern'), 'utf8');
+  assert.match(composite, /child\[0\] != \\"0\\"/u);
+  const modules = readFileSync(resolve(ROOT, 'examples/kern-frontend/f5-module-projection.kern'), 'utf8');
+  assert.match(modules, /bindingShape\.length != 8/u);
 });

@@ -7,6 +7,7 @@ export const COMPOSITION_PATHS = Object.freeze([
   'examples/kern-frontend/f5-result-frame.kern',
   'examples/kern-frontend/f5-leaf-instructions.kern',
   'examples/kern-frontend/f5-composite-instructions.kern',
+  'examples/kern-frontend/f5-charged-sort.kern',
   'examples/kern-frontend/f5-expression-projection.kern',
   'examples/kern-frontend/f5-property-projection.kern',
   'examples/kern-frontend/f5-tree-projection.kern',

@@ -1,0 +1,42 @@
+fn name=f5chargedsort returns="string[]"
+  param name=keys type="string[]"
+  param name=values type="string[]"
+  handler lang="kern"
+    if cond="keys.length != values.length"
+      return value="[]"
+    let name=work value=0
+    let name=ordered value="[]"
+    let name=usedOrdinals value="[]"
+    let name=previous value="\"\""
+    for name=outIndex from=0 to=keys.length
+      let name=selectedIndex value="-1"
+      for name=candidateIndex from=0 to=keys.length
+        assign target=work value="work + 1"
+        let name=used value=false
+        for name=usedIndex from=0 to=usedOrdinals.length
+          assign target=work value="work + 1"
+          if cond="List.index(usedOrdinals, usedIndex) == candidateIndex"
+            assign target=used value=true
+        if cond="!used"
+          if cond="selectedIndex < 0"
+            assign target=selectedIndex value=candidateIndex
+          else
+            let name=candidateKey value="List.index(keys, candidateIndex)"
+            let name=currentKey value="List.index(keys, selectedIndex)"
+            assign target=work value="work + f5scalarcomparework(candidateKey, currentKey)"
+            if cond="f5scalartextless(candidateKey, currentKey)"
+              assign target=selectedIndex value=candidateIndex
+              assign target=work value="work + 1"
+      if cond="selectedIndex < 0"
+        return value="[]"
+      let name=selectedKey value="List.index(keys, selectedIndex)"
+      if cond="outIndex > 0 && selectedKey == previous"
+        return value="[]"
+      assign target=previous value=selectedKey
+      let name=selectedValue value="List.index(values, selectedIndex)"
+      let name=selectedEntry value="f5frame(\"i\", selectedKey) + f5frame(\"i\", selectedValue)"
+      do value="usedOrdinals.push(selectedIndex)"
+      do value="ordered.push(selectedEntry)"
+      assign target=work value="work + Text.length(selectedEntry) + Text.length(selectedEntry) + 3"
+    do value="ordered.push(String(work))"
+    return value=ordered

@@ -1,61 +1,3 @@
-fn name=f5sortproperties returns="string[]"
-  param name=keys type="string[]"
-  param name=values type="string[]"
-  handler lang="kern"
-    let name=out value="[]"
-    let name=usedOrdinals value="[]"
-    for name=outIndex from=0 to=keys.length
-      let name=selectedIndex value="-1"
-      for name=candidateIndex from=0 to=keys.length
-        let name=used value="false"
-        for name=usedIndex from=0 to=usedOrdinals.length
-          if cond="usedOrdinals[usedIndex] == candidateIndex"
-            assign target=used value="true"
-        if cond="!used"
-          if cond="selectedIndex < 0"
-            assign target=selectedIndex value=candidateIndex
-          else
-            let name=candidateKey value="List.index(keys, candidateIndex)"
-            let name=currentKey value="List.index(keys, selectedIndex)"
-            if cond="f5scalartextless(candidateKey, currentKey)"
-              assign target=selectedIndex value=candidateIndex
-      if cond="selectedIndex < 0"
-        return value="[]"
-      let name=selectedKey value="List.index(keys, selectedIndex)"
-      let name=selectedValue value="List.index(values, selectedIndex)"
-      do value="usedOrdinals.push(selectedIndex)"
-      do value="out.push(selectedKey)"
-      do value="out.push(selectedValue)"
-    return value=out
-
-fn name=f5sortwork returns=number
-  param name=keys type="string[]"
-  handler lang="kern"
-    let name=work value=0
-    let name=usedOrdinals value="[]"
-    for name=outIndex from=0 to=keys.length
-      let name=selectedIndex value="-1"
-      for name=candidateIndex from=0 to=keys.length
-        assign target=work value="work + 1"
-        let name=used value=false
-        for name=usedIndex from=0 to=usedOrdinals.length
-          assign target=work value="work + 1"
-          if cond="usedOrdinals[usedIndex] == candidateIndex"
-            assign target=used value=true
-        if cond="!used"
-          if cond="selectedIndex < 0"
-            assign target=selectedIndex value=candidateIndex
-          else
-            let name=candidateKey value="List.index(keys, candidateIndex)"
-            let name=currentKey value="List.index(keys, selectedIndex)"
-            assign target=work value="work + f5scalarcomparework(candidateKey, currentKey)"
-            if cond="f5scalartextless(candidateKey, currentKey)"
-              assign target=selectedIndex value=candidateIndex
-              assign target=work value="work + 1"
-      do value="usedOrdinals.push(selectedIndex)"
-      assign target=work value="work + 3"
-    return value=work
-
 fn name=f5projecttree returns="string[]"
   param name=limits type=string
   param name=declarationTape type=string
@@ -98,13 +40,20 @@ fn name=f5projecttree returns="string[]"
               return value="[\"__F5_F4_DRIFT__\"]"
             do value="seedPropertyKeys.push(seedOccurrence[3])"
             do value="seedPropertyValues.push(seedProjected)"
-        let name=seedSorted value="f5sortproperties(seedPropertyKeys, seedPropertyValues)"
+        let name=seedSorted value="f5chargedsort(seedPropertyKeys, seedPropertyValues)"
         let name=seedSortedKeys value="[]"
         let name=seedSortedValues value="[]"
-        for name=seedSortedIndex from=0 to=seedSorted.length step=2
-          do value="seedSortedKeys.push(List.index(seedSorted, seedSortedIndex))"
-          let name=seedValueIndex value="seedSortedIndex + 1"
-          do value="seedSortedValues.push(List.index(seedSorted, seedValueIndex))"
+        if cond="seedSorted.length != seedPropertyKeys.length + 1"
+          return value="[\"__F5_F4_DRIFT__\"]"
+        let name=seedSortWork value="f5uint(List.index(seedSorted, seedPropertyKeys.length))"
+        for name=seedSortedIndex from=0 to=seedPropertyKeys.length
+          let name=seedEntryFrame value="List.index(seedSorted, seedSortedIndex)"
+          let name=seedEntry value="f5rowread(seedEntryFrame)"
+          if cond="seedEntry.length != 2"
+            return value="[\"__F5_F4_DRIFT__\"]"
+          assign target=seedSortWork value="seedSortWork + Text.length(seedEntryFrame) + 3 + Text.length(List.index(seedEntry, 0)) + Text.length(List.index(seedEntry, 1))"
+          do value="seedSortedKeys.push(List.index(seedEntry, 0))"
+          do value="seedSortedValues.push(List.index(seedEntry, 1))"
         let name=seedNodeKeys value="[]"
         do value="seedNodeKeys.push(\"children\")"
         do value="seedNodeKeys.push(\"kind\")"
@@ -113,7 +62,7 @@ fn name=f5projecttree returns="string[]"
         let name=seedNodeValues value="[]"
         do value="seedNodeValues.push(f5list(limits, seedChildren))"
         do value="seedNodeValues.push(f5text(limits, \"decorator\"))"
-        do value="seedNodeValues.push(f5record(limits, seedSortedKeys, seedSortedValues, f5sortwork(seedPropertyKeys)))"
+        do value="seedNodeValues.push(f5record(limits, seedSortedKeys, seedSortedValues, seedSortWork))"
         let name=seedNode value="f5record(limits, seedNodeKeys, seedNodeValues, 0)"
         do value="Map.set(nodes, String(seedLogical), seedNode)"
     let name=cursor value="declarations.length - 1"
@@ -154,15 +103,20 @@ fn name=f5projecttree returns="string[]"
               return value="[\"__F5_F4_DRIFT__\"]"
             do value="propertyKeys.push(occurrence[3])"
             do value="propertyValues.push(projected)"
-      let name=sorted value="f5sortproperties(propertyKeys, propertyValues)"
+      let name=sorted value="f5chargedsort(propertyKeys, propertyValues)"
       let name=sortedPropertyKeys value="[]"
       let name=sortedPropertyValues value="[]"
-      for name=sortedIndex from=0 to=sorted.length step=2
-        let name=sortedKey value="List.index(sorted, sortedIndex)"
-        let name=sortedValueIndex value="sortedIndex + 1"
-        let name=sortedValue value="List.index(sorted, sortedValueIndex)"
-        do value="sortedPropertyKeys.push(sortedKey)"
-        do value="sortedPropertyValues.push(sortedValue)"
+      if cond="sorted.length != propertyKeys.length + 1"
+        return value="[\"__F5_F4_DRIFT__\"]"
+      let name=propertySortWork value="f5uint(List.index(sorted, propertyKeys.length))"
+      for name=sortedIndex from=0 to=propertyKeys.length
+        let name=sortedEntryFrame value="List.index(sorted, sortedIndex)"
+        let name=sortedEntry value="f5rowread(sortedEntryFrame)"
+        if cond="sortedEntry.length != 2"
+          return value="[\"__F5_F4_DRIFT__\"]"
+        assign target=propertySortWork value="propertySortWork + Text.length(sortedEntryFrame) + 3 + Text.length(List.index(sortedEntry, 0)) + Text.length(List.index(sortedEntry, 1))"
+        do value="sortedPropertyKeys.push(List.index(sortedEntry, 0))"
+        do value="sortedPropertyValues.push(List.index(sortedEntry, 1))"
       let name=children value="[]"
       for name=attachmentIndex from=0 to=attachments.length
         let name=attachmentRow value="List.index(attachments, attachmentIndex)"
@@ -194,7 +148,7 @@ fn name=f5projecttree returns="string[]"
         do value="orderedChildren.push(orderedChild)"
       let name=childrenValue value="f5list(limits, orderedChildren)"
       let name=kindValue value="f5text(limits, kind)"
-      let name=propertiesValue value="f5record(limits, sortedPropertyKeys, sortedPropertyValues, f5sortwork(propertyKeys))"
+      let name=propertiesValue value="f5record(limits, sortedPropertyKeys, sortedPropertyValues, propertySortWork)"
       let name=nodeKeys value="[]"
       do value="nodeKeys.push(\"children\")"
       do value="nodeKeys.push(\"kind\")"
