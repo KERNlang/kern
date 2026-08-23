@@ -1,0 +1,116 @@
+fn name=f5expression returns=string
+  param name=kindTape type=string
+  param name=flagTape type=string
+  param name=payloadTape type=string
+  param name=childTape type=string
+  handler lang="kern"
+    let name=kindTexts value="f5rowread(kindTape)"
+    let name=flagTexts value="f5rowread(flagTape)"
+    let name=payloadTapes value="f5rowread(payloadTape)"
+    let name=childTapes value="f5rowread(childTape)"
+    let name=kindIds value="[]"
+    let name=flags value="[]"
+    for name=numberIndex from=0 to=kindTexts.length
+      do value="kindIds.push(f5uint(kindTexts[numberIndex]))"
+      do value="flags.push(f5uint(flagTexts[numberIndex]))"
+    if cond="kindIds.length == 0 || flags.length != kindIds.length || payloadTapes.length != kindIds.length || childTapes.length != kindIds.length"
+      return value="\"\""
+    let name=projected value="[]"
+    for name=index from=0 to=kindIds.length
+      let name=kind value="kindIds[index]"
+      let name=payload value="f5rowread(payloadTapes[index])"
+      let name=childText value="f5rowread(childTapes[index])"
+      let name=children value="[]"
+      for name=childIndex from=0 to=childText.length
+        let name=ordinal value="f5uint(childText[childIndex])"
+        if cond="ordinal < 0 || ordinal >= index"
+          return value="\"\""
+        do value="children.push(projected[ordinal])"
+      let name=fieldKeys value="[]"
+      let name=fieldValues value="[]"
+      let name=kindName value="\"\""
+      if cond="kind == 0"
+        assign target=kindName value="\"identifier\""
+        do value="fieldKeys.push(\"name\")"
+        do value="fieldValues.push(f5text(payload[0]))"
+      else
+        if cond="kind == 1"
+          assign target=kindName value="\"null\""
+        else
+          if cond="kind == 2"
+            assign target=kindName value="\"boolean\""
+            do value="fieldKeys.push(\"value\")"
+            do value="fieldValues.push(f5bool(payload[0] == \"true\"))"
+          else
+            if cond="kind == 3 || kind == 4 || kind == 5"
+              assign target=kindName value="kind == 3 ? \"integer\" : kind == 4 ? \"decimal\" : \"text\""
+              do value="fieldKeys.push(\"value\")"
+              if cond="kind == 3"
+                do value="fieldValues.push(f5int(payload[0]))"
+              else
+                if cond="kind == 4"
+                  do value="fieldValues.push(f5decimal(payload[0]))"
+                else
+                  do value="fieldValues.push(f5text(payload[0]))"
+            else
+              if cond="kind == 6"
+                assign target=kindName value="\"list\""
+                do value="fieldKeys.push(\"items\")"
+                do value="fieldValues.push(f5list(children))"
+              else
+                if cond="kind == 7"
+                  assign target=kindName value="\"record\""
+                  if cond="payload.length != children.length"
+                    return value="\"\""
+                  do value="fieldKeys.push(\"entries\")"
+                  do value="fieldValues.push(f5record(payload, children))"
+                else
+                  if cond="kind == 8"
+                    assign target=kindName value="\"member\""
+                    assign target=fieldKeys value="[\"object\", \"optional\", \"property\"]"
+                    assign target=fieldValues value="[children[0], f5bool(flags[index] == 1), f5text(payload[0])]"
+                  else
+                    if cond="kind == 9"
+                      assign target=kindName value="\"index\""
+                      assign target=fieldKeys value="[\"index\", \"object\", \"optional\"]"
+                      assign target=fieldValues value="[children[1], children[0], f5bool(flags[index] == 1)]"
+                    else
+                      if cond="kind == 10"
+                        assign target=kindName value="\"call\""
+                        let name=args value="[]"
+                        for name=argumentIndex from=1 to=children.length
+                          do value="args.push(children[argumentIndex])"
+                        assign target=fieldKeys value="[\"args\", \"callee\", \"optional\"]"
+                        assign target=fieldValues value="[f5list(args), children[0], f5bool(flags[index] == 1)]"
+                      else
+                        if cond="kind == 11"
+                          assign target=kindName value="\"new\""
+                          assign target=fieldKeys value="[\"args\", \"constructor\"]"
+                          assign target=fieldValues value="[f5list(children), f5text(payload[0])]"
+                        else
+                          if cond="kind == 12"
+                            assign target=kindName value="\"lambda\""
+                            let name=params value="[]"
+                            for name=paramIndex from=0 to=payload.length
+                              do value="params.push(f5text(payload[paramIndex]))"
+                            assign target=fieldKeys value="[\"body\", \"params\"]"
+                            assign target=fieldValues value="[children[0], f5list(params)]"
+                          else
+                            if cond="kind == 13"
+                              assign target=kindName value="\"binary\""
+                              assign target=fieldKeys value="[\"left\", \"op\", \"right\"]"
+                              assign target=fieldValues value="[children[0], f5text(payload[0]), children[1]]"
+                            else
+                              if cond="kind == 14"
+                                assign target=kindName value="\"unary\""
+                                assign target=fieldKeys value="[\"argument\", \"op\"]"
+                                assign target=fieldValues value="[children[0], f5text(payload[0])]"
+                              else
+                                if cond="kind != 15"
+                                  return value="\"\""
+                                assign target=kindName value="\"conditional\""
+                                assign target=fieldKeys value="[\"alternate\", \"consequent\", \"test\"]"
+                                assign target=fieldValues value="[children[2], children[1], children[0]]"
+      let name=fields value="f5record(fieldKeys, fieldValues)"
+      do value="projected.push(f5record([\"fields\", \"kind\"], [fields, f5text(kindName)]))"
+    return value="projected[projected.length - 1]"

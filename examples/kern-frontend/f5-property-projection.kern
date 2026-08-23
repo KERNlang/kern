@@ -1,0 +1,88 @@
+fn name=f5trim returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=left value=0
+    let name=right value="Text.length(value)"
+    while cond="left < right && Text.indexOf(\" \\t\\n\\r\", Text.charAt(value, left)) >= 0"
+      assign target=left value="left + 1"
+    while cond="right > left && Text.indexOf(\" \\t\\n\\r\", Text.charAt(value, right - 1)) >= 0"
+      assign target=right value="right - 1"
+    return value="Text.slice(value, left, right)"
+
+fn name=f5includedproperty returns=string
+  param name=schemaKind type=string
+  param name=value type=string
+  handler lang="kern"
+    if cond="schemaKind == \"boolean\""
+      return value="f5bool(value == \"true\")"
+    if cond="schemaKind == \"number\""
+      if cond="Text.indexOf(value, \".\") >= 0"
+        return value="f5decimal(value)"
+      return value="f5int(value)"
+    return value="f5text(value)"
+
+fn name=f5handlertype returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=source value="f5trim(value)"
+    if cond="source == \"string\""
+      return value="f5record([\"kind\"], [f5text(\"text\")])"
+    if cond="source == \"number\""
+      return value="f5record([\"kind\"], [f5text(\"integer\")])"
+    if cond="source == \"boolean\" || source == \"unknown\" || source == \"json\""
+      return value="f5record([\"kind\"], [f5text(source)])"
+    if cond="Text.length(source) > 2 && Text.slice(source, Text.length(source) - 2, Text.length(source)) == \"[]\""
+      let name=elementSource value="Text.slice(source, 0, Text.length(source) - 2)"
+      let name=element value="elementSource == \"string\" ? \"text\" : elementSource == \"number\" ? \"integer\" : elementSource"
+      return value="f5record([\"element\", \"kind\"], [f5text(element), f5text(\"list\")])"
+    return value="\"\""
+
+fn name=f5branchpath returns=string
+  param name=value type=string
+  param name=quoted type=boolean
+  handler lang="kern"
+    if cond=quoted
+      return value="f5record([\"kind\", \"value\"], [f5text(\"literal\"), f5text(value)])"
+    let name=segments value="[]"
+    let name=cursor value=0
+    while cond="cursor < Text.length(value)"
+      let name=suffix value="Text.slice(value, cursor, Text.length(value))"
+      let name=dot value="Text.indexOf(suffix, \".\")"
+      let name=end value="dot < 0 ? Text.length(value) : cursor + dot"
+      do value="segments.push(f5text(Text.slice(value, cursor, end)))"
+      assign target=cursor value="end + 1"
+    return value="f5record([\"kind\", \"segments\"], [f5text(\"reference\"), f5list(segments)])"
+
+fn name=f5eachcollection returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=segments value="[]"
+    let name=cursor value=0
+    while cond="cursor < Text.length(value)"
+      let name=suffix value="Text.slice(value, cursor, Text.length(value))"
+      let name=dot value="Text.indexOf(suffix, \".\")"
+      let name=end value="dot < 0 ? Text.length(value) : cursor + dot"
+      do value="segments.push(f5text(Text.slice(value, cursor, end)))"
+      assign target=cursor value="end + 1"
+    return value="f5record([\"segments\"], [f5list(segments)])"
+
+fn name=f5projectproperty returns=string
+  param name=schemaKind type=string
+  param name=disposition type=string
+  param name=value type=string
+  param name=representation type=string
+  param name=expressionValue type=string
+  handler lang="kern"
+    if cond="disposition == \"included-value\""
+      return value="f5includedproperty(schemaKind, value)"
+    if cond="disposition == \"lowered-import-path\""
+      return value="f5text(value)"
+    if cond="disposition == \"lowered-type\""
+      return value="f5handlertype(value)"
+    if cond="disposition == \"lowered-branch-path-value\""
+      return value="f5branchpath(value, representation == \"quoted\")"
+    if cond="disposition == \"lowered-each-collection-reference\""
+      return value="f5eachcollection(value)"
+    if cond="disposition == \"lowered-expression\""
+      return value=expressionValue
+    return value="\"\""

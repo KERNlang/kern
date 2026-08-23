@@ -1,0 +1,104 @@
+fn name=f5uint returns=number
+  param name=value type=string
+  handler lang="kern"
+    let name=result value=0
+    for name=index from=0 to="Text.length(value)"
+      assign target=result value="result * 10 + Text.indexOf(\"0123456789\", Text.charAt(value, index))"
+    return value=result
+
+fn name=f5frame returns=string
+  param name=tag type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="tag + String(Text.length(value)) + \":\" + value"
+
+fn name=f5join returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=out value="\"\""
+    for name=index from=0 to=parts.length
+      assign target=out value="out + parts[index]"
+    return value=out
+
+fn name=f5text returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5frame(\"T\", value)"
+
+fn name=f5int returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5frame(\"I\", value)"
+
+fn name=f5decimal returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5frame(\"D\", value)"
+
+fn name=f5bool returns=string
+  param name=value type=boolean
+  handler lang="kern"
+    if cond=value
+      return value="\"B1\""
+    return value="\"B0\""
+
+fn name=f5null returns=string
+  handler lang="kern"
+    return value="\"N\""
+
+fn name=f5list returns=string
+  param name=values type="string[]"
+  handler lang="kern"
+    let name=out value="\"L\" + String(values.length) + \"[\""
+    for name=index from=0 to=values.length
+      assign target=out value="out + values[index]"
+    return value="out + \"]\""
+
+fn name=f5key returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="f5frame(\"K\", value)"
+
+fn name=f5record returns=string
+  param name=keys type="string[]"
+  param name=values type="string[]"
+  handler lang="kern"
+    if cond="keys.length != values.length"
+      return value="\"\""
+    let name=out value="\"R\" + String(keys.length) + \"{\""
+    for name=index from=0 to=keys.length
+      assign target=out value="out + f5key(keys[index]) + values[index]"
+    return value="out + \"}\""
+
+fn name=f5rowread returns="string[]"
+  param name=tape type=string
+  handler lang="kern"
+    let name=values value="[]"
+    let name=cursor value=0
+    while cond="cursor < Text.length(tape)"
+      if cond="Text.charAt(tape, cursor) != \"i\""
+        return value="[]"
+      assign target=cursor value="cursor + 1"
+      let name=length value=0
+      let name=digits value=0
+      while cond="cursor < Text.length(tape) && Text.charAt(tape, cursor) != \":\""
+        let name=digit value="Text.indexOf(\"0123456789\", Text.charAt(tape, cursor))"
+        if cond="digit < 0"
+          return value="[]"
+        assign target=length value="length * 10 + digit"
+        assign target=digits value="digits + 1"
+        assign target=cursor value="cursor + 1"
+      if cond="digits == 0 || cursor >= Text.length(tape)"
+        return value="[]"
+      assign target=cursor value="cursor + 1"
+      let name=end value="cursor + length"
+      if cond="end > Text.length(tape)"
+        return value="[]"
+      do value="values.push(Text.slice(tape, cursor, end))"
+      assign target=cursor value=end
+    return value=values
+
+fn name=f5taperead returns="string[]"
+  param name=tape type=string
+  handler lang="kern"
+    return value="f5rowread(tape)"

@@ -1,0 +1,102 @@
+fn name=f5sortproperties returns="string[]"
+  param name=keys type="string[]"
+  param name=values type="string[]"
+  handler lang="kern"
+    for name=index from=1 to=keys.length
+      let name=cursor value=index
+      while cond="cursor > 0 && keys[cursor] < keys[cursor - 1]"
+        let name=key value="keys[cursor - 1]"
+        assign target="keys[cursor - 1]" value="keys[cursor]"
+        assign target="keys[cursor]" value=key
+        let name=value value="values[cursor - 1]"
+        assign target="values[cursor - 1]" value="values[cursor]"
+        assign target="values[cursor]" value=value
+        assign target=cursor value="cursor - 1"
+    let name=out value="[]"
+    for name=outIndex from=0 to=keys.length
+      do value="out.push(keys[outIndex])"
+      do value="out.push(values[outIndex])"
+    return value=out
+
+fn name=f5projecttree returns="string[]"
+  param name=declarationTape type=string
+  param name=occurrenceTape type=string
+  param name=presenceTape type=string
+  param name=attachmentTape type=string
+  param name=decoratorTape type=string
+  param name=expressionOccurrenceOrdinals type="number[]"
+  param name=expressionValues type="string[]"
+  handler lang="kern"
+    let name=declarations value="f5taperead(declarationTape)"
+    let name=occurrences value="f5taperead(occurrenceTape)"
+    let name=presences value="f5taperead(presenceTape)"
+    let name=attachments value="f5taperead(attachmentTape)"
+    let name=decorators value="f5taperead(decoratorTape)"
+    let name=nodes value="new Map()"
+    let name=cursor value="declarations.length - 1"
+    while cond="cursor >= 0"
+      let name=declaration value="f5rowread(declarations[cursor])"
+      if cond="declaration.length != 10"
+        return value="[]"
+      let name=logical value="declaration[1]"
+      let name=kind value="declaration[2]"
+      let name=propertyKeys value="[]"
+      let name=propertyValues value="[]"
+      for name=presenceIndex from=0 to=presences.length
+        let name=presence value="f5rowread(presences[presenceIndex])"
+        if cond="presence.length == 3 && presence[0] == logical && presence[2] != \"-1\""
+          let name=occurrenceOrdinal value="f5uint(presence[2])"
+          if cond="occurrenceOrdinal < 0 || occurrenceOrdinal >= occurrences.length"
+            return value="[]"
+          let name=occurrence value="f5rowread(occurrences[occurrenceOrdinal])"
+          if cond="occurrence.length != 13 || occurrence[1] != logical || occurrence[3] != presence[1]"
+            return value="[]"
+          if cond="!(kind == \"fn\" && occurrence[3] == \"params\" && f5trim(occurrence[12]) == \"\")"
+            let name=expressionValue value="\"\""
+            for name=evidenceIndex from=0 to=expressionOccurrenceOrdinals.length
+              if cond="expressionOccurrenceOrdinals[evidenceIndex] == occurrenceOrdinal"
+                assign target=expressionValue value="expressionValues[evidenceIndex]"
+            let name=projected value="f5projectproperty(occurrence[5], occurrence[7], occurrence[12], occurrence[8], expressionValue)"
+            if cond="projected == \"\""
+              return value="[]"
+            do value="propertyKeys.push(occurrence[3])"
+            do value="propertyValues.push(projected)"
+      let name=sorted value="f5sortproperties(propertyKeys, propertyValues)"
+      assign target=propertyKeys value="[]"
+      assign target=propertyValues value="[]"
+      for name=sortedIndex from=0 to=sorted.length step=2
+        do value="propertyKeys.push(sorted[sortedIndex])"
+        do value="propertyValues.push(sorted[sortedIndex + 1])"
+      let name=children value="[]"
+      for name=attachmentIndex from=0 to=attachments.length
+        let name=attachment value="f5rowread(attachments[attachmentIndex])"
+        if cond="attachment.length == 3 && attachment[0] == logical && attachment[2] == \"attached\""
+          let name=childKey value="attachment[1]"
+          if cond="!Map.has(nodes, childKey)"
+            return value="[]"
+          do value="children.push(Map.get(nodes, childKey))"
+      for name=decoratorIndex from=0 to=decorators.length
+        let name=decorator value="f5rowread(decorators[decoratorIndex])"
+        if cond="decorator.length == 6 && decorator[1] == \"attached\" && decorator[2] == logical"
+          let name=decoratorKey value="decorator[0]"
+          if cond="!Map.has(nodes, decoratorKey)"
+            return value="[]"
+          let name=orderedChildren value="[Map.get(nodes, decoratorKey)]"
+          for name=existingChildIndex from=0 to=children.length
+            do value="orderedChildren.push(children[existingChildIndex])"
+          assign target=children value=orderedChildren
+      let name=node value="f5record([\"children\", \"kind\", \"properties\"], [f5list(children), f5text(kind), f5record(propertyKeys, propertyValues)])"
+      do value="Map.set(nodes, logical, node)"
+      assign target=cursor value="cursor - 1"
+    let name=roots value="[]"
+    for name=rootIndex from=0 to=declarations.length
+      let name=root value="f5rowread(declarations[rootIndex])"
+      if cond="root[8] == \"-1\" && root[9] == \"false\" && root[2] != \"decorator\""
+        let name=attached value="false"
+        for name=edgeIndex from=0 to=attachments.length
+          let name=edge value="f5rowread(attachments[edgeIndex])"
+          if cond="edge[1] == root[1] && edge[2] == \"attached\""
+            assign target=attached value="true"
+        if cond="!attached"
+          do value="roots.push(Map.get(nodes, root[1]))"
+    return value=roots

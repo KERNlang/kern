@@ -1,0 +1,91 @@
+fn name=f5bindingvalue returns=string
+  param name=row type="string[]"
+  handler lang="kern"
+    return value="f5record([\"imported\", \"kind\", \"local\", \"reexport\"], [f5text(row[1]), f5text(row[3]), f5text(row[2]), f5bool(row[4] == \"true\")])"
+
+fn name=f5exportvalue returns=string
+  param name=kind type=string
+  param name=name type=string
+  param name=source type=string
+  handler lang="kern"
+    let name=sourceValue value="source == \"\" ? f5null() : f5text(source)"
+    return value="f5record([\"kind\", \"name\", \"source\"], [f5text(kind), f5text(name), sourceValue])"
+
+fn name=f5projectmodules returns=string
+  param name=moduleIds type="string[]"
+  param name=rootTapes type="string[]"
+  param name=symbolTapes type="string[]"
+  param name=resolvedBindingTape type=string
+  handler lang="kern"
+    if cond="moduleIds.length != rootTapes.length || moduleIds.length != symbolTapes.length"
+      return value="\"\""
+    let name=bindings value="f5taperead(resolvedBindingTape)"
+    for name=sortIndex from=1 to=moduleIds.length
+      let name=cursor value=sortIndex
+      while cond="cursor > 0 && moduleIds[cursor] < moduleIds[cursor - 1]"
+        let name=id value="moduleIds[cursor - 1]"
+        assign target="moduleIds[cursor - 1]" value="moduleIds[cursor]"
+        assign target="moduleIds[cursor]" value=id
+        let name=roots value="rootTapes[cursor - 1]"
+        assign target="rootTapes[cursor - 1]" value="rootTapes[cursor]"
+        assign target="rootTapes[cursor]" value=roots
+        let name=symbols value="symbolTapes[cursor - 1]"
+        assign target="symbolTapes[cursor - 1]" value="symbolTapes[cursor]"
+        assign target="symbolTapes[cursor]" value=symbols
+        assign target=cursor value="cursor - 1"
+    let name=modules value="[]"
+    for name=moduleIndex from=0 to=moduleIds.length
+      let name=moduleId value="moduleIds[moduleIndex]"
+      let name=exportNames value="[]"
+      let name=exportValues value="[]"
+      let name=symbols value="f5taperead(symbolTapes[moduleIndex])"
+      for name=symbolIndex from=0 to=symbols.length
+        let name=symbol value="f5rowread(symbols[symbolIndex])"
+        if cond="symbol.length == 5 && symbol[2] == \"true\""
+          do value="exportNames.push(symbol[1])"
+          do value="exportValues.push(f5exportvalue(symbol[0], symbol[1], \"\"))"
+      for name=reexportIndex from=0 to=bindings.length
+        let name=reexport value="f5rowread(bindings[reexportIndex])"
+        if cond="reexport.length == 8 && reexport[5] == moduleId && reexport[4] == \"true\""
+          do value="exportNames.push(reexport[2])"
+          do value="exportValues.push(f5exportvalue(reexport[3], reexport[2], reexport[0]))"
+      let name=sortedExports value="f5sortproperties(exportNames, exportValues)"
+      assign target=exportValues value="[]"
+      for name=exportSortIndex from=1 to=sortedExports.length step=2
+        do value="exportValues.push(sortedExports[exportSortIndex])"
+      let name=sources value="[]"
+      for name=bindingIndex from=0 to=bindings.length
+        let name=binding value="f5rowread(bindings[bindingIndex])"
+        if cond="binding.length == 8 && binding[5] == moduleId"
+          let name=known value="false"
+          for name=sourceIndex from=0 to=sources.length
+            if cond="sources[sourceIndex] == binding[0]"
+              assign target=known value="true"
+          if cond="!known"
+            do value="sources.push(binding[0])"
+      for name=sourceSort from=1 to=sources.length
+        let name=sourceCursor value=sourceSort
+        while cond="sourceCursor > 0 && sources[sourceCursor] < sources[sourceCursor - 1]"
+          let name=source value="sources[sourceCursor - 1]"
+          assign target="sources[sourceCursor - 1]" value="sources[sourceCursor]"
+          assign target="sources[sourceCursor]" value=source
+          assign target=sourceCursor value="sourceCursor - 1"
+      let name=imports value="[]"
+      for name=sourceIndex from=0 to=sources.length
+        let name=source value="sources[sourceIndex]"
+        let name=keys value="[]"
+        let name=values value="[]"
+        for name=matchingIndex from=0 to=bindings.length
+          let name=matching value="f5rowread(bindings[matchingIndex])"
+          if cond="matching[5] == moduleId && matching[0] == source"
+            do value="keys.push(matching[1] + \"|\" + matching[3] + \"|\" + matching[2] + \"|\" + matching[4])"
+            do value="values.push(f5bindingvalue(matching))"
+        let name=sortedBindings value="f5sortproperties(keys, values)"
+        assign target=values value="[]"
+        for name=bindingSortIndex from=1 to=sortedBindings.length step=2
+          do value="values.push(sortedBindings[bindingSortIndex])"
+        do value="imports.push(f5record([\"bindings\", \"source\"], [f5list(values), f5text(source)]))"
+      let name=moduleRoots value="f5rowread(rootTapes[moduleIndex])"
+      let name=moduleValue value="f5record([\"exports\", \"id\", \"imports\", \"roots\"], [f5list(exportValues), f5text(moduleId), f5list(imports), f5list(moduleRoots)])"
+      do value="modules.push(moduleValue)"
+    return value="f5record([\"constitution\", \"diagnostics\", \"format\", \"modules\", \"proofLabel\", \"symbolCatalog\"], [f5text(\"kern.kir.structural.r1.5i.1\"), f5list([]), f5text(\"kern.kir.modules.r1.5e.1-alpha\"), f5list(modules), f5text(\"ALPHA-NO-GO\"), f5record([\"admittedKinds\", \"format\"], [f5list([f5text(\"class\"), f5text(\"fn\")]), f5text(\"kern.symbol-admission.r1.5c.3\")])])"

@@ -1,0 +1,57 @@
+{
+  "format": "kern.frontend.f5-projection-policy.1",
+  "resultFormat": "kern.frontend.f5-projection.1",
+  "documentFormat": "kern.frontend.f4-document.2",
+  "moduleSetFormat": "kern.frontend.f4-module-set.4",
+  "f4Policy": {
+    "path": "scripts/kern-frontend-f4-declarations/policy.json",
+    "sha256": "770740ad620dcc53ca22e4b560399fedd3540dcea3d1698436c54d79a2f24648"
+  },
+  "mappingAuthorities": [
+    { "path": "packages/core/src/kir-structural/expression.ts", "sha256": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957" },
+    { "path": "packages/core/src/kir-structural/handler-type.ts", "sha256": "3014ff06f9ba089de98f72b9a68775b7494319163707d831aa2f36e24ef75ca0" },
+    { "path": "packages/core/src/kir-structural/branch-path-value.ts", "sha256": "00a434cdba09bb6e06c867f1eebd8a413bb2851586fec589b64ade8ddf5d14c8" },
+    { "path": "packages/core/src/kir-structural/each-collection-reference.ts", "sha256": "9324d25a5f8aebb1ecf293e1b1f764c7752e555e058ac1c5ab452990d3cee186" },
+    { "path": "packages/core/src/kir-structural/node.ts", "sha256": "1708ec874244c99391baf3bfc1247444cf656774cfe6ee3c354189ee40b2f514" },
+    { "path": "packages/core/src/kir-structural/module-canonical.ts", "sha256": "2e8ec8543b6ea9961fef0c097012e4aa10b143145fcef9a07b4447b08c8e058f" },
+    { "path": "packages/core/src/kir-structural/module-path.ts", "sha256": "3cc5012cb5000496f7995fe31e53891880d2201b95e9cec1c000c45dbbae4e44" }
+  ],
+  "composition": [
+    { "path": "examples/kern-frontend/f5-canonical-instructions.kern", "sha256": "fe08f1d0f580c002acb7f7599debc12189195e9ba88efdaac43023b0e3fa7003" },
+    { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "a9adafa4b5cff956c9a875a94cfd5e292d6596316e467af49cff1783db42911e" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "91eccc3fa1a7b11214d40bcc6a510d22ec8bbcc786e985a43bdab2be3051ea86" },
+    { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "c9be33581a8098e870b21d97d2471d3b79628c74c707ac5bc79e0787a7eadf9e" },
+    { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "ceff86d17019ee108ea642db780984ebc1fd614b5e0399ed0946170ebdf71c78" },
+    { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "14e60330f4b7e654541e46147bbd79f7793bc8d3edcd426ea0879e3fe8833c92" }
+  ],
+  "profileLimits": {
+    "maxModules": 256,
+    "maxInstructionScalars": 16777216,
+    "maxWorkSteps": 33554432,
+    "maxNodes": 1048576,
+    "maxDepth": 256,
+    "maxCollectionLength": 262144,
+    "maxStringCodePoints": 16777216
+  },
+  "canonicalLimits": {
+    "maxBytes": 16777216,
+    "maxCollectionLength": 262144,
+    "maxDecimalChars": 128,
+    "maxDepth": 256,
+    "maxFractionDigits": 64,
+    "maxIntegerDigits": 512,
+    "maxMapEntries": 262144,
+    "maxNodes": 1048576,
+    "maxRecordFields": 262144,
+    "maxStringBytes": 16777216
+  },
+  "runtimeLimits": {
+    "maxBytes": 33554432,
+    "maxCollectionLength": 1048576,
+    "maxDepth": 512,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 33554432
+  },
+  "scheduler": { "timeoutMs": 120000 }
+}
