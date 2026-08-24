@@ -16,6 +16,20 @@
     "projection-rejection",
     "dual-compare"
   ],
+  "builds": [
+    {
+      "id": "core",
+      "package": "@kernlang/core"
+    },
+    {
+      "id": "review",
+      "package": "@kernlang/review"
+    },
+    {
+      "id": "cli",
+      "package": "@kernlang/cli"
+    }
+  ],
   "tests": [
     {
       "id": "projection",
