@@ -1,0 +1,29 @@
+{
+  "case": {
+    "entry": { "handlerName": "compose", "moduleId": "r0/compose.kern" },
+    "id": "r0-frozen-baseline",
+    "kirSha256": "9aa55dcc92a4c5862a376a8650e71912f638ece550224d0327255af5cd18217d",
+    "semanticSha256": "1721752e5da8260349f87fd8e76abf8244f0ba778ccae85b838080196755d60a"
+  },
+  "format": "kern.r0.frozen-corpus.1",
+  "targets": [
+    {
+      "artifactPath": "9aa55dcc92a4c5862a376a8650e71912f638ece550224d0327255af5cd18217d/javascript-esm/main.mjs",
+      "artifactSha256": "bcff17bf5f2505e36154116825ef414b3ec68c4f126766032651e83fa2f6d829",
+      "capabilities": [{ "namespace": "r0fixture", "operation": "resolve" }],
+      "compilerRequestSha256": "4fce13fc700b6e61fe602edc359238ecbc96e5b3161a2a578c8f561e4997a798",
+      "manifestPath": "9aa55dcc92a4c5862a376a8650e71912f638ece550224d0327255af5cd18217d/javascript-esm/manifest.json",
+      "manifestSha256": "e2fd207eebdd84a9d525dc7921febce8bc37826a2f20c78ce0a59af3dfafd39e",
+      "target": "javascript-esm"
+    },
+    {
+      "artifactPath": "9aa55dcc92a4c5862a376a8650e71912f638ece550224d0327255af5cd18217d/python/main.py",
+      "artifactSha256": "4e4d2371de2645e652cdcbc03a69c55d4eca9ad8ae58e91234d3c58fb3d7f118",
+      "capabilities": [{ "namespace": "r0fixture", "operation": "resolve" }],
+      "compilerRequestSha256": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a",
+      "manifestPath": "9aa55dcc92a4c5862a376a8650e71912f638ece550224d0327255af5cd18217d/python/manifest.json",
+      "manifestSha256": "8fe7870d8564d6035d97a3dadffa96b91fc960ea20463d83f8e7a65642dca89b",
+      "target": "python"
+    }
+  ]
+}
