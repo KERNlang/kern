@@ -1,0 +1,46 @@
+{
+  "format": "kern.review.kir-preview.red-manifest.1",
+  "status": "red",
+  "fixtureModule": "scripts/kern-review-kir-preview/fixtures/fixtures.mjs",
+  "requiredFacets": [
+    "modules",
+    "public-api",
+    "imports",
+    "dependencies",
+    "capabilities",
+    "calls",
+    "effects",
+    "structure",
+    "target-compatibility",
+    "formatting",
+    "projection-rejection",
+    "dual-compare"
+  ],
+  "tests": [
+    {
+      "id": "projection",
+      "path": "scripts/kern-review-kir-preview/projection-contract.test.mjs",
+      "lane": "RP0"
+    },
+    {
+      "id": "semantic",
+      "path": "scripts/kern-review-kir-preview/semantic-preview.test.mjs",
+      "lane": "RP2"
+    },
+    {
+      "id": "cli",
+      "path": "scripts/kern-review-kir-preview/cli-preview.test.mjs",
+      "lane": "RP3"
+    },
+    {
+      "id": "packed",
+      "path": "scripts/kern-review-kir-preview/packed-consumer.test.mjs",
+      "lane": "RP4"
+    }
+  ],
+  "expectedRed": {
+    "code": "KIR_REVIEW_PREVIEW_FEATURE_MISSING",
+    "reason": "implementation-lane tests are expected to remain RED until the preview contract APIs and behavior are implemented",
+    "mustRemainVisible": true
+  }
+}
