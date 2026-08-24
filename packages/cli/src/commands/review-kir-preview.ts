@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'child_process';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from 'fs';
 import { isAbsolute, relative, resolve, sep } from 'path';
 import { withoutLocalGitEnv } from '../git-env.js';
 
@@ -116,7 +116,9 @@ export function collectKirPreviewModules(paths: string[], cwd: string = process.
         insideCwd && !insideCwd.startsWith(`..${sep}`) && insideCwd !== '..'
           ? insideCwd.split(sep).join('/')
           : relative(root, resolve(filePath)).split(sep).join('/');
-      return { moduleId, source: readFileSync(filePath, 'utf-8') };
+      const source = readContainedRegularFile(root, resolve(filePath), moduleId, false);
+      if (source === undefined) throw new Error(`KIR preview source disappeared: ${moduleId}`);
+      return { moduleId, source };
     }),
   );
 }
@@ -161,7 +163,7 @@ interface GitBlobEntry {
   readonly objectId: string;
 }
 
-function baseKernEntries(root: string, ref: string): readonly GitBlobEntry[] {
+function baseKernEntries(root: string, ref: string, include: (moduleId: string) => boolean): readonly GitBlobEntry[] {
   const entries = git(root, ['ls-tree', '-r', '-z', ref]).split('\0').filter(Boolean);
   return entries.flatMap((entry) => {
     const tab = entry.indexOf('\t');
@@ -169,11 +171,13 @@ function baseKernEntries(root: string, ref: string): readonly GitBlobEntry[] {
     const metadata = entry.slice(0, tab).split(' ');
     const moduleId = entry.slice(tab + 1);
     if (!moduleId.endsWith('.kern')) return [];
+    const safeModuleId = assertSafeModuleId(moduleId);
+    if (!include(safeModuleId)) return [];
     const [mode, type, objectId] = metadata;
     if (!/^100(?:644|755)$/u.test(mode ?? '') || type !== 'blob' || !/^[0-9a-f]{40,64}$/u.test(objectId ?? '')) {
       throw new Error(`KIR preview rejects unsafe Git base entry ${moduleId}: regular blob mode required.`);
     }
-    return [{ moduleId: assertSafeModuleId(moduleId), objectId }];
+    return [{ moduleId: safeModuleId, objectId }];
   });
 }
 
@@ -213,8 +217,12 @@ function isBeneath(root: string, candidate: string): boolean {
   return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
 
-function readHeadModule(root: string, moduleId: string): string | undefined {
-  const filePath = resolve(root, moduleId);
+function readContainedRegularFile(
+  root: string,
+  filePath: string,
+  label: string,
+  allowMissing: boolean,
+): string | undefined {
   const resolvedRoot = realpathSync(root);
   let descriptor: number | undefined;
   try {
@@ -224,18 +232,25 @@ function readHeadModule(root: string, moduleId: string): string | undefined {
     }
     const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0;
     descriptor = openSync(filePath, constants.O_RDONLY | noFollow);
-    if (!fstatSync(descriptor).isFile()) throw new Error('non-regular file');
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile()) throw new Error('non-regular file');
     const resolvedFile = realpathSync(filePath);
     if (!isBeneath(resolvedRoot, resolvedFile)) throw new Error('path escapes repository root');
+    const resolved = statSync(resolvedFile);
+    if (opened.dev !== resolved.dev || opened.ino !== resolved.ino) throw new Error('file changed during secure open');
     return readFileSync(descriptor, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new Error(
-      `KIR preview rejects unsafe worktree module ${moduleId}: regular non-symlink files beneath repository root required (${(error as Error).message}).`,
+      `KIR preview rejects unsafe source ${label}: regular non-symlink files beneath the source root required (${(error as Error).message}).`,
     );
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
+}
+
+function readHeadModule(root: string, moduleId: string): string | undefined {
+  return readContainedRegularFile(root, resolve(root, moduleId), moduleId, true);
 }
 
 function changedPairPaths(root: string, ref: string, scopes: readonly string[] | undefined): Set<string> {
@@ -261,11 +276,12 @@ function resolveGitModules(
   head: readonly KernModule[];
 } {
   const root = gitRoot(options.cwd);
-  const ref = git(root, ['rev-parse', '--verify', `${options.diffBase}^{commit}`]).trim();
+  if (options.diffBase.startsWith('-')) throw new Error('KIR preview rejects option-like Git baselines.');
+  const ref = git(root, ['rev-parse', '--verify', '--end-of-options', `${options.diffBase}^{commit}`]).trim();
   const scopes = options.scopePaths?.map((scope) => repoPath(root, resolve(options.cwd, scope)));
   const paired = changedPairPaths(root, ref, scopes);
   const include = (path: string) => selected(path, scopes) || paired.has(path);
-  const baseEntries = baseKernEntries(root, ref).filter((entry) => include(entry.moduleId));
+  const baseEntries = baseKernEntries(root, ref, include);
   const headPaths = headKernPaths(root).filter(include);
   const baseBlobs = readBaseBlobs(root, baseEntries);
   const base = modulesFromSources(

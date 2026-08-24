@@ -106,7 +106,7 @@ function projectionRuntimeLimits() {
     f3.scalingWalls.maxPeakRssBytes,
     f4.scalingWalls.maxPeakRssBytes,
   );
-  return {
+  const limits = {
     ipc: {
       maxErrorBytes: f5.canonicalLimits.maxStringBytes,
       maxInputBytes,
@@ -135,6 +135,14 @@ function projectionRuntimeLimits() {
       ),
     },
   };
+  for (const [section, values] of Object.entries(limits)) {
+    for (const [name, value] of Object.entries(values)) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`Frontend projection ${section}.${name} must be a positive safe integer`);
+      }
+    }
+  }
+  return limits;
 }
 
 function rewriteScript(relativePath, source) {
