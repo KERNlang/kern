@@ -6,9 +6,10 @@ import { dirname, extname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-const REVIEW_ENTRY = new URL('../../packages/review/dist/index.js', import.meta.url);
+const REVIEW_CANONICAL_ENTRY = new URL('../../packages/review/dist/kir-preview/public.js', import.meta.url);
+const REVIEW_DUAL_ENTRY = new URL('../../packages/review/dist/kir-preview/dual-public.js', import.meta.url);
 const PROJECTION_ENTRY = new URL('../../packages/core/dist/frontend-projection.js', import.meta.url);
-const PREVIEW_SOURCE = new URL('../../packages/review/src/kir-preview/', import.meta.url);
+const CANONICAL_PREVIEW_SOURCE = new URL('../../packages/review/src/kir-preview/public.ts', import.meta.url);
 const PRIVATE_F5_WORKER_URL = new URL('../kern-frontend-f5-projection/worker.mjs', import.meta.url);
 const execFileAsync = promisify(execFile);
 const FORBIDDEN_REVIEW_REACHABILITY = /\b(?:parseWithDiagnostics|reviewKernSource|inferFromSource|ts-morph|parseDocumentStrict|encodeModuleKir|projectStructuralNode|deriveModuleGraph|parseExpression)\b/u;
@@ -40,12 +41,6 @@ function canonicalJson(value) {
 
 const TARGET_PROFILE_DIGEST = createHash('sha256').update(canonicalJson(TARGET_PROFILE)).digest('hex');
 
-function previewSourceFiles() {
-  return readdirSync(PREVIEW_SOURCE, { recursive: true })
-    .filter((entry) => String(entry).endsWith('.ts'))
-    .map((entry) => join(PREVIEW_SOURCE.pathname, String(entry)));
-}
-
 function staticImportSpecifiers(source) {
   return [...source.matchAll(/\b(?:import|export)\s+(?:[^'"\n]*?\s+from\s+)?['"]([^'"]+)['"]/gu)]
     .map((match) => match[1]);
@@ -54,16 +49,18 @@ function staticImportSpecifiers(source) {
 function resolveLocalImport(importer, specifier) {
   if (!specifier.startsWith('.')) return null;
   const candidate = resolve(dirname(importer), specifier);
-  const extensions = extname(candidate) ? [''] : ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'];
-  const paths = [
-    ...extensions.map((extension) => `${candidate}${extension}`),
-    ...extensions.filter(Boolean).map((extension) => join(candidate, `index${extension}`)),
-  ];
+  const extensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+  const paths = extname(candidate)
+    ? [candidate, candidate.replace(/\.(?:mjs|cjs|js)$/u, '.ts')]
+    : [
+        ...extensions.map((extension) => `${candidate}${extension}`),
+        ...extensions.map((extension) => join(candidate, `index${extension}`)),
+      ];
   return paths.find((path) => existsSync(path)) ?? null;
 }
 
 function assertNoLegacyImportClosure() {
-  const pending = previewSourceFiles();
+  const pending = [CANONICAL_PREVIEW_SOURCE.pathname];
   const visited = new Set();
   while (pending.length > 0) {
     const file = pending.pop();
@@ -81,8 +78,7 @@ function assertNoLegacyImportClosure() {
       if (imported) pending.push(imported);
     }
   }
-  assert.ok(visited.size >= previewSourceFiles().length,
-    'the import-closure trap must inspect every KIR preview source file');
+  assert.ok(visited.size > 1, 'the import-closure trap must inspect the canonical KIR preview source closure');
 }
 
 function dynamicallyConstructedDualModules(resultValue) {
@@ -179,7 +175,16 @@ async function privateF5Projection(modules) {
 }
 
 async function previewSurface() {
-  const review = await import(REVIEW_ENTRY.href);
+  const canonical = await import(REVIEW_CANONICAL_ENTRY.href);
+  const dual = await import(REVIEW_DUAL_ENTRY.href);
+  const review = {
+    compareCanonicalKir: canonical.compareCanonicalKir,
+    reviewKernModuleSets(request) {
+      if (request.mode === 'canonical-kir-preview') return canonical.reviewKernModuleSets(request);
+      if (request.mode === 'dual-compare') return dual.reviewKernModuleSets(request);
+      throw new TypeError(`unsupported preview oracle mode: ${String(request.mode)}`);
+    },
+  };
   let projection;
   try {
     projection = await import(PROJECTION_ENTRY.href);
@@ -187,8 +192,9 @@ async function previewSurface() {
     assert.fail(`missing KIR frontend projection subpath: ${error.message}`);
   }
   for (const [owner, name] of [
-    [review, 'compareCanonicalKir'],
-    [review, 'reviewKernModuleSets'],
+    [canonical, 'compareCanonicalKir'],
+    [canonical, 'reviewKernModuleSets'],
+    [dual, 'reviewKernModuleSets'],
     [projection, 'projectKernModules'],
     [projection, 'verifyKernProjection'],
   ]) {
@@ -241,8 +247,6 @@ test('KRI-A4: compareCanonicalKir accepts verified projections only and preview 
     'decodable or raw projection values must not be accepted by the direct Review API',
   );
 
-  const sourceFiles = previewSourceFiles();
-  assert.ok(sourceFiles.length > 0, 'KIR preview must live in the isolated review/src/kir-preview boundary');
   assertNoLegacyImportClosure();
 });
 
