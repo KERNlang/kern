@@ -75,6 +75,17 @@ export interface NormalizedProjectionRequest {
   readonly budgets: KernProjectionBudgets | undefined;
 }
 
+export interface ProjectionWrapperLimits {
+  readonly maxModules: number;
+  readonly maxModuleIdScalars: number;
+  readonly maxModuleIdUtf8Bytes: number;
+  readonly maxModuleIdSegments: number;
+  readonly maxSourceScalars: number;
+  readonly maxSourceUtf8Bytes: number;
+  readonly maxAggregateInputScalars: number;
+  readonly maxAggregateInputBytes: number;
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function plainRecord(value: unknown, label: string): UnknownRecord {
@@ -103,15 +114,73 @@ function exact(record: UnknownRecord, keys: readonly string[], label: string): v
   }
 }
 
-function denseArray(value: unknown, label: string): unknown[] {
-  if (
-    !Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Array.prototype ||
-    Object.keys(value).length !== value.length
-  ) {
+function denseArray(value: unknown, label: string, maxLength: number): unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
     throw new TypeError(`${label}: expected dense plain array`);
   }
+  if (value.length > maxLength) throw new TypeError(`${label}: exceeds maximum length ${maxLength}`);
+  if (Object.keys(value).length !== value.length) throw new TypeError(`${label}: expected dense plain array`);
   return value;
+}
+
+interface TextMeasure {
+  readonly scalars: number;
+  readonly utf8Bytes: number;
+}
+
+function measureText(value: string, label: string): TextMeasure {
+  let scalars = 0;
+  let utf8Bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    scalars += 1;
+    if (unit <= 0x7f) utf8Bytes += 1;
+    else if (unit <= 0x7ff) utf8Bytes += 2;
+    else if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = value.charCodeAt(index + 1);
+      if (low < 0xdc00 || low > 0xdfff) throw new TypeError(`${label}: malformed UTF-16`);
+      index += 1;
+      utf8Bytes += 4;
+    } else {
+      if (unit >= 0xdc00 && unit <= 0xdfff) throw new TypeError(`${label}: malformed UTF-16`);
+      utf8Bytes += 3;
+    }
+  }
+  return { scalars, utf8Bytes };
+}
+
+function inspectModuleId(value: string, limits: ProjectionWrapperLimits, label: string): TextMeasure {
+  const measured = measureText(value, label);
+  if (
+    measured.scalars > limits.maxModuleIdScalars ||
+    measured.utf8Bytes > limits.maxModuleIdUtf8Bytes ||
+    value.length === 0 ||
+    !value.endsWith('.kern') ||
+    value.startsWith('/') ||
+    value.includes('\\') ||
+    value.includes(':') ||
+    value.includes('//') ||
+    value.endsWith('/')
+  ) {
+    throw new TypeError(`${label}: expected bounded normalized relative POSIX .kern id`);
+  }
+  let segments = 1;
+  let segmentStart = 0;
+  for (let index = 0; index <= value.length; index += 1) {
+    if (index !== value.length && value.charCodeAt(index) !== 0x2f) continue;
+    const length = index - segmentStart;
+    if (
+      length === 0 ||
+      (length === 1 && value.charCodeAt(segmentStart) === 0x2e) ||
+      (length === 2 && value.charCodeAt(segmentStart) === 0x2e && value.charCodeAt(segmentStart + 1) === 0x2e)
+    ) {
+      throw new TypeError(`${label}: module id must remain inside the artifact root`);
+    }
+    if (index !== value.length) segments += 1;
+    segmentStart = index + 1;
+  }
+  if (segments > limits.maxModuleIdSegments) throw new TypeError(`${label}: too many path segments`);
+  return measured;
 }
 
 export function compareCodePoints(left: string, right: string): number {
@@ -126,21 +195,42 @@ export function compareCodePoints(left: string, right: string): number {
 export function normalizeProjectionRequest(
   value: unknown,
   profileLimits: Readonly<Record<KernProjectionBudgetName, number>>,
+  wrapperLimits: ProjectionWrapperLimits,
 ): NormalizedProjectionRequest {
   const request = plainRecord(value, 'KERN projection request');
   const requestKeys = Object.hasOwn(request, 'budgets') ? ['modules', 'budgets'] : ['modules'];
   exact(request, requestKeys, 'KERN projection request');
-  const modules = denseArray(request.modules, 'KERN projection modules');
+  const modules = denseArray(request.modules, 'KERN projection modules', wrapperLimits.maxModules);
   if (modules.length === 0) throw new TypeError('KERN projection modules: expected non-empty array');
-  const acceptedModules = modules
-    .map((value, index) => {
-      const module = plainRecord(value, `KERN projection module ${index}`);
-      exact(module, ['moduleId', 'source'], `KERN projection module ${index}`);
-      if (typeof module.moduleId !== 'string' || typeof module.source !== 'string') {
-        throw new TypeError(`KERN projection module ${index}: moduleId and source must be strings`);
-      }
-      return Object.freeze({ moduleId: module.moduleId, source: module.source });
-    })
+  const inspectedModules: { moduleId: string; source: string }[] = [];
+  let aggregateScalars = 0;
+  let aggregateBytes = 0;
+  for (let index = 0; index < modules.length; index += 1) {
+    const module = plainRecord(modules[index], `KERN projection module ${index}`);
+    exact(module, ['moduleId', 'source'], `KERN projection module ${index}`);
+    if (typeof module.moduleId !== 'string' || typeof module.source !== 'string') {
+      throw new TypeError(`KERN projection module ${index}: moduleId and source must be strings`);
+    }
+    const idMeasure = inspectModuleId(module.moduleId, wrapperLimits, `KERN projection module ${index}`);
+    const sourceMeasure = measureText(module.source, `KERN projection module ${index} source`);
+    if (
+      sourceMeasure.scalars > wrapperLimits.maxSourceScalars ||
+      sourceMeasure.utf8Bytes > wrapperLimits.maxSourceUtf8Bytes
+    ) {
+      throw new TypeError(`KERN projection module ${index}: source exceeds admission limits`);
+    }
+    aggregateScalars += idMeasure.scalars + sourceMeasure.scalars;
+    aggregateBytes += idMeasure.utf8Bytes + sourceMeasure.utf8Bytes;
+    if (
+      aggregateScalars > wrapperLimits.maxAggregateInputScalars ||
+      aggregateBytes > wrapperLimits.maxAggregateInputBytes
+    ) {
+      throw new TypeError('KERN projection modules: aggregate input exceeds admission limits');
+    }
+    inspectedModules.push({ moduleId: module.moduleId, source: module.source });
+  }
+  const acceptedModules = inspectedModules
+    .map((module) => Object.freeze({ ...module }))
     .sort((left, right) => compareCodePoints(left.moduleId, right.moduleId));
 
   let budgets: KernProjectionBudgets | undefined;
