@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import test from 'node:test';
-
+import { normalizeProjectionRequest } from '../dist/frontend-projection/contracts.js';
 import { isVerifiedKernProjection, projectKernModules, verifyKernProjection } from '../dist/frontend-projection.js';
 
 const request = {
@@ -17,6 +18,8 @@ const request = {
     },
   ],
 };
+const require = createRequire(import.meta.url);
+const assetLimits = require('../dist/frontend-projection-assets/adapter.cjs').limits;
 
 test('supported frontend projection brands only receipt-verified immutable artifacts', async () => {
   const projected = await projectKernModules(request);
@@ -40,5 +43,96 @@ test('supported frontend projection rejects invalid requests atomically', async 
   assert.deepEqual(
     result.diagnostics.map(({ code }) => code),
     ['projection-request-invalid'],
+  );
+});
+
+test('verification rejects an exact detached substitute that was never issued by projectKernModules', async () => {
+  const projected = await projectKernModules(request);
+  assert.equal(projected.status, 'projected');
+  if (projected.status !== 'projected') return;
+  const changedRequest = structuredClone(request);
+  changedRequest.modules[0].source += '# request substitution\n';
+  await assert.rejects(() => verifyKernProjection(changedRequest, projected));
+  const substitute = {
+    ...projected,
+    bytes: new Uint8Array(projected.bytes),
+    artifact: structuredClone(projected.artifact),
+    receipt: structuredClone(projected.receipt),
+  };
+  await assert.rejects(() => verifyKernProjection(request, substitute));
+});
+
+test('wrapper admission rejects unsafe and over-limit input before the private worker', async () => {
+  assert.ok(assetLimits.wrapper, 'generated adapter exposes wrapper admission limits');
+  const maxModules = assetLimits.wrapper.maxModules;
+  const tooMany = Array.from({ length: maxModules + 1 }, (_, index) => ({
+    moduleId: `generated/${index}.kern`,
+    source: '',
+  }));
+  const excessiveSource = 'x'.repeat(assetLimits.wrapper.maxSourceScalars + 1);
+  for (const modules of [
+    tooMany,
+    [{ moduleId: '../unsafe.kern', source: '' }],
+    [{ moduleId: 'large.kern', source: excessiveSource }],
+  ]) {
+    const result = await projectKernModules({ modules });
+    assert.equal(result.status, 'rejected');
+    assert.deepEqual(
+      result.diagnostics.map(({ code }) => code),
+      ['projection-request-invalid'],
+    );
+  }
+});
+
+test('generated adapter IPC limits are finite and policy-derived', () => {
+  const limits = assetLimits.ipc;
+  assert.ok(limits, 'generated adapter exposes IPC limits');
+  for (const key of ['timeoutMs', 'maxInputBytes', 'maxOutputBytes', 'maxOldSpaceMb']) {
+    assert.ok(Number.isSafeInteger(limits[key]) && limits[key] > 0, key);
+  }
+});
+
+test('wrapper admission enforces UTF-8 byte and aggregate limits without large allocations', () => {
+  const profileLimits = Object.fromEntries(
+    [
+      'maxModules',
+      'maxInstructionScalars',
+      'maxWorkSteps',
+      'maxNodes',
+      'maxDepth',
+      'maxCollectionLength',
+      'maxStringCodePoints',
+    ].map((key) => [key, 100]),
+  ) as Parameters<typeof normalizeProjectionRequest>[1];
+  const limits = {
+    maxModules: 2,
+    maxModuleIdScalars: 100,
+    maxModuleIdUtf8Bytes: 100,
+    maxModuleIdSegments: 10,
+    maxSourceScalars: 100,
+    maxSourceUtf8Bytes: 3,
+    maxAggregateInputScalars: 15,
+    maxAggregateInputBytes: 100,
+  };
+  assert.throws(() =>
+    normalizeProjectionRequest(
+      {
+        modules: [{ moduleId: 'a.kern', source: 'éé' }],
+      },
+      profileLimits,
+      limits,
+    ),
+  );
+  assert.throws(() =>
+    normalizeProjectionRequest(
+      {
+        modules: [
+          { moduleId: 'a.kern', source: 'xx' },
+          { moduleId: 'b.kern', source: 'xx' },
+        ],
+      },
+      profileLimits,
+      { ...limits, maxSourceUtf8Bytes: 100 },
+    ),
   );
 });

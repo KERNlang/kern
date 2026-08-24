@@ -83,6 +83,60 @@ function policyAssets() {
   ])].sort();
 }
 
+function projectionRuntimeLimits() {
+  const f5 = parseJson(F5_POLICY);
+  const f4 = parseJson(f5.f4Policy.path);
+  const f1 = parseJson(f4.f1Policy.path);
+  const f2 = parseJson(f4.f2Policy.path);
+  const f2b = parseJson(f4.f2bPolicy.path);
+  const f3 = parseJson(f4.f3Policy.path);
+  const maxInputBytes = f5.runtimeLimits.maxBytes;
+  const maxModules = Math.min(f5.profileLimits.maxModules, f4.profileLimits.maxModules);
+  const jsonWorstCaseBytesPerInputByte = 6;
+  const jsonFramingBytesPerModule = 64;
+  const jsonFixedFramingBytes = 256;
+  const maxAggregateInputBytes = Math.floor(
+    (maxInputBytes - maxModules * jsonFramingBytesPerModule - jsonFixedFramingBytes) /
+      jsonWorstCaseBytesPerInputByte,
+  );
+  const peakRssBytes = Math.max(
+    f1.profileLimits.maxPeakRssBytes,
+    f2.scalingWalls.maxPeakRssKiB * 1024,
+    f2b.scalingWalls.maxPeakRssBytes,
+    f3.scalingWalls.maxPeakRssBytes,
+    f4.scalingWalls.maxPeakRssBytes,
+  );
+  return {
+    ipc: {
+      maxErrorBytes: f5.canonicalLimits.maxStringBytes,
+      maxInputBytes,
+      maxOldSpaceMb: Math.ceil(peakRssBytes / (1024 * 1024)),
+      maxOutputBytes: f5.runtimeLimits.maxBytes + f5.canonicalLimits.maxBytes,
+      timeoutMs: f5.scheduler.timeoutMs,
+    },
+    wrapper: {
+      maxAggregateInputBytes,
+      maxAggregateInputScalars: Math.min(f5.profileLimits.maxInstructionScalars, maxAggregateInputBytes),
+      maxModuleIdScalars: f4.profileLimits.maxModuleIdScalars,
+      maxModuleIdSegments: f4.profileLimits.maxModuleIdSegments,
+      maxModuleIdUtf8Bytes: Math.min(f4.runtimeLimits.maxStringBytes, f5.runtimeLimits.maxStringBytes),
+      maxModules,
+      maxSourceScalars: Math.min(
+        f1.profileLimits.maxSourceScalars,
+        f2.profileLimits.maxSourceScalars,
+        f4.profileLimits.maxSourceScalars,
+        f5.profileLimits.maxStringCodePoints,
+      ),
+      maxSourceUtf8Bytes: Math.min(
+        f1.runtimeLimits.maxStringBytes,
+        f2.runtimeLimits.maxStringBytes,
+        f4.runtimeLimits.maxStringBytes,
+        f5.runtimeLimits.maxStringBytes,
+      ),
+    },
+  };
+}
+
 function rewriteScript(relativePath, source) {
   let rewritten = source.replaceAll('parseExpression', 'parseExpr(?:ession)');
   const coreDistPrefix = portable(relative(dirname(`frontend-projection-assets/${relativePath}`), '.'));
@@ -114,33 +168,74 @@ function sourceRecord(relativePath, bytes, outputBytes) {
   };
 }
 
-function generatedRuntimeAssets() {
+function generatedRuntimeAssets(limits) {
   const adapter = Buffer.from(`'use strict';
 const { spawn } = require('node:child_process');
 const { join } = require('node:path');
 
 const runner = join(__dirname, 'runner.mjs');
+const configuredLimits = ${JSON.stringify(limits)};
+const limits = Object.freeze({
+  ipc: Object.freeze(configuredLimits.ipc),
+  wrapper: Object.freeze(configuredLimits.wrapper),
+});
 
 function invoke(payload) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [runner], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let input;
+    try { input = JSON.stringify(payload); }
+    catch (error) { reject(error); return; }
+    if (Buffer.byteLength(input) > limits.ipc.maxInputBytes) {
+      reject(new RangeError('projection asset input exceeds IPC limit'));
+      return;
+    }
+    const child = spawn(process.execPath, [
+      \`--max-old-space-size=\${limits.ipc.maxOldSpaceMb}\`, runner,
+    ], { cwd: __dirname, env: {}, stdio: ['pipe', 'pipe', 'pipe'] });
     const stdout = [];
     const stderr = [];
-    child.stdout.on('data', (chunk) => stdout.push(chunk));
-    child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.on('error', reject);
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    const timer = setTimeout(() => fail(new Error('projection asset runner timed out')),
+      limits.ipc.timeoutMs);
+    const finish = (operation, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation(value);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      child.kill('SIGKILL');
+      finish(reject, error);
+    };
+    child.stdout.on('data', (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > limits.ipc.maxOutputBytes) fail(new RangeError('projection asset output exceeds IPC limit'));
+      else stdout.push(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes > limits.ipc.maxErrorBytes) fail(new RangeError('projection asset error output exceeds IPC limit'));
+      else stderr.push(chunk);
+    });
+    child.on('error', fail);
     child.on('close', (code) => {
+      if (settled) return;
       const errorText = Buffer.concat(stderr).toString('utf8');
-      if (code !== 0) reject(new Error(errorText || \`projection asset runner exited \${code}\`));
+      if (code !== 0) finish(reject, new Error(errorText || \`projection asset runner exited \${code}\`));
       else {
-        try { resolve(JSON.parse(Buffer.concat(stdout).toString('utf8'))); }
-        catch (error) { reject(error); }
+        try { finish(resolve, JSON.parse(Buffer.concat(stdout).toString('utf8'))); }
+        catch (error) { finish(reject, error); }
       }
     });
-    child.stdin.end(JSON.stringify(payload));
+    child.stdin.on('error', fail);
+    child.stdin.end(input);
   });
 }
 
+Object.defineProperty(exports, 'limits', { enumerable: true, value: limits });
 exports.project = (modules, budgets) => invoke({ action: 'project', budgets, modules });
 exports.decode = (bytes, canonicalLimits) => invoke({ action: 'decode', bytes, canonicalLimits });
 `);
@@ -176,6 +271,7 @@ export function buildKernFrontendProjectionAssets(output = OUTPUT) {
   if (output !== OUTPUT) throw new Error('Frontend projection assets have one package-owned destination');
   const scripts = scriptClosure();
   const data = policyAssets();
+  const limits = projectionRuntimeLimits();
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
 
@@ -191,7 +287,7 @@ export function buildKernFrontendProjectionAssets(output = OUTPUT) {
     writeAsset(relativePath, bytes);
     assets.push(sourceRecord(relativePath, bytes, bytes));
   }
-  for (const generated of generatedRuntimeAssets()) {
+  for (const generated of generatedRuntimeAssets(limits)) {
     writeAsset(generated.path, generated.bytes);
     assets.push({
       bytes: generated.bytes.length,

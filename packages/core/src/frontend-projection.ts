@@ -15,12 +15,16 @@ import {
   type KernProjectionResult,
   type NormalizedProjectionRequest,
   normalizeProjectionRequest,
+  type ProjectionWrapperLimits,
   type VerifiedKernProjection,
 } from './frontend-projection/contracts.js';
 import { deepFreeze, projectionRequestDigest, receiptSeal, sha256 } from './frontend-projection/integrity.js';
 import type { ModuleKirArtifact } from './kir-structural/module-types.js';
 
 interface ProjectionAssetAdapter {
+  readonly limits: {
+    readonly wrapper: ProjectionWrapperLimits;
+  };
   project(
     modules: NormalizedProjectionRequest['modules'],
     budgets: NormalizedProjectionRequest['budgets'],
@@ -62,6 +66,17 @@ const RECEIPT_KEYS = [
 ] as const;
 const RESULT_KEYS = ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'] as const;
 const VERIFIED = new WeakMap<object, { artifactDigest: string; assetManifestDigest: string }>();
+const ISSUED = new WeakMap<
+  object,
+  {
+    readonly artifact: ModuleKirArtifact;
+    readonly artifactDigest: string;
+    readonly assetManifestDigest: string;
+    readonly receipt: KernProjectionReceipt;
+    readonly requestDigest: string;
+    readonly normalizedRequest: NormalizedProjectionRequest;
+  }
+>();
 
 interface PrivateDiagnostic {
   readonly code?: unknown;
@@ -192,8 +207,8 @@ function inspectPrivateResult(value: unknown, state: ProjectionAssetState): Priv
   return result;
 }
 
-function projectWithBudgets(request: NormalizedProjectionRequest): Promise<unknown> {
-  return loadProjectionAssetAdapter().project(request.modules, request.budgets);
+function projectWithBudgets(adapter: ProjectionAssetAdapter, request: NormalizedProjectionRequest): Promise<unknown> {
+  return adapter.project(request.modules, request.budgets);
 }
 
 function projectedResult(
@@ -229,21 +244,34 @@ function projectedResult(
 
 export async function projectKernModules(request: KernProjectionRequest): Promise<KernProjectionResult> {
   let state: ProjectionAssetState;
+  let adapter: ProjectionAssetAdapter;
   try {
     state = loadProjectionAssetState();
+    adapter = loadProjectionAssetAdapter();
   } catch {
     return failure('fatal', 'projection-assets-invalid');
   }
   let normalized: NormalizedProjectionRequest;
   try {
-    normalized = normalizeProjectionRequest(request, state.profileLimits);
+    normalized = normalizeProjectionRequest(request, state.profileLimits, adapter.limits.wrapper);
   } catch {
     return failure('rejected', 'projection-request-invalid', state);
   }
   const requestDigest = projectionRequestDigest(normalized);
   try {
-    const privateResult = inspectPrivateResult(await projectWithBudgets(normalized), state);
-    return projectedResult(normalized, state, privateResult);
+    const privateResult = inspectPrivateResult(await projectWithBudgets(adapter, normalized), state);
+    const result = projectedResult(normalized, state, privateResult);
+    if (result.status === 'projected') {
+      ISSUED.set(result, {
+        artifact: result.artifact,
+        artifactDigest: result.receipt.artifactDigest as string,
+        assetManifestDigest: state.manifestDigest,
+        receipt: result.receipt,
+        requestDigest,
+        normalizedRequest: normalized,
+      });
+    }
+    return result;
   } catch (error) {
     return failure(
       'fatal',
@@ -279,7 +307,9 @@ export async function verifyKernProjection(
   result: KernProjectionResult,
 ): Promise<VerifiedKernProjection> {
   const state = loadProjectionAssetState();
-  const normalized = normalizeProjectionRequest(request, state.profileLimits);
+  const adapter = loadProjectionAssetAdapter();
+  const normalized = normalizeProjectionRequest(request, state.profileLimits, adapter.limits.wrapper);
+  const requestDigest = projectionRequestDigest(normalized);
   const inspected = inspectPlainRecord(result, RESULT_KEYS, 'KERN projection result');
   if (
     inspected.status !== 'projected' ||
@@ -289,16 +319,25 @@ export async function verifyKernProjection(
   ) {
     throw new TypeError('KERN projection verification requires a projected result');
   }
+  const issued = ISSUED.get(result);
+  if (
+    issued === undefined ||
+    issued.requestDigest !== requestDigest ||
+    !isDeepStrictEqual(issued.normalizedRequest, normalized) ||
+    issued.assetManifestDigest !== state.manifestDigest ||
+    issued.artifact !== inspected.artifact ||
+    issued.receipt !== inspected.receipt
+  ) {
+    throw new TypeError('KERN projection result was not issued for this request');
+  }
   const receipt = inspectPlainRecord(inspected.receipt, RECEIPT_KEYS, 'KERN projection receipt');
   const bytes = new Uint8Array(inspected.bytes);
-  const decoded = await loadProjectionAssetAdapter().decode(
-    Buffer.from(bytes).toString('base64'),
-    state.canonicalLimits,
-  );
+  const artifactDigest = sha256(bytes);
+  if (artifactDigest !== issued.artifactDigest) throw new TypeError('KERN projection bytes detachment');
+  const decoded = await adapter.decode(Buffer.from(bytes).toString('base64'), state.canonicalLimits);
   const artifact = deepFreeze(decoded.artifact as ModuleKirArtifact);
   if (!isDeepStrictEqual(artifact, inspected.artifact)) throw new TypeError('KERN projection artifact detachment');
-  const artifactDigest = sha256(bytes);
-  const expectedReceipt = verifiedReceipt(receipt, state, projectionRequestDigest(normalized), artifactDigest);
+  const expectedReceipt = verifiedReceipt(receipt, state, requestDigest, artifactDigest);
   if (!isDeepStrictEqual(expectedReceipt, receipt)) throw new TypeError('KERN projection receipt detachment');
   const verified = Object.freeze({
     status: 'projected' as const,
