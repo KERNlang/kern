@@ -91,7 +91,7 @@ input and therefore reconstructs `.kern` semantics through the legacy parser.
 | Canonical Review subpath | `@kernlang/review/kir-preview` | Canonical CLI mode must not initialize the legacy Review root, parser, or `ts-morph` | DECIDED |
 | Dual Review subpath | `@kernlang/review/kir-preview-dual` | Dual mode intentionally owns both canonical and legacy closures without making either reachable from the stable Review root | DECIDED |
 | Projection call | `projectKernModules(request): Promise<KernProjectionResult>` | Async permits package-relative asset loading without exposing worker internals | DECIDED |
-| Verification call | `verifyKernProjection(request, result): Promise<VerifiedKernProjection>` | Closes request/result detachment before Review and shares the async public boundary | DECIDED |
+| Verification call | `verifyKernProjection(request, result): Promise<VerifiedKernProjection>` | Closes request/result detachment for an exact result issued in the same process before Review and shares the async public boundary | DECIDED |
 | Request | exact non-empty `modules` plus optional explicit budgets | Private request constraint: `worker.mjs:88-94` | DECIDED |
 | Success | `status: 'projected'`, bytes, decoded artifact, receipt | Private F5 success: `worker.mjs:116-123` | DECIDED |
 | Failure | `status: 'rejected' \| 'fatal'`, `bytes: null`, receipt | Private F5 atomic failure: `worker.mjs:98-114` | DECIDED |
@@ -141,7 +141,10 @@ length-prefixed UTF-8 framing over module ID and source. The result receipt
 binds that identity, the artifact SHA-256, the private F5 policy digest, the
 asset manifest digest, the private receipt status/format, and work counts.
 `verifyKernProjection` asynchronously recomputes every public binding, rejects
-unknown fields, decodes the exact bytes, and returns a branded verified value.
+unknown fields, requires the exact same-process result issued by
+`projectKernModules`, decodes the exact bytes, and returns a branded verified
+value. Serialized or cross-process results are evidence records, not inputs to
+the verifier.
 SHA-256 here is
 an integrity/content-identity mechanism, not remote signer authentication.
 

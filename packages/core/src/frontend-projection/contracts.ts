@@ -160,7 +160,8 @@ function inspectModuleId(value: string, limits: ProjectionWrapperLimits, label: 
     value.includes('\\') ||
     value.includes(':') ||
     value.includes('//') ||
-    value.endsWith('/')
+    value.endsWith('/') ||
+    /[\u0000-\u001f\u007f]/u.test(value)
   ) {
     throw new TypeError(`${label}: expected bounded normalized relative POSIX .kern id`);
   }

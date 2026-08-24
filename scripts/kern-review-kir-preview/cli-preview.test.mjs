@@ -171,6 +171,10 @@ test('KRI-A7/A9: --diff materializes independent Git base/head sets, including r
     const failure = JSON.parse(badBase.stdout);
     assert.equal(failure.status, 'failed');
     assert.equal(failure.diagnostics[0].code, 'canonical-kir-preview-cli-failure');
+
+    const optionLike = runCli(['--diff=--help', '--json', '--analysis-mode=canonical-kir-preview'], directory);
+    assert.notEqual(optionLike.status, 0, 'option-like Git baselines must be rejected before invoking rev parsing');
+    assert.match(optionLike.stdout, /option-like Git baselines/u);
   });
 });
 
@@ -204,4 +208,21 @@ test('KRI-A8: Git module materialization rejects symlinks on both worktree and b
       try { rmSync(outside); } catch {}
     }
   });
+});
+
+test('KRI-A8: snapshot materialization rejects an explicit .kern symlink', async () => {
+  await requirePreviewApi();
+  const directory = mkdtempSync(join(tmpdir(), 'kern-review-kir-preview-snapshot-link-'));
+  const outside = join(tmpdir(), `kern-review-kir-preview-snapshot-outside-${process.pid}.kern`);
+  const linked = join(directory, 'linked.kern');
+  try {
+    writeFileSync(outside, 'fn name=outside export=true\n', 'utf8');
+    symlinkSync(outside, linked);
+    const result = runCli([linked, '--json', '--analysis-mode=canonical-kir-preview'], directory);
+    assert.notEqual(result.status, 0, 'snapshot mode must not follow an explicit .kern symlink');
+    assert.match(result.stdout, /symlink|regular|unsafe/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    try { rmSync(outside); } catch {}
+  }
 });

@@ -85,10 +85,12 @@ test('wrapper admission rejects unsafe and over-limit input before the private w
 });
 
 test('generated adapter IPC limits are finite and policy-derived', () => {
-  const limits = assetLimits.ipc;
-  assert.ok(limits, 'generated adapter exposes IPC limits');
-  for (const key of ['timeoutMs', 'maxInputBytes', 'maxOutputBytes', 'maxOldSpaceMb']) {
-    assert.ok(Number.isSafeInteger(limits[key]) && limits[key] > 0, key);
+  for (const section of ['ipc', 'wrapper']) {
+    const limits = assetLimits[section];
+    assert.ok(limits, `generated adapter exposes ${section} limits`);
+    for (const [key, value] of Object.entries(limits)) {
+      assert.ok(Number.isSafeInteger(value) && value > 0, `${section}.${key}`);
+    }
   }
 });
 
@@ -134,5 +136,8 @@ test('wrapper admission enforces UTF-8 byte and aggregate limits without large a
       profileLimits,
       { ...limits, maxSourceUtf8Bytes: 100 },
     ),
+  );
+  assert.throws(() =>
+    normalizeProjectionRequest({ modules: [{ moduleId: 'unsafe\u0000.kern', source: '' }] }, profileLimits, limits),
   );
 });
