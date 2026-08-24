@@ -1,4 +1,6 @@
-import { dirname, resolve } from 'path';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
 
@@ -18,10 +20,14 @@ describe('Context Export', () => {
 
     test('returns null metrics for empty directory', async () => {
       const { scanKernProject } = await import('../dist/context-export.js');
-      const summary = scanKernProject(resolve(ROOT, 'packages/core/dist'));
-
-      expect(summary.kernFiles).toEqual([]);
-      expect(summary.metrics).toBeNull();
+      const directory = mkdtempSync(join(tmpdir(), 'kern-metrics-empty-'));
+      try {
+        const summary = scanKernProject(directory);
+        expect(summary.kernFiles).toEqual([]);
+        expect(summary.metrics).toBeNull();
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     });
   });
 
