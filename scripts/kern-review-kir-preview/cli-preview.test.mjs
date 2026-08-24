@@ -213,7 +213,8 @@ test('KRI-A8: Git module materialization rejects symlinks on both worktree and b
 test('KRI-A8: snapshot materialization rejects an explicit .kern symlink', async () => {
   await requirePreviewApi();
   const directory = mkdtempSync(join(tmpdir(), 'kern-review-kir-preview-snapshot-link-'));
-  const outside = join(tmpdir(), `kern-review-kir-preview-snapshot-outside-${process.pid}.kern`);
+  const outsideDirectory = mkdtempSync(join(tmpdir(), 'kern-review-kir-preview-snapshot-outside-'));
+  const outside = join(outsideDirectory, 'outside.kern');
   const linked = join(directory, 'linked.kern');
   try {
     writeFileSync(outside, 'fn name=outside export=true\n', 'utf8');
@@ -223,6 +224,6 @@ test('KRI-A8: snapshot materialization rejects an explicit .kern symlink', async
     assert.match(result.stdout, /symlink|regular|unsafe/i);
   } finally {
     rmSync(directory, { recursive: true, force: true });
-    try { rmSync(outside); } catch {}
+    rmSync(outsideDirectory, { recursive: true, force: true });
   }
 });

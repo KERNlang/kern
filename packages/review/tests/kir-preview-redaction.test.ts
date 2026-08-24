@@ -126,6 +126,15 @@ test('canonical findings redact changed literal contents while retaining shape a
   assert.doesNotMatch(serialized, /sha256:/u, 'public findings contain no brute-forceable literal digests');
   assert.match(serialized, /<text>/u, 'redacted literals retain useful type shape');
   assert.deepEqual(findings, diffCanonicalKirFacts(base, head), 'redacted output remains deterministic');
+  const alternateFindings = diffCanonicalKirFacts(
+    buildCanonicalKirFactModel(artifact('unrelated-before', '41', 'other-before'), profile),
+    buildCanonicalKirFactModel(artifact('unrelated-after', '42', 'other-after'), profile),
+  );
+  assert.deepEqual(
+    findings,
+    alternateFindings,
+    'public keys, displays, and fingerprints are independent of literal contents',
+  );
 });
 
 test('public canonical review results do not serialize changed literal contents', async () => {
