@@ -1,6 +1,6 @@
 # KERN 5 R0-ABI Executable Contract Cell
 
-**Status:** ACCEPTED FOR IMPLEMENTATION — RED ORACLE PROVEN  
+**Status:** IMPLEMENTED AND VERIFIED — AWAITING INTEGRATION
 **Date:** 2026-08-24  
 **Baseline:** `origin/main` at `032f9e574673dcc1ca497458452556da49e2d4cd`  
 **Planning authority:** KERN 5 runtime/compiler/review replan carried by
@@ -251,40 +251,40 @@ files are exempt but should remain reviewable.
 
 ## Binary Acceptance Criteria
 
-- [ ] The new root command is absent and the focused oracle fails at the pinned
+- [x] The new root command is absent and the focused oracle fails at the pinned
       base specifically because the R0 contract bundle is missing.
-- [ ] The manifest and every inventoried authority/fixture/artifact digest
+- [x] The manifest and every inventoried authority/fixture/artifact digest
       validate; omitted, extra, reordered, path-escaping, symlink, stale, or
       unauthenticated entries fail closed.
-- [ ] Two clean generations produce byte-identical compiler results,
+- [x] Two clean generations produce byte-identical compiler results,
       JavaScript artifacts, Python artifacts, and target manifests.
-- [ ] Both target artifacts consume the same authenticated KIR fixture and
+- [x] Both target artifacts consume the same authenticated KIR fixture and
       produce byte-identical canonical runtime envelopes for internal
       records/lists, strict JSON text input/output, normal return, structured
       log, and capability error without inventing a record handler type.
-- [ ] Changing the semantic KIR return/log/capability input changes both target
+- [x] Changing the semantic KIR return/log/capability input changes both target
       results or causes an explicit unsupported/fingerprint failure; a
       hardcoded target output cannot pass.
-- [ ] Source/AST/legacy-IR input, KIR digest mismatch, evidence/source mismatch,
+- [x] Source/AST/legacy-IR input, KIR digest mismatch, evidence/source mismatch,
       invalid entry identity, unsupported KIR, transcript mismatch, invalid
       portable value, and configured limit overflow fail closed.
-- [ ] Pre-cancel, logical cancellation during a delayed capability, logical
+- [x] Pre-cancel, logical cancellation during a delayed capability, logical
       timeout, and completion/cancel/timeout tie cases agree across targets and
       expose no partial event or result; host event-loop ordering cannot change
       canonical bytes.
-- [ ] Two requests executing concurrently with distinct request IDs,
+- [x] Two requests executing concurrently with distinct request IDs,
       arguments, transcripts, and results remain isolated on each target.
-- [ ] Configured probe latency and peak-memory ceilings are enforced with
+- [x] Configured probe latency and peak-memory ceilings are enforced with
       environment-stable margins and reported without entering canonical
       response bytes.
-- [ ] Static closure checks prove target artifacts cannot import the parser,
+- [x] Static closure checks prove target artifacts cannot import the parser,
       source handler, legacy runner, `SemanticEnv`, dynamic loaders, network,
       filesystem writes, or target-specific KIR variants.
-- [ ] Existing `pnpm test:kern-kir-runtime-binding`,
+- [x] Existing `pnpm test:kern-kir-runtime-binding`,
       `pnpm test:kern-runtime-contract-v1`, core tests/typecheck, lint, and
       build remain green; public declarations and handler-v1 goldens remain
       unchanged.
-- [ ] `pnpm test:kern-5-r0-contracts` passes from the repository root and is an
+- [x] `pnpm test:kern-5-r0-contracts` passes from the repository root and is an
       authenticated sub-gate only; no terminal KERN 5 gate is promoted.
 
 ## Mutation Controls
@@ -299,6 +299,34 @@ The oracle must demonstrate that it rejects at least these deliberate faults:
 5. concurrent requests share transcript position or result state;
 6. compiler adapter accepts source text or an unvalidated semantic component;
 7. unsupported KIR node/expression is silently ignored.
+
+## Implementation Evidence
+
+The accepted cell is implemented by seven commits from `d4f401c1` through
+`cc3dc353` on `feat/kern-5-r0-abi`. The final sealed bundle contains
+27 digest-bound files and has manifest SHA-256
+`085201ff726ef2260a0df65df59c54c125fb40006290f89ad57b564a6cf3cb5b`.
+
+On 2026-08-24, the final candidate passed:
+
+- `pnpm test:kern-5-r0-contracts`: 39 tests plus the authenticated checker;
+- `pnpm test:kern-kir-runtime-binding`: 5 tests;
+- `pnpm test:kern-runtime-contract-v1`: 82 tests and its contract checker;
+- the complete `@kernlang/core` test suite after `tsc -b`;
+- `pnpm lint`: 1,377 files checked with no findings;
+- `git diff --check` and the 500-line handwritten-source ceiling.
+
+The final live resource probe measured a 44.15 ms JavaScript median with
+45,776,896 peak RSS bytes and an 86.28 ms Python median with 28,098,560 peak
+RSS bytes. The high-risk post-implementation mutation pass killed 25 of 25
+executed mutants. Review-driven fixes received targeted independent Agon
+review in `review-1787586745046-ewj8tu`: no blocking or important findings;
+its single path-normalization nit was fixed in `cc3dc353` and the full R0 gate
+was rerun green.
+
+This evidence promotes only the private R0-ABI contract cell. It does not
+promote a production compiler/runtime route, terminal KERN 5 fitness, release,
+publication, or merge authority.
 
 ## Deploy, Integration, and Skew Order
 
