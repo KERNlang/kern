@@ -16,6 +16,8 @@ const BUNDLE = 'scripts/kern-5-r0-contracts';
 const CORPUS_PATH = `${BUNDLE}/generated/frozen-corpus.json`;
 const EXPECTED_PATH = `${BUNDLE}/fixtures/frozen-expected-envelope.json`;
 const SCHEMA_PATH = `${BUNDLE}/schema`;
+// Bounds the external protocol probe; a timed-out probe cannot satisfy an RSS budget.
+const MEASUREMENT_TIMEOUT_MS = 5000;
 
 function exactKeys(value, keys, label) {
   assert.ok(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
@@ -91,7 +93,7 @@ function assertClosure(target, artifactBytes) {
     ], 'JavaScript target static imports');
   } else {
     assert.deepEqual(source.match(/^(?:import |from ).*$/gmu) ?? [], [
-      'import asyncio, hashlib, json, re, sys',
+      'import asyncio, hashlib, json, os, re, sys',
     ], 'Python target static imports');
   }
 }
@@ -103,32 +105,48 @@ export function parseChildPeakRssBytes(platform, stderr) {
   };
   const format = formats[platform];
   assert.ok(format, `R0 child RSS measurement is unsupported on ${platform}`);
-  const match = stderr.match(format.pattern);
+  const text = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : stderr;
+  assert.equal(typeof text, 'string', `R0 child measurement output must be text on ${platform}`);
+  const match = text.match(format.pattern);
   assert.ok(match, `R0 child measurement did not report peak RSS on ${platform}`);
-  return Number.parseInt(match[1], 10) * format.multiplier;
+  const bytes = Number.parseInt(match[1], 10) * format.multiplier;
+  assert.ok(Number.isSafeInteger(bytes) && bytes > 0, `R0 child measurement must report positive peak RSS on ${platform}`);
+  return bytes;
 }
 
-function childPeakRssBytes(target, artifactPath, request) {
+export function verifyTimedChildMeasurement({ expected, platform, result, target }) {
+  if (result.error?.code === 'ETIMEDOUT') throw new Error(`R0 ${target} child measurement tool timed out after ${MEASUREMENT_TIMEOUT_MS}ms; RSS budget cannot be evaluated`);
+  if (result.error) throw new Error(`R0 ${target} child measurement tool failed: ${result.error.message}`);
+  assert.equal(result.signal, null, `R0 ${target} child measurement tool terminated by ${result.signal}`);
+  const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '', 'utf8');
+  assert.deepEqual(stdout, expected, `R0 ${target} child measurement did not produce the expected canonical envelope`);
+  const peakRssBytes = parseChildPeakRssBytes(platform, result.stderr ?? '');
+  if (result.status !== 0) {
+    assert.ok(Number.isSafeInteger(result.status) && result.status > 0, `R0 ${target} child measurement tool exited without a usable status`);
+  }
+  return peakRssBytes;
+}
+
+function childPeakRssBytes(target, artifactPath, request, expected) {
   const format = process.platform === 'darwin' ? ['-l'] : process.platform === 'linux' ? ['-v'] : null;
   assert.ok(format, `R0 child RSS measurement is unsupported on ${process.platform}`);
   const command = target === 'javascript-esm' ? (process.env.KERN_NODE22 ?? process.execPath) : 'python3';
   const result = spawnSync('/usr/bin/time', [...format, command, artifactPath], {
-    encoding: 'utf8',
+    encoding: null,
     input: canonicalJsonBytes(request),
     maxBuffer: 1024 * 1024,
+    timeout: MEASUREMENT_TIMEOUT_MS,
   });
-  if (result.error) throw result.error;
-  assert.equal(result.status, 0, `${target} child measurement failed: ${result.stderr}`);
-  return parseChildPeakRssBytes(process.platform, result.stderr);
+  return verifyTimedChildMeasurement({ expected, platform: process.platform, result, target });
 }
 
-function measure(target, artifactPath, request, budget) {
+function measure(target, artifactPath, request, expected, budget) {
   for (let index = 0; index < budget.warmups; index += 1) runTargetArtifact(target, artifactPath, request);
   const samples = [];
   let peakRssBytes = 0;
   for (let index = 0; index < budget.samples; index += 1) {
     const started = performance.now();
-    const measuredRss = childPeakRssBytes(target, artifactPath, request);
+    const measuredRss = childPeakRssBytes(target, artifactPath, request, expected);
     samples.push(performance.now() - started);
     peakRssBytes = Math.max(peakRssBytes, measuredRss);
   }
@@ -174,7 +192,7 @@ export async function checkR0ContractBundle() {
       const response = parseCanonicalJsonBytes(runTargetArtifact(target.target, artifactPath, request), `${target.target} frozen response`);
       assertClosedSchema(schema('runtime-envelope'), response, `${target.target} frozen response`);
       assert.deepEqual(response, expected, `${target.target} frozen envelope`);
-      measurements[target.target] = measure(target.target, artifactPath, request, bundle.manifest.budgets[target.target]);
+      measurements[target.target] = measure(target.target, artifactPath, request, canonicalJsonBytes(expected), bundle.manifest.budgets[target.target]);
     }
     return { manifestSha256: bundle.manifestSha256, measurements };
   } finally {
