@@ -60,6 +60,12 @@ import {
   type ReviewBaselineFile,
 } from '../review-baseline.js';
 import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
+import {
+  kirPreviewExitCode,
+  parseKirAnalysisMode,
+  runKirPreviewAnalysis,
+  writeKirPreviewOutput,
+} from './review-kir-preview.js';
 
 type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
 
@@ -1091,6 +1097,16 @@ function runReviewEvalManifest(manifestPath: string, baseConfig: ReviewConfig) {
 async function runReviewLocal(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const sarifOutput = hasFlag(args, '--sarif', '--format=sarif');
+  let analysisMode: ReturnType<typeof parseKirAnalysisMode>;
+  try {
+    analysisMode = parseKirAnalysisMode(args);
+  } catch (err) {
+    console.error(`  Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
+  // Preview snapshots are an explicit health check unless the caller supplied
+  // --diff. The actual base is resolved once by the existing diff policy below.
+  const previewDiffRequested = args.some((arg) => arg === '--diff' || arg.startsWith('--diff='));
   const telemetryReportMode = args.some((arg) => arg === '--telemetry-report' || arg.startsWith('--telemetry-report='));
   const telemetryReportPath = parseOptionalFlagOrNext(args, '--telemetry-report', '.kern/cache/review-telemetry.jsonl');
   if (telemetryReportMode) {
@@ -1319,6 +1335,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     '--eval-manifest',
     '--baseline',
     '--write-baseline',
+    '--analysis-mode',
   ]);
   const reviewInputs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -1360,6 +1377,14 @@ async function runReviewLocal(args: string[]): Promise<void> {
 
   if (fullMode && !reviewInput) {
     reviewInput = '.';
+  }
+
+  // Explicit KIR diff mode materializes both complete module sets later. Do
+  // not let the legacy changed-file collector pre-empt it (including on an
+  // invalid ref or a diff with no changed files), because those outcomes must
+  // remain structured canonical diagnostics.
+  if (previewDiffRequested && diffBase && !reviewInput && analysisMode && analysisMode !== 'legacy-source') {
+    reviewInput = '__kir_preview_diff__';
   }
 
   if (diffBase && !reviewInput) {
@@ -1447,7 +1472,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (reviewInput !== '__diff__' && reviewInput !== '__eval__') {
+  if (reviewInput !== '__diff__' && reviewInput !== '__eval__' && reviewInput !== '__kir_preview_diff__') {
     const reviewPath = resolve(reviewInput);
     const stat = existsSync(reviewPath) ? statSync(reviewPath) : null;
     if (!stat) {
@@ -1585,6 +1610,35 @@ async function runReviewLocal(args: string[]): Promise<void> {
       } else {
         entryFilePaths.push(rPath);
       }
+    }
+  }
+
+  // The opt-in KIR paths are intentionally isolated from the legacy pipeline.
+  // Leaving the selector absent (or explicitly legacy) reaches the historical
+  // code below without an extra import, output envelope, or behavior change.
+  if (analysisMode && analysisMode !== 'legacy-source') {
+    try {
+      const preview = await runKirPreviewAnalysis(analysisMode, entryFilePaths, {
+        diffBase: previewDiffRequested ? diffBase : undefined,
+        scopePaths: reviewInputs.length > 0 ? reviewInputs : undefined,
+      });
+      writeKirPreviewOutput(preview, jsonOutput ? 'json' : sarifOutput ? 'sarif' : 'text');
+      process.exit(kirPreviewExitCode(preview));
+    } catch (err) {
+      const failure = {
+        analysisMode,
+        status: 'failed',
+        findings: [],
+        diagnostics: [
+          {
+            code: 'canonical-kir-preview-cli-failure',
+            severity: 'error',
+            message: (err as Error).message,
+          },
+        ],
+      };
+      writeKirPreviewOutput(failure, jsonOutput ? 'json' : sarifOutput ? 'sarif' : 'text');
+      process.exit(1);
     }
   }
 
