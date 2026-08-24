@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./kir-preview": {
+      "types": "./dist/kir-preview/public.d.ts",
+      "default": "./dist/kir-preview/public.js"
+    },
+    "./kir-preview-dual": {
+      "types": "./dist/kir-preview/dual-public.d.ts",
+      "default": "./dist/kir-preview/dual-public.js"
     }
   },
   "files": [
