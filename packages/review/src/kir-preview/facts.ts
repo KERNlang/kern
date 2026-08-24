@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
-import { canonicalJson, compareCodePoints, deepFreeze, sha256 } from './canonical.js';
+import { compareCodePoints, deepFreeze, sha256 } from './canonical.js';
+import { KirFactDigests } from './digest.js';
 import type {
   CanonicalKirFactModel,
   CanonicalRecordEntry,
@@ -18,10 +19,6 @@ function text(value: CanonicalValue | undefined): string | undefined {
   return value?.tag === 'text' ? value.value : undefined;
 }
 
-function bool(value: CanonicalValue | undefined): boolean | undefined {
-  return value?.tag === 'bool' ? value.value : undefined;
-}
-
 function record(value: CanonicalValue | undefined): ReadonlyMap<string, CanonicalValue> | undefined {
   return value?.tag === 'record' ? properties(value.value) : undefined;
 }
@@ -34,41 +31,57 @@ function expression(value: CanonicalValue): { kind: string; fields: ReadonlyMap<
   return kind && fields ? { kind, fields } : undefined;
 }
 
-function renderExpression(value: CanonicalValue): string {
+function redacted(kind: string, value: CanonicalValue, digests: KirFactDigests): string {
+  return `<${kind}:sha256:${digests.value(value)}>`;
+}
+
+function renderExpression(value: CanonicalValue, digests: KirFactDigests): string {
   const parsed = expression(value);
-  if (!parsed) return canonicalJson(value);
+  if (!parsed) return `<canonical:${value.tag}:sha256:${digests.value(value)}>`;
   const { kind, fields } = parsed;
   if (kind === 'identifier') return text(fields.get('name')) ?? '<dynamic>';
-  if (kind === 'text') return JSON.stringify(text(fields.get('value')) ?? '');
-  if (kind === 'integer' || kind === 'decimal') return text(fields.get('value')) ?? canonicalJson(value);
-  if (kind === 'boolean') return String(bool(fields.get('value')));
-  if (kind === 'null') return 'null';
+  if (['text', 'integer', 'decimal', 'boolean'].includes(kind)) return redacted(kind, value, digests);
+  if (kind === 'null') return '<null>';
   if (kind === 'call') {
     const callee = fields.get('callee');
     const args = fields.get('args');
-    return `${callee ? renderExpression(callee) : '<dynamic>'}(${
-      args?.tag === 'list' ? args.value.map(renderExpression).join(',') : ''
+    return `${callee ? renderExpression(callee, digests) : '<dynamic>'}(${
+      args?.tag === 'list' ? args.value.map((argument) => renderExpression(argument, digests)).join(',') : ''
     })`;
   }
   if (kind === 'new') {
     const args = fields.get('args');
     return `new ${text(fields.get('constructor')) ?? '<dynamic>'}(${
-      args?.tag === 'list' ? args.value.map(renderExpression).join(',') : ''
+      args?.tag === 'list' ? args.value.map((argument) => renderExpression(argument, digests)).join(',') : ''
     })`;
   }
-  return canonicalJson(value);
-}
-
-function firstText(value: CanonicalValue): string | undefined {
-  const parsed = expression(value);
-  if (parsed?.kind === 'text') return text(parsed.fields.get('value'));
-  if ('value' in value && Array.isArray(value.value)) {
-    for (const child of value.value) {
-      const candidate = 'key' in child ? firstText(child.value) : firstText(child);
-      if (candidate !== undefined) return candidate;
-    }
+  if (kind === 'list') {
+    const items = fields.get('items');
+    return `[${items?.tag === 'list' ? items.value.map((item) => renderExpression(item, digests)).join(',') : ''}]`;
   }
-  return undefined;
+  if (kind === 'member') {
+    const object = fields.get('object');
+    return `${object ? renderExpression(object, digests) : '<dynamic>'}.${text(fields.get('property')) ?? '<member>'}`;
+  }
+  if (kind === 'index') {
+    const object = fields.get('object');
+    const index = fields.get('index');
+    return `${object ? renderExpression(object, digests) : '<dynamic>'}[${
+      index ? renderExpression(index, digests) : '?'
+    }]`;
+  }
+  if (kind === 'binary') {
+    const left = fields.get('left');
+    const right = fields.get('right');
+    return `(${left ? renderExpression(left, digests) : '?'} ${
+      text(fields.get('op')) ?? '?'
+    } ${right ? renderExpression(right, digests) : '?'})`;
+  }
+  if (kind === 'unary') {
+    const argument = fields.get('argument');
+    return `${text(fields.get('op')) ?? '?'}${argument ? renderExpression(argument, digests) : '?'}`;
+  }
+  return `<expression:${kind}:sha256:${digests.value(value)}>`;
 }
 
 function nodeName(node: StructuralKirNodeView): string | undefined {
@@ -77,14 +90,6 @@ function nodeName(node: StructuralKirNodeView): string | undefined {
 
 function ownerKey(moduleId: string, node: StructuralKirNodeView): string {
   return `${moduleId}/${node.kind}/${nodeName(node) ?? '<anonymous>'}`;
-}
-
-function identityWithoutRootName(node: StructuralKirNodeView): unknown {
-  return {
-    kind: node.kind,
-    properties: node.properties.filter((entry) => entry.key !== 'name'),
-    children: node.children,
-  };
 }
 
 function originalImportPath(root: StructuralKirNodeView, resolvedSource: string): string {
@@ -103,17 +108,18 @@ function collectCalls(
   owner: string,
   path: string,
   profile: KernReviewTargetProfile,
+  digests: KirFactDigests,
   facts: KirFact[],
 ): void {
   const parsed = expression(value);
   if (parsed?.kind === 'call') {
-    const display = renderExpression(value);
+    const display = renderExpression(value, digests);
     facts.push({
       facet: 'calls',
       moduleId,
-      key: `${owner}/${path}/${sha256(value)}`,
+      key: `${owner}/${path}/${digests.value(value)}`,
       matchKey: `${owner}/${path}`,
-      value: sha256(value),
+      value: digests.value(value),
       display,
     });
   }
@@ -124,18 +130,20 @@ function collectCalls(
       moduleId,
       key,
       matchKey: key,
-      value: sha256({ owner, path, expression: value }),
+      value: sha256({ owner, path, expression: digests.value(value) }),
       display: key,
     });
   }
   if (value.tag === 'list') {
-    for (const child of value.value) collectCalls(child, moduleId, owner, path, profile, facts);
+    for (const child of value.value) collectCalls(child, moduleId, owner, path, profile, digests, facts);
   } else if (value.tag === 'record') {
-    for (const entry of value.value) collectCalls(entry.value, moduleId, owner, `${path}/${entry.key}`, profile, facts);
+    for (const entry of value.value) {
+      collectCalls(entry.value, moduleId, owner, `${path}/${entry.key}`, profile, digests, facts);
+    }
   } else if (value.tag === 'map') {
-    for (const entry of value.value) collectCalls(entry.value, moduleId, owner, path, profile, facts);
+    for (const entry of value.value) collectCalls(entry.value, moduleId, owner, path, profile, digests, facts);
   } else if (value.tag === 'error' && value.value.details) {
-    collectCalls(value.value.details, moduleId, owner, `${path}/details`, profile, facts);
+    collectCalls(value.value.details, moduleId, owner, `${path}/details`, profile, digests, facts);
   }
 }
 
@@ -145,12 +153,13 @@ function collectNodeFacts(
   owner: StructuralKirNodeView,
   path: string,
   profile: KernReviewTargetProfile,
+  digests: KirFactDigests,
   facts: KirFact[],
 ): void {
   const ownerIdentity = ownerKey(moduleId, owner);
   const props = properties(node.properties);
   for (const entry of node.properties) {
-    collectCalls(entry.value, moduleId, ownerIdentity, `${path}/${entry.key}`, profile, facts);
+    collectCalls(entry.value, moduleId, ownerIdentity, `${path}/${entry.key}`, profile, digests, facts);
   }
 
   if (node.kind === 'capability') {
@@ -164,7 +173,7 @@ function collectNodeFacts(
       moduleId,
       key: `${matchKey}/${display}`,
       matchKey,
-      value: sha256(node),
+      value: digests.node(node),
       display,
     });
     if (profile.unsupportedCapabilities.includes(display)) {
@@ -185,56 +194,64 @@ function collectNodeFacts(
       node.kind === 'capability'
         ? `${text(props.get('namespace')) ?? '<unknown>'}/${text(props.get('operation')) ?? '<unknown>'}`
         : value
-          ? (firstText(value) ?? renderExpression(value))
+          ? renderExpression(value, digests)
           : node.kind;
     facts.push({
       facet: 'effects',
       moduleId,
-      key: `${ownerIdentity}/${node.kind}/${sha256(node)}`,
+      key: `${ownerIdentity}/${node.kind}/${digests.node(node)}`,
       matchKey: `${ownerIdentity}/${node.kind}`,
-      value: sha256(node),
+      value: digests.node(node),
       display,
     });
   }
 
   if (profile.unsupportedNodeKinds?.includes(node.kind)) {
     const key = `node:${node.kind}`;
-    facts.push({ facet: 'target-compatibility', moduleId, key, matchKey: key, value: ownerIdentity, display: key });
+    facts.push({
+      facet: 'target-compatibility',
+      moduleId,
+      key,
+      matchKey: key,
+      value: ownerIdentity,
+      display: key,
+    });
   }
 
   const named = nodeName(node);
   const structuralKey =
     node === owner
-      ? `${node.kind}/${named ?? sha256(node)}`
+      ? `${node.kind}/${named ?? digests.node(node)}`
       : named
         ? `${owner.kind}/${nodeName(owner) ?? '<anonymous>'}/${named}`
-        : `${ownerIdentity}/${path}/${sha256(node)}`;
+        : `${ownerIdentity}/${path}/${digests.node(node)}`;
   const structuralDisplay = props.get('value')
-    ? renderExpression(props.get('value') as CanonicalValue)
-    : canonicalJson(node);
+    ? renderExpression(props.get('value') as CanonicalValue, digests)
+    : `${node.kind}${named ? `:${named}` : ''}:sha256:${digests.node(node)}`;
   facts.push({
     facet: 'structure',
     moduleId,
     key: structuralKey,
     matchKey: named ? structuralKey : `${ownerIdentity}/${path}`,
-    value: sha256(node),
+    value: digests.node(node),
     display: structuralDisplay,
   });
 
   for (const child of node.children) {
-    collectNodeFacts(child, moduleId, owner, `${path}/${child.kind}`, profile, facts);
+    collectNodeFacts(child, moduleId, owner, `${path}/${child.kind}`, profile, digests, facts);
   }
 }
 
 function moduleFacts(artifact: VerifiedProjectionView['artifact'], profile: KernReviewTargetProfile): KirFact[] {
   const facts: KirFact[] = [];
+  const digests = new KirFactDigests();
   for (const module of artifact.modules) {
     facts.push({
       facet: 'modules',
       moduleId: module.id,
       key: module.id,
       matchKey: module.id,
-      value: sha256(module),
+      value: digests.module(module),
       display: module.id,
     });
 
@@ -246,19 +263,14 @@ function moduleFacts(artifact: VerifiedProjectionView['artifact'], profile: Kern
     for (const exported of module.exports) {
       const root = rootsBySymbol.get(`${exported.kind}/${exported.name}`);
       const key = `${module.id}/${exported.kind}/${exported.name}`;
-      const signature = root
-        ? { properties: root.properties, params: root.children.filter((child) => child.kind === 'param') }
-        : exported;
       facts.push({
         facet: 'public-api',
         moduleId: module.id,
         key,
         matchKey: key,
-        value: sha256(signature),
+        value: digests.publicSignature(root, exported),
         display: exported.name,
-        contentIdentity: root
-          ? sha256({ kind: root.kind, source: exported.source, content: identityWithoutRootName(root) })
-          : undefined,
+        contentIdentity: root ? digests.publicContent(root, exported.source) : undefined,
       });
     }
 
@@ -292,7 +304,7 @@ function moduleFacts(artifact: VerifiedProjectionView['artifact'], profile: Kern
 
     for (const root of module.roots) {
       if (root.kind === 'class' || root.kind === 'fn')
-        collectNodeFacts(root, module.id, root, root.kind, profile, facts);
+        collectNodeFacts(root, module.id, root, root.kind, profile, digests, facts);
     }
   }
   return facts;

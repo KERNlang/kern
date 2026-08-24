@@ -116,7 +116,11 @@ const fixtureCases = [
       moduleId: 'calls.kern',
       source: 'fn name=main export=true\n  handler lang="kern"\n    return value="fetchAccount(\"b\")"\n',
     }],
-    expected: { change: 'call-target-or-argument-shape-changed', before: 'fetchUser("a")', after: 'fetchAccount("b")' },
+    expected: {
+      change: 'call-target-or-argument-shape-changed',
+      before: 'fetchUser(<text:sha256:7ffd3bf1abf5b06862645eb80a4d7d73f4889aafe233593cfb4d921db1c697da>)',
+      after: 'fetchAccount(<text:sha256:e755d5eca96f20446fe656caea6bf6ab985aa16f81d07d7a40445c151286988b>)',
+    },
   },
   {
     id: 'effects',
@@ -129,7 +133,11 @@ const fixtureCases = [
       moduleId: 'effects.kern',
       source: 'fn name=main export=true\n  handler lang="kern"\n    throw value="new Error(\\"writeUsers\\")"\n',
     }],
-    expected: { change: 'effect-changed', before: 'readUsers', after: 'writeUsers' },
+    expected: {
+      change: 'effect-changed',
+      before: 'new Error(<text:sha256:83433f92e002ca6353fed66b13e0e45f0b2b070e2b06f015be7ff41133179e83>)',
+      after: 'new Error(<text:sha256:3f3311a722cc0bff19d7cfae02450f293b9ac5a55fcd9c4e03145bc9684d0897>)',
+    },
   },
   {
     id: 'structure-property',
