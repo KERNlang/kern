@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { canonicalJsonBytes, parseCanonicalJsonBytes } from './r0-abi-oracle-helpers.mjs';
 
@@ -116,7 +117,7 @@ export function rebindR0ContractManifest({ manifestPath = DEFAULT_MANIFEST_PATH,
   return Object.freeze({ bytes: canonicalJsonBytes(rebound), inventory, manifest: rebound });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.length !== 3 || process.argv[2] !== '--write') fail('invoke with --write to replace the manifest inventory');
   const result = rebindR0ContractManifest();
   writeFileSync(path.resolve(process.cwd(), DEFAULT_MANIFEST_PATH), result.bytes);
