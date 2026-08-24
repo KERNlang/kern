@@ -47,11 +47,10 @@ function changeFor(facet: CanonicalKirFacet, before: boolean, after: boolean): C
 
 function makeFinding(before: KirFact | undefined, after: KirFact | undefined): CanonicalKirFinding {
   const exemplar = after ?? (before as KirFact);
-  const changedBoth = before !== undefined && after !== undefined;
   return finding({
     facet: exemplar.facet,
     moduleId: exemplar.moduleId,
-    key: changedBoth ? before.matchKey : exemplar.key,
+    key: exemplar.matchKey,
     change: changeFor(exemplar.facet, before !== undefined, after !== undefined),
     ...(before ? { before: before.display } : {}),
     ...(after ? { after: after.display } : {}),

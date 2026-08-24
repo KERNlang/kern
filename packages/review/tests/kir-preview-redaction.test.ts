@@ -123,7 +123,8 @@ test('canonical findings redact changed literal contents while retaining shape a
   for (const literal of sensitive) assert.doesNotMatch(serialized, new RegExp(literal));
   assert.match(serialized, /fetchUser/u, 'call targets remain useful identifiers');
   assert.match(serialized, /Error/u, 'constructor identifiers remain useful');
-  assert.match(serialized, /sha256:[0-9a-f]{64}/u, 'redacted literals retain deterministic digest identity');
+  assert.doesNotMatch(serialized, /sha256:/u, 'public findings contain no brute-forceable literal digests');
+  assert.match(serialized, /<text>/u, 'redacted literals retain useful type shape');
   assert.deepEqual(findings, diffCanonicalKirFacts(base, head), 'redacted output remains deterministic');
 });
 
@@ -161,5 +162,6 @@ test('public canonical review results do not serialize changed literal contents'
   const serialized = JSON.stringify(result);
   for (const literal of sensitive) assert.doesNotMatch(serialized, new RegExp(literal));
   assert.match(serialized, /fetchUser/u);
-  assert.match(serialized, /sha256:[0-9a-f]{64}/u);
+  assert.doesNotMatch(serialized, /sha256:/u);
+  assert.match(serialized, /<text>/u);
 });
