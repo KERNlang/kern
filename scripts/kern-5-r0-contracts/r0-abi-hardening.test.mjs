@@ -89,7 +89,7 @@ test('each target binds the request to its exact sibling manifest and canonical 
     for (const target of Object.keys(harness.byTarget)) {
       const manifest = harness.manifests[target].value;
       assert.match(manifest.compilerRequestSha256, /^[0-9a-f]{64}$/u);
-      assert.match(harness.byTarget[target].artifact.path, new RegExp(`^${harness.generated.kirSha256}/`));
+      assert.match(harness.byTarget[target].artifact.path, new RegExp(`^${harness.byTarget[target].compilerRequestSha256}/`));
       const other = target === 'python' ? 'javascript-esm' : 'python';
       exactDiagnostic(harness.run(target, { artifactManifestSha256: sha256Hex(harness.manifests[other].bytes) }), 'handler-link-error', `hardening-${target}`);
     }
@@ -159,8 +159,10 @@ test('Unicode canonical bytes and strict Python numeric/tick validation agree wi
       assert.equal(response.result.value.value.includes('���é😀'), true);
       for (const bad of ['01', '9007199254740992']) exactDiagnostic(harness.run(target, { capabilityTranscript: [{ ...fixtures.cases[1].capabilityTranscript[0], result: { presence: 'value', value: { tag: 'integer', value: bad } }}] }), 'invalid-handler-arguments', `hardening-${target}`);
       exactDiagnostic(harness.run(target, { capabilityTranscript: [{ ...fixtures.cases[1].capabilityTranscript[0], delayTicks: true }] }), 'invalid-handler-arguments', `hardening-${target}`);
-      const raw = JSON.stringify(harness.request(target, { control: { preCancelled: false, cancelAtTick: 9007199254740992, timeoutTicks: null } }));
-      const command = target === 'javascript-esm' ? process.env.KERN_NODE22 : 'python3';
+      const safeRequest = harness.request(target, { control: { preCancelled: false, cancelAtTick: 1, timeoutTicks: null } });
+      const raw = canonicalJsonBytes(safeRequest).toString('utf8').replace('"cancelAtTick":1', '"cancelAtTick":9007199254740992');
+      assert.notEqual(raw, canonicalJsonBytes(safeRequest).toString('utf8'));
+      const command = target === 'javascript-esm' ? (process.env.KERN_NODE22 ?? process.execPath) : 'python3';
       const result = spawnSync(command, [resolve(harness.outputRoot, harness.byTarget[target].artifact.path)], { encoding: null, input: raw });
       exactDiagnostic(parseCanonicalJsonBytes(result.stdout, `${target} unsafe tick`), 'invalid-handler-arguments', `hardening-${target}`);
     }
@@ -232,7 +234,7 @@ test('generated Python uses only static imports', async () => {
   const harness = await targetHarness();
   try {
     const source = readFileSync(resolve(harness.outputRoot, harness.byTarget.python.artifact.path), 'utf8');
-    assert.match(source, /^import asyncio, hashlib, json, re, sys$/mu);
+    assert.match(source, /^import asyncio, hashlib, json, os, re, sys$/mu);
     assert.equal(source.includes('__import__('), false);
   } finally { harness.dispose(); }
 });

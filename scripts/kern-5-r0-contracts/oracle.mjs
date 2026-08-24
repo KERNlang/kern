@@ -39,6 +39,7 @@ function safeOutputPath(outputRoot, candidate, label) {
 
 export async function generateR0AbiArtifacts(input, options = {}) {
   assert.ok(input && typeof input === 'object', 'input must be an object');
+  exactKeys(input, ['cases', 'format'], 'compiler input');
   assert.equal(input.format, 'kern.r0.abi-probe-input.1');
   assert.ok(Array.isArray(input.cases), 'cases must be an array');
   const outputRoot = options.outputRoot;
@@ -93,17 +94,19 @@ export async function generateR0AbiArtifacts(input, options = {}) {
     });
     const jsCompilerRequestSha256 = sha256Hex(canonicalJsonBytes(compilerRequest('javascript-esm')));
     const pyCompilerRequestSha256 = sha256Hex(canonicalJsonBytes(compilerRequest('python')));
-    const jsArtifactPath = `${kirSha256}/javascript-esm/main.mjs`;
-    const pyArtifactPath = `${kirSha256}/python/main.py`;
-    const jsManifestPath = `${kirSha256}/javascript-esm/manifest.json`;
-    const pyManifestPath = `${kirSha256}/python/manifest.json`;
+    const jsArtifactPath = `${jsCompilerRequestSha256}/javascript-esm/main.mjs`;
+    const pyArtifactPath = `${pyCompilerRequestSha256}/python/main.py`;
+    const jsManifestPath = `${jsCompilerRequestSha256}/javascript-esm/manifest.json`;
+    const pyManifestPath = `${pyCompilerRequestSha256}/python/manifest.json`;
     const jsSource = compileJsSource({
       kirSha256,
       entry: caseInput.entry,
       artifactPath: jsArtifactPath,
       capabilitySeal,
+      compilerRequestSha256: jsCompilerRequestSha256,
       manifestFile: './manifest.json',
       paramNames,
+      semanticSha256,
       target: 'javascript-esm',
       handlerChildren: handlerNode.children,
     });
@@ -112,8 +115,10 @@ export async function generateR0AbiArtifacts(input, options = {}) {
       entry: caseInput.entry,
       artifactPath: pyArtifactPath,
       capabilitySeal,
+      compilerRequestSha256: pyCompilerRequestSha256,
       manifestFile: './manifest.json',
       paramNames,
+      semanticSha256,
       target: 'python',
       handlerChildren: handlerNode.children,
     });

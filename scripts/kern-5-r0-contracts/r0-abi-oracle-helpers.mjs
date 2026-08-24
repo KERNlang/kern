@@ -72,8 +72,9 @@ function run(command, args, input, label) {
     encoding: null,
     input,
     maxBuffer: 1024 * 1024,
+    timeout: 5000,
   });
-  if (result.error) throw result.error;
+  if (result.error) assert.fail(`${label} failed: ${result.error.code === 'ETIMEDOUT' ? 'timed out' : result.error.message}`);
   assert.equal(result.status, 0, `${label} failed: ${result.stderr.toString('utf8')}`);
   return result.stdout;
 }
