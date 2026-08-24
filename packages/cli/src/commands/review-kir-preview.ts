@@ -1,6 +1,6 @@
-import { execFileSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
-import { relative, resolve, sep } from 'path';
+import { execFileSync, spawnSync } from 'child_process';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from 'fs';
+import { isAbsolute, relative, resolve, sep } from 'path';
 import { withoutLocalGitEnv } from '../git-env.js';
 
 export const KIR_ANALYSIS_MODES = ['legacy-source', 'canonical-kir-preview', 'dual-compare'] as const;
@@ -129,6 +129,20 @@ function git(cwd: string, args: string[], encoding: BufferEncoding = 'utf-8'): s
   }) as unknown as string;
 }
 
+function gitBuffer(cwd: string, args: string[], input: string): Buffer {
+  const result = spawnSync('git', args, {
+    cwd,
+    input,
+    env: { ...withoutLocalGitEnv(), LC_ALL: 'C' },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0 || !result.stdout) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr?.toString('utf8').trim() || 'unknown error'}`);
+  }
+  return result.stdout;
+}
+
 function gitRoot(cwd: string): string {
   return git(cwd, ['rev-parse', '--show-toplevel']).trim();
 }
@@ -142,11 +156,86 @@ function selected(path: string, scopes: readonly string[] | undefined): boolean 
   return !scopes || scopes.some((scope) => path === scope || path.startsWith(`${scope}/`));
 }
 
-function trackedKernPaths(root: string, ref: string | undefined): string[] {
-  const output = ref
-    ? git(root, ['ls-tree', '-r', '--name-only', '-z', ref])
-    : git(root, ['ls-files', '-co', '--exclude-standard', '-z']);
-  return output.split('\0').filter((path) => path.endsWith('.kern'));
+interface GitBlobEntry {
+  readonly moduleId: string;
+  readonly objectId: string;
+}
+
+function baseKernEntries(root: string, ref: string): readonly GitBlobEntry[] {
+  const entries = git(root, ['ls-tree', '-r', '-z', ref]).split('\0').filter(Boolean);
+  return entries.flatMap((entry) => {
+    const tab = entry.indexOf('\t');
+    if (tab === -1) throw new Error('KIR preview rejects malformed Git tree output.');
+    const metadata = entry.slice(0, tab).split(' ');
+    const moduleId = entry.slice(tab + 1);
+    if (!moduleId.endsWith('.kern')) return [];
+    const [mode, type, objectId] = metadata;
+    if (!/^100(?:644|755)$/u.test(mode ?? '') || type !== 'blob' || !/^[0-9a-f]{40,64}$/u.test(objectId ?? '')) {
+      throw new Error(`KIR preview rejects unsafe Git base entry ${moduleId}: regular blob mode required.`);
+    }
+    return [{ moduleId: assertSafeModuleId(moduleId), objectId }];
+  });
+}
+
+function headKernPaths(root: string): string[] {
+  return git(root, ['ls-files', '-co', '--exclude-standard', '-z'])
+    .split('\0')
+    .filter((path) => path.endsWith('.kern'));
+}
+
+function readBaseBlobs(root: string, entries: readonly GitBlobEntry[]): Map<string, string> {
+  const output = gitBuffer(root, ['cat-file', '--batch'], entries.map((entry) => `${entry.objectId}\n`).join(''));
+  const values = new Map<string, string>();
+  let offset = 0;
+  for (const entry of entries) {
+    const lineEnd = output.indexOf(0x0a, offset);
+    if (lineEnd === -1) throw new Error(`KIR preview rejects truncated Git blob batch for ${entry.moduleId}.`);
+    const header = output.subarray(offset, lineEnd).toString('ascii');
+    const match = header.match(/^([0-9a-f]{40,64}) blob (\d+)$/u);
+    if (!match || match[1] !== entry.objectId) {
+      throw new Error(`KIR preview rejects unsafe Git base blob ${entry.moduleId}.`);
+    }
+    const size = Number(match[2]);
+    const start = lineEnd + 1;
+    const end = start + size;
+    if (!Number.isSafeInteger(size) || size < 0 || end >= output.length || output[end] !== 0x0a) {
+      throw new Error(`KIR preview rejects truncated Git blob ${entry.moduleId}.`);
+    }
+    values.set(entry.moduleId, output.subarray(start, end).toString('utf8'));
+    offset = end + 1;
+  }
+  if (offset !== output.length) throw new Error('KIR preview rejects trailing Git blob batch data.');
+  return values;
+}
+
+function isBeneath(root: string, candidate: string): boolean {
+  const path = relative(root, candidate);
+  return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+}
+
+function readHeadModule(root: string, moduleId: string): string | undefined {
+  const filePath = resolve(root, moduleId);
+  const resolvedRoot = realpathSync(root);
+  let descriptor: number | undefined;
+  try {
+    const initial = lstatSync(filePath);
+    if (!initial.isFile() || initial.isSymbolicLink()) {
+      throw new Error('symlink or non-regular file');
+    }
+    const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0;
+    descriptor = openSync(filePath, constants.O_RDONLY | noFollow);
+    if (!fstatSync(descriptor).isFile()) throw new Error('non-regular file');
+    const resolvedFile = realpathSync(filePath);
+    if (!isBeneath(resolvedRoot, resolvedFile)) throw new Error('path escapes repository root');
+    return readFileSync(descriptor, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(
+      `KIR preview rejects unsafe worktree module ${moduleId}: regular non-symlink files beneath repository root required (${(error as Error).message}).`,
+    );
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
 }
 
 function changedPairPaths(root: string, ref: string, scopes: readonly string[] | undefined): Set<string> {
@@ -176,21 +265,20 @@ function resolveGitModules(
   const scopes = options.scopePaths?.map((scope) => repoPath(root, resolve(options.cwd, scope)));
   const paired = changedPairPaths(root, ref, scopes);
   const include = (path: string) => selected(path, scopes) || paired.has(path);
-  const basePaths = trackedKernPaths(root, ref).filter(include);
-  const headPaths = trackedKernPaths(root, undefined)
-    .filter(include)
-    .filter((path) => existsSync(resolve(root, path)));
+  const baseEntries = baseKernEntries(root, ref).filter((entry) => include(entry.moduleId));
+  const headPaths = headKernPaths(root).filter(include);
+  const baseBlobs = readBaseBlobs(root, baseEntries);
   const base = modulesFromSources(
-    basePaths.map((moduleId) => ({
+    baseEntries.map(({ moduleId }) => ({
       moduleId,
-      source: git(root, ['show', `${ref}:${moduleId}`]),
+      source: baseBlobs.get(moduleId)!,
     })),
   );
   const head = modulesFromSources(
-    headPaths.map((moduleId) => ({
-      moduleId,
-      source: readFileSync(resolve(root, moduleId), 'utf-8'),
-    })),
+    headPaths.flatMap((moduleId) => {
+      const source = readHeadModule(root, moduleId);
+      return source === undefined ? [] : [{ moduleId, source }];
+    }),
   );
   return { base, head };
 }

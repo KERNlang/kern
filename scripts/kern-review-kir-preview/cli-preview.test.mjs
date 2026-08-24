@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -54,6 +54,12 @@ function withGitFixture(action) {
       '    return value="before"',
       '',
     ].join('\n'), 'utf8');
+    writeFileSync(join(directory, 'api', 'keep.kern'), [
+      'fn name=keep returns=string export=true',
+      '  handler lang="kern"',
+      '    return value="stable"',
+      '',
+    ].join('\n'), 'utf8');
     git(directory, ['add', '.']);
     git(directory, ['commit', '-qm', 'base']);
     git(directory, ['mv', 'api/users.kern', 'api/accounts.kern']);
@@ -69,6 +75,7 @@ function withGitFixture(action) {
       '    return value="event"',
       '',
     ].join('\n'), 'utf8');
+    rmSync(join(directory, 'api', 'keep.kern'));
     return action(directory);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -143,10 +150,13 @@ test('KRI-A7/A9: --diff materializes independent Git base/head sets, including r
     const result = JSON.parse(canonical.stdout);
     assert.equal(result.comparison, 'git-diff');
     assert.equal(result.status, 'complete');
+    // The fixture has two base blobs (users + keep), exercising the bounded
+    // batched Git object read rather than a one-blob happy path.
     assert.ok(result.findings.length > 0, 'base/head changes must not collapse to the snapshot same-set result');
     assert.ok(result.findings.some((finding) => finding.moduleId === 'api/users.kern' && finding.change === 'removed'));
     assert.ok(result.findings.some((finding) => finding.moduleId === 'api/accounts.kern' && finding.change === 'added'));
     assert.ok(result.findings.some((finding) => finding.moduleId === 'api/audit.kern' && finding.change === 'added'));
+    assert.ok(result.findings.some((finding) => finding.moduleId === 'api/keep.kern' && finding.change === 'removed'));
 
     const dual = runCli(['--diff=HEAD', '--json', '--analysis-mode=dual-compare'], directory);
     assert.equal(dual.status, 0, dual.stderr);
@@ -161,5 +171,37 @@ test('KRI-A7/A9: --diff materializes independent Git base/head sets, including r
     const failure = JSON.parse(badBase.stdout);
     assert.equal(failure.status, 'failed');
     assert.equal(failure.diagnostics[0].code, 'canonical-kir-preview-cli-failure');
+  });
+});
+
+test('KRI-A8: Git module materialization rejects symlinks on both worktree and base sides', async () => {
+  await requirePreviewApi();
+  withGitFixture((directory) => {
+    const outside = join(tmpdir(), `kern-review-kir-preview-outside-${process.pid}.kern`);
+    const linked = join(directory, 'api', 'linked.kern');
+    const special = join(directory, 'api', 'keep.kern');
+    writeFileSync(outside, 'fn name=outside returns=string export=true\n  handler lang="kern"\n    return value="outside"\n', 'utf8');
+    execFileSync('mkfifo', [special]);
+    try {
+      const nonRegular = runCli(['--diff=HEAD', '--json', '--analysis-mode=canonical-kir-preview'], directory);
+      assert.notEqual(nonRegular.status, 0, 'a special .kern file must not be opened as source');
+      assert.match(nonRegular.stdout, /regular|unsafe/i);
+      rmSync(special);
+
+      symlinkSync(outside, linked);
+      const worktree = runCli(['--diff=HEAD', '--json', '--analysis-mode=canonical-kir-preview'], directory);
+      assert.notEqual(worktree.status, 0, 'an untracked .kern symlink must not be followed from the worktree');
+      assert.match(worktree.stdout, /symlink|regular|unsafe/i);
+
+      git(directory, ['add', 'api/linked.kern']);
+      git(directory, ['commit', '-qm', 'tracked symlink']);
+      const base = runCli(['--diff=HEAD', '--json', '--analysis-mode=canonical-kir-preview'], directory);
+      assert.notEqual(base.status, 0, 'a mode 120000 .kern entry must not be read with git show');
+      assert.match(base.stdout, /symlink|regular|unsafe/i);
+    } finally {
+      try { unlinkSync(linked); } catch {}
+      try { rmSync(special); } catch {}
+      try { rmSync(outside); } catch {}
+    }
   });
 });
