@@ -5,6 +5,8 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 
 import { generateR0AbiArtifacts } from './oracle.mjs';
+import { assertGeneratedKirV1 } from './r0-abi-kir-auth.mjs';
+import { assertExecutableR0Kir, buildCompileCase } from './r0-abi-test-kir.mjs';
 import {
   parseCanonicalJsonBytes,
   readCanonicalJsonFile,
@@ -16,29 +18,36 @@ import {
 const root = process.cwd();
 const fixturePath = resolve(root, 'scripts/kern-5-r0-contracts/fixtures/topology-mutations.json');
 const topologyFixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
-const executionFieldNames = [
-  'arguments',
-  'capabilitySteps',
-  'capabilityTranscript',
-  'control',
-  'entry',
-  'id',
-  'topology',
-];
+function programFor(runtimeCase) {
+  if (runtimeCase.kirProgram) return runtimeCase.kirProgram;
+  if (runtimeCase.capabilitySteps === 0) {
+    return { entry: { moduleId: 'r0/no-capability.kern', handlerName: 'composeNoCapability' }, operations: [] };
+  }
+  if (runtimeCase.capabilitySteps === 1) {
+    return { entry: { moduleId: 'r0/compose.kern', handlerName: 'compose' }, operations: ['resolve'] };
+  }
+  assert.equal(runtimeCase.capabilitySteps, 2, `unsupported R0 capability count for ${runtimeCase.id}`);
+  return {
+    entry: { moduleId: 'r0/two-capabilities.kern', handlerName: 'composeTwoCapabilities' },
+    operations: ['resolve', 'resolveNext'],
+  };
+}
 
-function probeInput(fixture) {
+function compileInput(runtimeCases) {
+  const cases = runtimeCases.map((runtimeCase) => {
+    const program = programFor(runtimeCase);
+    const compileCase = buildCompileCase({ id: runtimeCase.id, ...program });
+    assertExecutableR0Kir(compileCase, program.operations);
+    return compileCase;
+  });
   const input = {
     format: 'kern.r0.abi-probe-input.1',
-    cases: fixture.cases.map((entry) =>
-      Object.fromEntries(
-        executionFieldNames.map((field) => [
-          field,
-          field === 'entry' ? entry.entry ?? { moduleId: 'r0.fixture', handlerName: 'compose' } : entry[field],
-        ]),
-      ),
-    ),
+    cases,
   };
-  assert.doesNotMatch(JSON.stringify(input), /expectedJsonText|eventOps|errorCode|outcome/u);
+  assert.doesNotMatch(
+    JSON.stringify(input),
+    /"(?:arguments|capabilitySteps|capabilityTranscript|control|expectedJsonText|eventOps|errorCode|outcome|topology)"/u,
+  );
   return input;
 }
 
@@ -54,7 +63,7 @@ function assertTopologyFixture(fixture) {
     [
       ['stdout'],
       ['capability', 'stdout'],
-      ['capability', 'stdout', 'capability'],
+      ['capability', 'capability', 'stdout'],
       [],
       [],
       [],
@@ -155,7 +164,7 @@ function runtimeRequest(caseInput, generated, manifest) {
   };
 }
 
-function inspectTarget(outputRoot, generated, target, forbiddenText) {
+function inspectTarget(outputRoot, authenticated, generated, target, forbiddenText) {
   const artifactPath = resolveOutputFile(outputRoot, target.artifactPath, `${target.target} artifact path`);
   const manifestPath = resolveOutputFile(outputRoot, target.manifestPath, `${target.target} manifest path`);
   const manifest = readCanonicalJsonFile(manifestPath, `${target.target} target manifest`);
@@ -164,8 +173,8 @@ function inspectTarget(outputRoot, generated, target, forbiddenText) {
   assert.equal(manifest.value.format, 'kern.target.artifact.r0');
   assert.equal(manifest.value.target, target.target);
   assert.equal(manifest.value.runtimeAbi, 'kern.runtime.kir.r0');
-  assert.equal(manifest.value.kirSha256, generated.kirSha256);
-  assert.equal(manifest.value.semanticSha256, generated.semanticSha256);
+  assert.equal(manifest.value.kirSha256, authenticated.kirSha256);
+  assert.equal(manifest.value.semanticSha256, authenticated.semanticSha256);
   assert.deepEqual(manifest.value.entry, target.entry);
 
   const executable = manifest.value.artifacts.find((entry) => entry.executable === true);
@@ -189,7 +198,8 @@ function inspectTarget(outputRoot, generated, target, forbiddenText) {
   return { artifactPath, manifest: { ...manifest, sha256: manifestSha256 } };
 }
 
-async function generateAndExecute(input) {
+async function generateAndExecute(runtimeCases) {
+  const input = compileInput(runtimeCases);
   const outputRoot = mkdtempSync(resolve(tmpdir(), 'kern-r0-abi-oracle-'));
   try {
     const generation = await generateR0AbiArtifacts(input, { outputRoot });
@@ -201,14 +211,17 @@ async function generateAndExecute(input) {
     const forbiddenText = topologyFixture.cases.flatMap((entry) => [entry.id, entry.expectedJsonText]).filter(Boolean);
     const results = input.cases.map((caseInput) => {
       const generated = generatedCaseFor(generation, caseInput.id);
+      const authenticated = assertGeneratedKirV1(generated, `${caseInput.id} generated KIR`);
+      assert.deepEqual(generated.kirBytesHex, caseInput.kirBytesHex, `${caseInput.id} generator changed KIR authority`);
+      assert.deepEqual(generated.sourceEvidenceCatalog, caseInput.sourceEvidenceCatalog, `${caseInput.id} generator changed evidence authority`);
       assert.match(generated.kirSha256, /^[0-9a-f]{64}$/u);
       assert.match(generated.semanticSha256, /^[0-9a-f]{64}$/u);
       const javascriptEsm = targetFor(generated, 'javascript-esm');
       const python = targetFor(generated, 'python');
       assert.deepEqual(javascriptEsm.entry, caseInput.entry);
       assert.deepEqual(python.entry, caseInput.entry);
-      const jsArtifact = inspectTarget(outputRoot, generated, javascriptEsm, forbiddenText);
-      const pythonArtifact = inspectTarget(outputRoot, generated, python, forbiddenText);
+      const jsArtifact = inspectTarget(outputRoot, authenticated, generated, javascriptEsm, forbiddenText);
+      const pythonArtifact = inspectTarget(outputRoot, authenticated, generated, python, forbiddenText);
       const jsBytes = runTargetArtifact(
         'javascript-esm',
         jsArtifact.artifactPath,
@@ -238,24 +251,24 @@ async function generateAndExecute(input) {
         },
       };
     });
-    return { results, dispose: () => rmSync(outputRoot, { force: true, recursive: true }) };
+    return { generation, results, dispose: () => rmSync(outputRoot, { force: true, recursive: true }) };
   } catch (error) {
     rmSync(outputRoot, { force: true, recursive: true });
     throw error;
   }
 }
 
-test('R0 ABI fixture declares topology and logical-control changes that a single hardcoded target cannot cover', () => {
+test('R0 ABI test owns authenticated compile-only KIR inputs and runtime topology separately', () => {
   assertTopologyFixture(topologyFixture);
-  const input = probeInput(topologyFixture);
+  const input = compileInput(topologyFixture.cases);
   assert.deepEqual(Object.keys(input).sort(), ['cases', 'format']);
   for (const entry of input.cases) {
-    assert.deepEqual(Object.keys(entry).sort(), executionFieldNames);
+    assert.deepEqual(Object.keys(entry).sort(), ['entry', 'id', 'kirBytesHex', 'sourceEvidenceCatalog']);
   }
 });
 
 test('both target artifacts execute every authenticated topology with identical canonical envelopes', async () => {
-  const probe = await generateAndExecute(probeInput(topologyFixture));
+  const probe = await generateAndExecute(topologyFixture.cases);
   try {
     for (const caseFixture of topologyFixture.cases) {
       const result = resultFor(probe, caseFixture.id);
@@ -269,8 +282,8 @@ test('both target artifacts execute every authenticated topology with identical 
 });
 
 test('two clean artifact generations preserve every target and manifest digest', async () => {
-  const first = await generateAndExecute(probeInput(topologyFixture));
-  const second = await generateAndExecute(probeInput(topologyFixture));
+  const first = await generateAndExecute(topologyFixture.cases);
+  const second = await generateAndExecute(topologyFixture.cases);
   try {
     for (const caseFixture of topologyFixture.cases) {
       const initial = resultFor(first, caseFixture.id);
@@ -290,7 +303,7 @@ test('two clean artifact generations preserve every target and manifest digest',
 });
 
 test('topology mutations change authenticated semantic input and cannot reuse one target result', async () => {
-  const probe = await generateAndExecute(probeInput(topologyFixture));
+  const probe = await generateAndExecute(topologyFixture.cases);
   try {
     const baseline = resultFor(probe, 'nested-record-list-no-capability');
     for (const caseFixture of topologyFixture.cases.slice(1, 3)) {
@@ -318,7 +331,7 @@ test('topology mutations change authenticated semantic input and cannot reuse on
 });
 
 test('logical controls select the specified winner atomically without changing KIR input', async () => {
-  const probe = await generateAndExecute(probeInput(topologyFixture));
+  const probe = await generateAndExecute(topologyFixture.cases);
   try {
     const settled = resultFor(probe, 'nested-record-list-one-capability-success');
     const controlCases = topologyFixture.cases.filter(
@@ -348,7 +361,7 @@ test('logical controls select the specified winner atomically without changing K
 });
 
 test('runtime and novel topology mutations require external target execution rather than fixture replay', async () => {
-  const baseProbe = await generateAndExecute(probeInput(topologyFixture));
+  const baseProbe = await generateAndExecute(topologyFixture.cases);
   const oneCapabilityCase = topologyFixture.cases.find(
     (entry) => entry.id === 'nested-record-list-one-capability-success',
   );
@@ -376,18 +389,21 @@ test('runtime and novel topology mutations require external target execution rat
     ...dynamicCase,
     id: 'generated-novel-topology-identity',
     topology: 'nested-record-list-novel-reply',
-    entry: { moduleId: 'r0.generated.novel', handlerName: 'composeNovel' },
+    kirProgram: {
+      entry: { moduleId: 'r0/generated-novel.kern', handlerName: 'composeNovel' },
+      operations: ['resolveNovel'],
+    },
     arguments: { text: novelArgumentText, textList: ['novel', 'topology'] },
     capabilityTranscript: dynamicCase.capabilityTranscript.map((step) => ({
       ...step,
-      operation: 'resolve-novel',
+      operation: 'resolveNovel',
       result: {
         ...step.result,
         value: { ...step.result.value, value: 'capability-novel' },
       },
     })),
   };
-  const mutatedProbe = await generateAndExecute(probeInput({ cases: [dynamicCase, novelCase] }));
+  const mutatedProbe = await generateAndExecute([dynamicCase, novelCase]);
   try {
     const baseline = resultFor(baseProbe, 'nested-record-list-one-capability-success');
     const dynamic = resultFor(mutatedProbe, dynamicCase.id);
@@ -413,5 +429,25 @@ test('runtime and novel topology mutations require external target execution rat
   } finally {
     baseProbe.dispose();
     mutatedProbe.dispose();
+  }
+});
+
+test('synthetic KIR formats and source-evidence catalog drift fail authentication', async () => {
+  const probe = await generateAndExecute([topologyFixture.cases[0]]);
+  try {
+    const generated = generatedCaseFor(probe.generation, topologyFixture.cases[0].id);
+    assert.throws(
+      () => assertGeneratedKirV1({ ...generated, kirBytesHex: generated.semanticBytesHex }, 'synthetic KIR'),
+      /KirV1Error|KIR v1|components|format/u,
+    );
+    const sourceEvidenceCatalog = generated.sourceEvidenceCatalog.map((source, index) =>
+      index === 0 ? { ...source, source: `${source.source}\n# catalog drift` } : source,
+    );
+    assert.throws(
+      () => assertGeneratedKirV1({ ...generated, sourceEvidenceCatalog }, 'evidence mismatch'),
+      /source.*binding|source bytes|evidence/u,
+    );
+  } finally {
+    probe.dispose();
   }
 });

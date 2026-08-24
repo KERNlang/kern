@@ -8,7 +8,9 @@
 **Initial confidence:** 0.88  
 **Post-challenge confidence:** 0.93  
 **Contract challenge:** `nero-1787577282821-97uwyj`  
-**Oracle challenge:** `nero-1787578207667-a328vt`
+**Oracle challenges:** `nero-1787578207667-a328vt`,
+`nero-1787579676258-m7ux8v`
+**Rejected Forge:** `forge-1787578660412-94rlls`
 
 ## Executive Summary
 
@@ -348,3 +350,14 @@ fixture answers embedded in source, and creates a novel topology/identity not
 stored in the fixture file. It fails at the pinned base with
 `ERR_MODULE_NOT_FOUND` for the deliberately absent `oracle.mjs`, which is the
 intended missing implementation seam. **VERIFIED** on 2026-08-24.
+
+The first Forge winner was rejected even though its focused test passed: it
+invented `kern.structural-kir.r0-subset.1` and emitted synthetic KIR beside the
+target program. A second challenge showed that merely validating sidecar KIR
+still did not prove causality. The final RED boundary is test-owned: the test
+constructs and independently inspects the complete accepted structural-KIR
+handler, evidence, and KIR v1 bytes, then passes the generator only those bytes,
+their source-evidence catalog, and the selected entry. Topology descriptions,
+source plans, runtime arguments, transcripts, controls, and expected outputs
+never cross the compiler call. Valid KIR mutations must change generated target
+digests and target behavior. **VERIFIED design correction.**

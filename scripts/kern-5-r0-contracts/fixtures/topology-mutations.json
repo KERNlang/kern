@@ -25,7 +25,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
@@ -47,22 +47,22 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
           "delayTicks": 1
         },
         {
-          "namespace": "kern.r0.fixture",
-          "operation": "resolve-next",
+          "namespace": "r0fixture",
+          "operation": "resolveNext",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-two" } },
           "delayTicks": 1
         }
       ],
       "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": null },
-      "eventOps": ["capability", "stdout", "capability"],
+      "eventOps": ["capability", "capability", "stdout"],
       "outcome": "success",
       "expectedJsonText": "{\"labels\":[\"one\",\"two\",\"three\"],\"payload\":{\"items\":[1,[2,3]],\"meta\":{\"mode\":\"two\"}},\"replies\":[\"capability-one\",\"capability-two\"]}"
     },
@@ -76,7 +76,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "error": { "code": "capability-error" },
@@ -99,7 +99,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
@@ -122,7 +122,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
@@ -145,7 +145,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
@@ -168,7 +168,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
@@ -191,7 +191,7 @@
       },
       "capabilityTranscript": [
         {
-          "namespace": "kern.r0.fixture",
+          "namespace": "r0fixture",
           "operation": "resolve",
           "input": { "presence": "absent" },
           "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
