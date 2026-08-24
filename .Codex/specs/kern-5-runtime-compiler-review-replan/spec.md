@@ -370,7 +370,7 @@ must write a bounded satellite spec when its required contract cell is ready.
 - Make the packed KIR-backed Review preview the first shippable convergence;
   keep it advisory and nonterminal.
 - Keep KIR-backed Review advisory during R1 and make it blocking at R2/R3.
-- The planned `pnpm test:kern-review-kir` must fail closed on missing evidence,
+- The planned `pnpm test:kern-review-kir-preview` must fail closed on missing evidence,
   analysis errors, legacy-parser fallback, or a fabricated empty result at
   R2/R3.
 - Run combined gates at walking-skeleton, microservice, cutover, fixed-point,
