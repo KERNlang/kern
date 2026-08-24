@@ -31,16 +31,16 @@ function expression(value: CanonicalValue): { kind: string; fields: ReadonlyMap<
   return kind && fields ? { kind, fields } : undefined;
 }
 
-function redacted(kind: string, value: CanonicalValue, digests: KirFactDigests): string {
-  return `<${kind}:sha256:${digests.value(value)}>`;
+function redacted(kind: string): string {
+  return `<${kind}>`;
 }
 
 function renderExpression(value: CanonicalValue, digests: KirFactDigests): string {
   const parsed = expression(value);
-  if (!parsed) return `<canonical:${value.tag}:sha256:${digests.value(value)}>`;
+  if (!parsed) return `<canonical:${value.tag}>`;
   const { kind, fields } = parsed;
   if (kind === 'identifier') return text(fields.get('name')) ?? '<dynamic>';
-  if (['text', 'integer', 'decimal', 'boolean'].includes(kind)) return redacted(kind, value, digests);
+  if (['text', 'integer', 'decimal', 'boolean'].includes(kind)) return redacted(kind);
   if (kind === 'null') return '<null>';
   if (kind === 'call') {
     const callee = fields.get('callee');
@@ -81,7 +81,7 @@ function renderExpression(value: CanonicalValue, digests: KirFactDigests): strin
     const argument = fields.get('argument');
     return `${text(fields.get('op')) ?? '?'}${argument ? renderExpression(argument, digests) : '?'}`;
   }
-  return `<expression:${kind}:sha256:${digests.value(value)}>`;
+  return `<expression:${kind}>`;
 }
 
 function nodeName(node: StructuralKirNodeView): string | undefined {
@@ -227,7 +227,7 @@ function collectNodeFacts(
         : `${ownerIdentity}/${path}/${digests.node(node)}`;
   const structuralDisplay = props.get('value')
     ? renderExpression(props.get('value') as CanonicalValue, digests)
-    : `${node.kind}${named ? `:${named}` : ''}:sha256:${digests.node(node)}`;
+    : `${node.kind}${named ? `:${named}` : ''}`;
   facts.push({
     facet: 'structure',
     moduleId,
