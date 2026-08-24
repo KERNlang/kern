@@ -59,14 +59,40 @@ function makeFinding(before: KirFact | undefined, after: KirFact | undefined): C
 }
 
 function cancelEqualValues(base: KirFact[], head: KirFact[]): { base: KirFact[]; head: KirFact[] } {
-  const remainingHead = [...head];
+  const headByValue = new Map<string, KirFact[]>();
+  for (const fact of head) {
+    const matches = headByValue.get(fact.value);
+    if (matches) matches.push(fact);
+    else headByValue.set(fact.value, [fact]);
+  }
+  const matchedHead = new Set<KirFact>();
+  const offsets = new Map<string, number>();
   const remainingBase: KirFact[] = [];
   for (const fact of base) {
-    const index = remainingHead.findIndex((candidate) => candidate.value === fact.value);
-    if (index < 0) remainingBase.push(fact);
-    else remainingHead.splice(index, 1);
+    const matches = headByValue.get(fact.value);
+    const offset = offsets.get(fact.value) ?? 0;
+    const match = matches?.[offset];
+    if (!match) remainingBase.push(fact);
+    else {
+      matchedHead.add(match);
+      offsets.set(fact.value, offset + 1);
+    }
   }
-  return { base: remainingBase, head: remainingHead };
+  return {
+    base: remainingBase,
+    head: head.filter((fact) => !matchedHead.has(fact)),
+  };
+}
+
+function factGroups(facts: readonly KirFact[], keyOf: (fact: KirFact) => string): Map<string, KirFact[]> {
+  const groups = new Map<string, KirFact[]>();
+  for (const fact of facts) {
+    const key = keyOf(fact);
+    const group = groups.get(key);
+    if (group) group.push(fact);
+    else groups.set(key, [fact]);
+  }
+  return groups;
 }
 
 function renameFindings(
@@ -78,25 +104,24 @@ function renameFindings(
   readonly head: KirFact[];
 } {
   const findings: CanonicalKirFinding[] = [];
-  const remainingBase = [...base];
-  const remainingHead = [...head];
-  for (let baseIndex = remainingBase.length - 1; baseIndex >= 0; baseIndex -= 1) {
-    const before = remainingBase[baseIndex] as KirFact;
-    if (before.facet !== 'public-api' || before.contentIdentity === undefined) continue;
-    const candidates = remainingHead.filter(
-      (after) =>
-        after.facet === 'public-api' &&
-        after.moduleId === before.moduleId &&
-        after.contentIdentity !== undefined &&
-        after.contentIdentity === before.contentIdentity,
-    );
-    const reverseCandidates = remainingBase.filter(
-      (candidate) => candidate.moduleId === before.moduleId && candidate.contentIdentity === before.contentIdentity,
-    );
-    if (candidates.length !== 1 || reverseCandidates.length !== 1) continue;
-    const after = candidates[0] as KirFact;
-    remainingBase.splice(baseIndex, 1);
-    remainingHead.splice(remainingHead.indexOf(after), 1);
+  const identityKey = (fact: KirFact): string => `${fact.moduleId}\u0000${fact.contentIdentity ?? ''}`;
+  const baseByIdentity = factGroups(
+    base.filter((fact) => fact.facet === 'public-api' && fact.contentIdentity !== undefined),
+    identityKey,
+  );
+  const headByIdentity = factGroups(
+    head.filter((fact) => fact.facet === 'public-api' && fact.contentIdentity !== undefined),
+    identityKey,
+  );
+  const consumedBase = new Set<KirFact>();
+  const consumedHead = new Set<KirFact>();
+  for (const [key, baseCandidates] of baseByIdentity) {
+    const headCandidates = headByIdentity.get(key);
+    if (baseCandidates.length !== 1 || headCandidates?.length !== 1) continue;
+    const before = baseCandidates[0] as KirFact;
+    const after = headCandidates[0] as KirFact;
+    consumedBase.add(before);
+    consumedHead.add(after);
     const input: FindingInput = {
       facet: 'public-api',
       moduleId: before.moduleId,
@@ -107,7 +132,11 @@ function renameFindings(
     };
     findings.push(finding(input));
   }
-  return { findings, base: remainingBase, head: remainingHead };
+  return {
+    findings,
+    base: base.filter((fact) => !consumedBase.has(fact)),
+    head: head.filter((fact) => !consumedHead.has(fact)),
+  };
 }
 
 export function diffCanonicalKirFacts(
@@ -131,50 +160,29 @@ export function diffCanonicalKirFacts(
     changedHead.push(...remaining.head.slice(pairCount));
   }
 
-  const renamed = renameFindings(
-    changedBase.filter(
-      (fact) =>
-        !changedHead.some((candidate) => candidate.matchKey === fact.matchKey && candidate.facet === fact.facet),
-    ),
-    changedHead.filter(
-      (fact) =>
-        !changedBase.some((candidate) => candidate.matchKey === fact.matchKey && candidate.facet === fact.facet),
-    ),
-  );
-  const consumedBase = new Set(
-    changedBase.filter(
-      (fact) =>
-        fact.facet === 'public-api' &&
-        !renamed.base.includes(fact) &&
-        !changedHead.some((candidate) => candidate.matchKey === fact.matchKey && candidate.facet === fact.facet),
-    ),
-  );
-  const consumedHead = new Set(
-    changedHead.filter(
-      (fact) =>
-        fact.facet === 'public-api' &&
-        !renamed.head.includes(fact) &&
-        !changedBase.some((candidate) => candidate.matchKey === fact.matchKey && candidate.facet === fact.facet),
-    ),
-  );
-  const findings = [...renamed.findings];
+  const matchKey = (fact: KirFact): string => `${fact.facet}\u0000${fact.matchKey}`;
+  const headByMatch = factGroups(changedHead, matchKey);
+  const headOffsets = new Map<string, number>();
   const pairedHead = new Set<KirFact>();
-
+  const unmatchedBase: KirFact[] = [];
+  const findings: CanonicalKirFinding[] = [];
   for (const before of changedBase) {
-    if (consumedBase.has(before)) continue;
-    const after = changedHead.find(
-      (candidate) =>
-        !consumedHead.has(candidate) &&
-        !pairedHead.has(candidate) &&
-        candidate.facet === before.facet &&
-        candidate.matchKey === before.matchKey,
-    );
-    if (after) pairedHead.add(after);
-    findings.push(makeFinding(before, after));
+    const key = matchKey(before);
+    const candidates = headByMatch.get(key);
+    const offset = headOffsets.get(key) ?? 0;
+    const after = candidates?.[offset];
+    if (!after) unmatchedBase.push(before);
+    else {
+      headOffsets.set(key, offset + 1);
+      pairedHead.add(after);
+      findings.push(makeFinding(before, after));
+    }
   }
-  for (const after of changedHead) {
-    if (!consumedHead.has(after) && !pairedHead.has(after)) findings.push(makeFinding(undefined, after));
-  }
+  const unmatchedHead = changedHead.filter((fact) => !pairedHead.has(fact));
+  const renamed = renameFindings(unmatchedBase, unmatchedHead);
+  findings.push(...renamed.findings);
+  for (const before of renamed.base) findings.push(makeFinding(before, undefined));
+  for (const after of renamed.head) findings.push(makeFinding(undefined, after));
 
   findings.sort(
     (left, right) =>

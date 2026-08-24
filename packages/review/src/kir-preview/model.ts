@@ -2,6 +2,7 @@ import type { ModuleKirArtifact } from '@kernlang/core/frontend-projection';
 import type { CanonicalKirFacet } from './types.js';
 
 export type StructuralKirNodeView = ModuleKirArtifact['modules'][number]['roots'][number];
+export type ModuleKirModuleView = ModuleKirArtifact['modules'][number];
 export type CanonicalRecordEntry = StructuralKirNodeView['properties'][number];
 export type CanonicalValue = CanonicalRecordEntry['value'];
 
