@@ -22,6 +22,10 @@ type PreviewResult = {
 
 type KernModule = Readonly<{ moduleId: string; source: string }>;
 
+// Bound Git subprocess output while permitting repository-wide NUL-delimited
+// path enumeration and batched blob reads in large monorepos.
+const GIT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
 export type KirPreviewComparison = 'snapshot' | 'git-diff';
 
 export interface KirPreviewInputOptions {
@@ -128,6 +132,7 @@ function git(cwd: string, args: string[], encoding: BufferEncoding = 'utf-8'): s
     cwd,
     encoding,
     env: { ...withoutLocalGitEnv(), LC_ALL: 'C' },
+    maxBuffer: GIT_MAX_OUTPUT_BYTES,
   }) as unknown as string;
 }
 
@@ -136,7 +141,7 @@ function gitBuffer(cwd: string, args: string[], input: string): Buffer {
     cwd,
     input,
     env: { ...withoutLocalGitEnv(), LC_ALL: 'C' },
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: GIT_MAX_OUTPUT_BYTES,
   });
   if (result.error) throw result.error;
   if (result.status !== 0 || !result.stdout) {
