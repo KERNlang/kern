@@ -94,7 +94,7 @@ input and therefore reconstructs `.kern` semantics through the legacy parser.
 | Verification call | `verifyKernProjection(request, result): Promise<VerifiedKernProjection>` | Closes request/result detachment before Review and shares the async public boundary | DECIDED |
 | Request | exact non-empty `modules` plus optional explicit budgets | Private request constraint: `worker.mjs:88-94` | DECIDED |
 | Success | `status: 'projected'`, bytes, decoded artifact, receipt | Private F5 success: `worker.mjs:116-123` | DECIDED |
-| Failure | `status: 'rejected' | 'fatal'`, `bytes: null`, receipt | Private F5 atomic failure: `worker.mjs:98-114` | DECIDED |
+| Failure | `status: 'rejected' \| 'fatal'`, `bytes: null`, receipt | Private F5 atomic failure: `worker.mjs:98-114` | DECIDED |
 | Receipt format | `kern.frontend.packaged-projection.1` | New wrapper contract | DECIDED |
 | Receipt bindings | request/module-set digest, artifact digest, F5 policy digest, F5 receipt format/status, projection asset-manifest digest, work counts, terminal seal | F5 currently lacks request/artifact binding: `worker.mjs:50-62` | DECIDED |
 | Direct Review call | `compareCanonicalKir(base, head, options?)` accepts only verified projections | Prevent detached or merely decodable bytes | DECIDED |
@@ -102,7 +102,7 @@ input and therefore reconstructs `.kern` semantics through the legacy parser.
 | Analysis modes | `legacy-source`, `canonical-kir-preview`, `dual-compare` | Product request | DECIDED |
 | CLI selector | `--analysis-mode=legacy-source|canonical-kir-preview|dual-compare` | Existing output flag remains unrelated | DECIDED |
 | CLI default | `legacy-source` | Required skew behavior | DECIDED |
-| Comparison status | `complete | degraded | failed` plus typed diagnostics | Existing health precedent: `packages/review/src/types.ts:302-342` | DECIDED |
+| Comparison status | `complete \| degraded \| failed` plus typed diagnostics | Existing health precedent: `packages/review/src/types.ts:302-342` | DECIDED |
 | Fact facets | modules, public API, imports/dependencies, capabilities, calls, effects, structure, target compatibility | Requested acceptance | DECIDED |
 | Target profile | versioned caller-supplied or package-default immutable profile with its digest in evidence | Current KIR carries no target profile | DECIDED |
 | Finding order | code-point order by facet, module, entity key, change kind, fingerprint | Current severity-only ordering is insufficient | DECIDED |
