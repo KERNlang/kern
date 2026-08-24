@@ -165,21 +165,25 @@ function runtimeRequest(caseInput, generated, manifest) {
 }
 
 function inspectTarget(outputRoot, authenticated, generated, target, forbiddenText) {
-  const artifactPath = resolveOutputFile(outputRoot, target.artifactPath, `${target.target} artifact path`);
-  const manifestPath = resolveOutputFile(outputRoot, target.manifestPath, `${target.target} manifest path`);
+  assert.deepEqual(Object.keys(target).sort(), ['artifact', 'compilerRequestSha256', 'format', 'manifest', 'target']);
+  assert.equal(target.format, 'kern.compiler.result.r0');
+  assert.match(target.compilerRequestSha256, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(Object.keys(target.artifact).sort(), ['path', 'sha256']);
+  assert.deepEqual(Object.keys(target.manifest).sort(), ['path', 'sha256']);
+  const artifactPath = resolveOutputFile(outputRoot, target.artifact.path, `${target.target} artifact path`);
+  const manifestPath = resolveOutputFile(outputRoot, target.manifest.path, `${target.target} manifest path`);
   const manifest = readCanonicalJsonFile(manifestPath, `${target.target} target manifest`);
   const manifestSha256 = sha256Hex(manifest.bytes);
-  assert.equal(target.manifestSha256, manifestSha256);
+  assert.equal(target.manifest.sha256, manifestSha256);
   assert.equal(manifest.value.format, 'kern.target.artifact.r0');
   assert.equal(manifest.value.target, target.target);
   assert.equal(manifest.value.runtimeAbi, 'kern.runtime.kir.r0');
   assert.equal(manifest.value.kirSha256, authenticated.kirSha256);
   assert.equal(manifest.value.semanticSha256, authenticated.semanticSha256);
-  assert.deepEqual(manifest.value.entry, target.entry);
 
   const executable = manifest.value.artifacts.find((entry) => entry.executable === true);
   assert.ok(executable, `${target.target} target manifest needs one executable artifact`);
-  assert.equal(executable.path, target.artifactPath);
+  assert.equal(executable.path, target.artifact.path);
   for (const listed of manifest.value.artifacts) {
     const listedPath = resolveOutputFile(outputRoot, listed.path, `${target.target} manifest artifact path`);
     const bytes = readFileSync(listedPath);
@@ -193,8 +197,8 @@ function inspectTarget(outputRoot, authenticated, generated, target, forbiddenTe
   }
 
   const artifactBytes = readFileSync(artifactPath);
-  assert.equal(target.artifactSha256, sha256Hex(artifactBytes));
-  assert.equal(executable.sha256, target.artifactSha256);
+  assert.equal(target.artifact.sha256, sha256Hex(artifactBytes));
+  assert.equal(executable.sha256, target.artifact.sha256);
   return { artifactPath, manifest: { ...manifest, sha256: manifestSha256 } };
 }
 
@@ -210,6 +214,7 @@ async function generateAndExecute(runtimeCases) {
     );
     const forbiddenText = topologyFixture.cases.flatMap((entry) => [entry.id, entry.expectedJsonText]).filter(Boolean);
     const results = input.cases.map((caseInput) => {
+      const caseRuntime = runtimeCases.find((entry) => entry.id === caseInput.id);
       const generated = generatedCaseFor(generation, caseInput.id);
       const authenticated = assertGeneratedKirV1(generated, `${caseInput.id} generated KIR`);
       assert.deepEqual(generated.kirBytesHex, caseInput.kirBytesHex, `${caseInput.id} generator changed KIR authority`);
@@ -218,19 +223,17 @@ async function generateAndExecute(runtimeCases) {
       assert.match(generated.semanticSha256, /^[0-9a-f]{64}$/u);
       const javascriptEsm = targetFor(generated, 'javascript-esm');
       const python = targetFor(generated, 'python');
-      assert.deepEqual(javascriptEsm.entry, caseInput.entry);
-      assert.deepEqual(python.entry, caseInput.entry);
       const jsArtifact = inspectTarget(outputRoot, authenticated, generated, javascriptEsm, forbiddenText);
       const pythonArtifact = inspectTarget(outputRoot, authenticated, generated, python, forbiddenText);
       const jsBytes = runTargetArtifact(
         'javascript-esm',
         jsArtifact.artifactPath,
-        runtimeRequest(caseInput, generated, jsArtifact.manifest),
+        runtimeRequest(caseRuntime, generated, jsArtifact.manifest),
       );
       const pythonBytes = runTargetArtifact(
         'python',
         pythonArtifact.artifactPath,
-        runtimeRequest(caseInput, generated, pythonArtifact.manifest),
+        runtimeRequest(caseRuntime, generated, pythonArtifact.manifest),
       );
       assert.deepEqual(jsBytes, pythonBytes, `${caseInput.id} target stdout bytes differ`);
       return {
@@ -238,14 +241,14 @@ async function generateAndExecute(runtimeCases) {
         kirSha256: generated.kirSha256,
         semanticSha256: generated.semanticSha256,
         javascriptEsm: {
-          artifactSha256: javascriptEsm.artifactSha256,
-          manifestSha256: javascriptEsm.manifestSha256,
+          artifactSha256: javascriptEsm.artifact.sha256,
+          manifestSha256: javascriptEsm.manifest.sha256,
           canonicalEnvelopeBytesHex: jsBytes.toString('hex'),
           envelope: parseCanonicalJsonBytes(jsBytes, `${caseInput.id} JavaScript envelope`),
         },
         python: {
-          artifactSha256: python.artifactSha256,
-          manifestSha256: python.manifestSha256,
+          artifactSha256: python.artifact.sha256,
+          manifestSha256: python.manifest.sha256,
           canonicalEnvelopeBytesHex: pythonBytes.toString('hex'),
           envelope: parseCanonicalJsonBytes(pythonBytes, `${caseInput.id} Python envelope`),
         },
