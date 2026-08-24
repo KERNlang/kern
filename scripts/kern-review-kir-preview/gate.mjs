@@ -43,8 +43,12 @@ function validateFixture(fixture, requiredFacets) {
 }
 
 function runNodeTest(testPath) {
+  return runCommand(process.execPath, ['--test', testPath]);
+}
+
+function runCommand(command, args) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--test', testPath], {
+    const child = spawn(command, args, {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -57,11 +61,17 @@ function runNodeTest(testPath) {
   });
 }
 
+function runPackageBuild(packageName) {
+  const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+  return runCommand(command, ['--filter', packageName, 'run', 'build']);
+}
+
 function failureExcerpt(result) {
   const lines = `${result.stdout}\n${result.stderr}`.split(/\r?\n/u);
   return lines.find((line) => /contract missing|missing KIR|ERR_MODULE_NOT_FOUND|Cannot find package|must be a supported public|missing KIR preview API/iu.test(line))
     ?? lines.find((line) => line.startsWith('not ok'))
     ?? result.stderr.split(/\r?\n/u).find(Boolean)
+    ?? lines.find(Boolean)
     ?? 'no failure detail';
 }
 
@@ -73,6 +83,17 @@ async function readManifest() {
   assert.deepEqual([...new Set(manifest.requiredFacets)], manifest.requiredFacets,
     'manifest requiredFacets must not contain duplicates');
   for (const facet of manifest.requiredFacets) assert.ok(ALLOWED_FACETS.has(facet), `manifest facet ${facet}`);
+  assert.ok(Array.isArray(manifest.builds), 'manifest build list');
+  assert.deepEqual(manifest.builds.map((entry) => entry.package), [
+    '@kernlang/core', '@kernlang/review', '@kernlang/cli',
+  ], 'manifest builds must preserve dependency order');
+  const buildIds = new Set();
+  for (const entry of manifest.builds) {
+    assert.equal(typeof entry.id, 'string', 'manifest build id');
+    assert.equal(buildIds.has(entry.id), false, `duplicate manifest build id ${entry.id}`);
+    buildIds.add(entry.id);
+    assert.equal(typeof entry.package, 'string', `manifest build ${entry.id} package`);
+  }
   assert.ok(Array.isArray(manifest.tests) && manifest.tests.length >= 4, 'manifest test list');
   const ids = new Set();
   for (const entry of manifest.tests) {
@@ -99,37 +120,52 @@ for (const fixture of KIR_REVIEW_FIXTURES.cases) {
 }
 assert.equal(uncovered.size, 0, `fixture coverage missing facets: ${[...uncovered].join(', ')}`);
 
-const missing = [];
-const failed = [];
-for (const entry of manifest.tests) {
-  const testPath = path.join(ROOT, entry.path);
-  try {
-    await access(testPath);
-  } catch {
-    missing.push(`${entry.lane}:${entry.path}`);
-    continue;
+let buildFailure;
+for (const entry of manifest.builds) {
+  const result = await runPackageBuild(entry.package);
+  if (result.status !== 0) {
+    buildFailure = { entry, result };
+    break;
   }
-  const result = await runNodeTest(entry.path);
-  if (result.status !== 0) failed.push({ entry, result });
 }
 
-if (missing.length > 0) {
-  console.error(`KIR_REVIEW_PREVIEW_RED ${manifest.expectedRed.code}`);
-  console.error(manifest.expectedRed.reason);
-  for (const item of missing) console.error(`MISSING_FEATURE_TEST ${item}`);
-  if (failed.length > 0) {
-    for (const { entry, result } of failed) {
-      console.error(`IMPLEMENTATION_TEST_FAILED ${entry.lane}:${entry.path}`);
-      console.error(failureExcerpt(result));
-    }
-  }
-  process.exitCode = 1;
-} else if (failed.length > 0) {
-  for (const { entry, result } of failed) {
-    console.error(`KIR_REVIEW_PREVIEW_TEST_FAILED ${entry.lane}:${entry.path}`);
-    console.error(failureExcerpt(result));
-  }
+if (buildFailure) {
+  console.error(`KIR_REVIEW_PREVIEW_BUILD_FAILED ${buildFailure.entry.id}:${buildFailure.entry.package}`);
+  console.error(failureExcerpt(buildFailure.result));
   process.exitCode = 1;
 } else {
-  console.log(`KIR review preview gate: manifest and ${manifest.tests.length} implementation tests passed`);
+  const missing = [];
+  const failed = [];
+  for (const entry of manifest.tests) {
+    const testPath = path.join(ROOT, entry.path);
+    try {
+      await access(testPath);
+    } catch {
+      missing.push(`${entry.lane}:${entry.path}`);
+      continue;
+    }
+    const result = await runNodeTest(entry.path);
+    if (result.status !== 0) failed.push({ entry, result });
+  }
+
+  if (missing.length > 0) {
+    console.error(`KIR_REVIEW_PREVIEW_RED ${manifest.expectedRed.code}`);
+    console.error(manifest.expectedRed.reason);
+    for (const item of missing) console.error(`MISSING_FEATURE_TEST ${item}`);
+    if (failed.length > 0) {
+      for (const { entry, result } of failed) {
+        console.error(`IMPLEMENTATION_TEST_FAILED ${entry.lane}:${entry.path}`);
+        console.error(failureExcerpt(result));
+      }
+    }
+    process.exitCode = 1;
+  } else if (failed.length > 0) {
+    for (const { entry, result } of failed) {
+      console.error(`KIR_REVIEW_PREVIEW_TEST_FAILED ${entry.lane}:${entry.path}`);
+      console.error(failureExcerpt(result));
+    }
+    process.exitCode = 1;
+  } else {
+    console.log(`KIR review preview gate: manifest, ${manifest.builds.length} package builds, and ${manifest.tests.length} implementation tests passed`);
+  }
 }

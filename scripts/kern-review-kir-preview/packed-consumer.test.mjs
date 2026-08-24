@@ -1,18 +1,25 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
+import { constructManifest } from '../release/artifact-manifest.mjs';
 import { discoverPublicPackageGraph } from '../release/package-graph.mjs';
+import { verifyOfflineConsumer } from '../release/offline-consumer.mjs';
+import { packArtifacts } from '../release/pack-artifacts.mjs';
+import { createReleasePlan } from '../release/plan.mjs';
+import { loadReleasePolicy } from '../release/policy.mjs';
 import { KIR_REVIEW_FIXTURES } from './fixtures/fixtures.mjs';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
 const CORE_DIR = path.join(ROOT, 'packages/core');
 const CORE_SUBPATH = '@kernlang/core/frontend-projection';
+const REVIEW_SUBPATH = '@kernlang/review/kir-preview';
 const FEATURE_MODULE_URL = new URL('../../packages/core/dist/frontend-projection.js', import.meta.url);
 const FORBIDDEN_LEGACY_REACHABILITY = /\b(?:parseWithDiagnostics|reviewKernSource|inferFromSource|ts-morph)\b/u;
 const FORBIDDEN_BOUNDARY_RECONSTRUCTION = /\b(?:parseWithDiagnostics|reviewKernSource|inferFromSource|ts-morph|parseDocumentStrict|encodeModuleKir|projectStructuralNode|deriveModuleGraph|parseExpression)\b/u;
@@ -136,6 +143,80 @@ async function poisonedConsumerEnvironment(temporary) {
   };
 }
 
+async function runPackedFeatureConsumer(consumer, temporary) {
+  const typedSource = [
+    `import { projectKernModules, verifyKernProjection } from '${CORE_SUBPATH}';`,
+    `import { reviewKernModuleSets, type CanonicalReviewKernModuleSetsRequest } from '${REVIEW_SUBPATH}';`,
+    "const modules = [{ moduleId: 'consumer.kern', source: 'fn name=main export=true\\n' }];",
+    "const request: CanonicalReviewKernModuleSetsRequest = { base: { modules }, head: { modules }, mode: 'canonical-kir-preview' };",
+    'const projection = await projectKernModules({ modules });',
+    'await verifyKernProjection({ modules }, projection);',
+    'await reviewKernModuleSets(request);',
+  ].join('\n');
+  await writeFile(path.join(consumer, 'consumer.ts'), `${typedSource}\n`, 'utf8');
+  const reviewRequire = createRequire(
+    path.join(consumer, 'node_modules', '@kernlang', 'review', 'package.json'),
+  );
+  const typeScriptCli = reviewRequire.resolve('typescript/bin/tsc');
+  await execFileAsync(process.execPath, [
+    typeScriptCli,
+    '--noEmit',
+    '--ignoreConfig',
+    '--module',
+    'NodeNext',
+    '--moduleResolution',
+    'NodeNext',
+    '--target',
+    'ES2022',
+    '--skipLibCheck',
+    'consumer.ts',
+  ], {
+    cwd: consumer,
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: 60_000,
+  });
+
+  const runtimeSource = [
+    `import { projectKernModules, verifyKernProjection } from '${CORE_SUBPATH}';`,
+    `import { reviewKernModuleSets } from '${REVIEW_SUBPATH}';`,
+    `const modules = [{ moduleId: 'consumer.kern', source: ${JSON.stringify(KIR_REVIEW_FIXTURES.cli.source)} }];`,
+    'const request = { modules };',
+    'const projection = await projectKernModules(request);',
+    "if (projection.status !== 'projected') throw new Error('projection did not succeed');",
+    'await verifyKernProjection(request, projection);',
+    "const review = await reviewKernModuleSets({ base: request, head: request, mode: 'canonical-kir-preview' });",
+    "if (review.status !== 'complete') throw new Error('canonical Review did not complete');",
+  ].join('\n');
+  await execFileAsync(process.execPath, ['--input-type=module', '--eval', runtimeSource], {
+    cwd: consumer,
+    env: await poisonedConsumerEnvironment(temporary),
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: 60_000,
+  });
+
+  const repository = path.join(consumer, 'git-fixture');
+  await mkdir(repository);
+  await execFileAsync('git', ['init', '-q'], { cwd: repository });
+  await execFileAsync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repository });
+  await execFileAsync('git', ['config', 'user.name', 'KERN Preview Test'], { cwd: repository });
+  await writeFile(path.join(repository, 'example.kern'), 'fn name=before returns=string export=true\n', 'utf8');
+  await execFileAsync('git', ['add', '.'], { cwd: repository });
+  await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repository });
+  await writeFile(path.join(repository, 'example.kern'), 'fn name=after returns=string export=true\n', 'utf8');
+  const cli = path.join(consumer, 'node_modules', '@kernlang', 'cli', 'dist', 'cli.js');
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli, 'review', '--diff=HEAD', '--json', '--analysis-mode=canonical-kir-preview',
+  ], {
+    cwd: repository,
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: 60_000,
+  });
+  const result = JSON.parse(stdout);
+  assert.equal(result.status, 'complete', 'packed CLI canonical Review completes');
+  assert.equal(result.comparison, 'git-diff', 'packed CLI compares independent Git base/head sets');
+  assert.ok(result.findings.length > 0, 'packed CLI reports the semantic Git change');
+}
+
 test('KRI-A11/A12 packed core exposes only the supported projection API and carries its runtime asset closure', async () => {
   await projectionApi();
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'kern-kir-preview-packed-'));
@@ -174,9 +255,12 @@ test('KRI-A11 clean packed consumer projects real KERN without repository-relati
     const tarball = await packCore(temporary);
     const consumer = path.join(temporary, 'consumer');
     await mkdir(consumer);
-    await execFileAsync('pnpm', [
-      'init', '--init-package-manager=pnpm@10.32.1', '--yes',
-    ], { cwd: consumer, maxBuffer: 4 * 1024 * 1024, timeout: 30_000 });
+    await execFileAsync('pnpm', ['init'], {
+      cwd: consumer,
+      env: { ...process.env, CI: '1' },
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 30_000,
+    });
     await execFileAsync('pnpm', [
       'add', '--offline', `file:${tarball}`,
     ], { cwd: consumer, maxBuffer: 4 * 1024 * 1024, timeout: 60_000 });
@@ -201,7 +285,7 @@ test('KRI-A11 clean packed consumer projects real KERN without repository-relati
   }
 });
 
-test('KRI-A12 keeps the 22-package release surface while exposing projection declarations only through core', async () => {
+test('KRI-A11/A12 exact 22-package train typechecks and executes Core, Review, and CLI preview surfaces', async () => {
   const packages = await discoverPublicPackageGraph({ rootDir: ROOT, packageRoots: ['packages'] });
   assert.equal(packages.length, 22, 'release package count remains fixed');
   const core = JSON.parse(await readFile(path.join(CORE_DIR, 'package.json'), 'utf8'));
@@ -210,4 +294,49 @@ test('KRI-A12 keeps the 22-package release surface while exposing projection dec
     types: './dist/frontend-projection.d.ts',
     default: './dist/frontend-projection.js',
   }, 'only the accepted core subpath declares the packaged projection API');
+
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'kern-kir-preview-release-train-'));
+  let consumer;
+  try {
+    const policy = await loadReleasePolicy(path.join(ROOT, 'scripts/release/release-policy.json'));
+    const plan = await createReleasePlan({
+      rootDir: ROOT,
+      policy,
+      channel: 'stable',
+      version: core.version,
+      sha: '0'.repeat(40),
+    });
+    const artifactDirectory = path.join(temporary, 'artifacts');
+    const packedInfo = await packArtifacts({
+      plan,
+      outDir: artifactDirectory,
+      rootDir: ROOT,
+      limits: policy.artifacts,
+    });
+    const manifest = constructManifest({ plan, packedInfo });
+    assert.equal(manifest.packages.length, 22, 'all public packages are represented by exact tarballs');
+    const runConsumerCommand = async (file, args, options) => {
+      consumer ??= options.cwd;
+      return execFileAsync(file, args, options);
+    };
+    const verification = await verifyOfflineConsumer({
+      manifest,
+      outDir: artifactDirectory,
+      rootDir: ROOT,
+      limits: policy.artifacts,
+      safeBins: policy.artifacts.safeBins,
+      consumerBuiltDependencies: policy.artifacts.consumerBuiltDependencies,
+      importSmokeExclusions: policy.artifacts.importSmokeExclusions,
+      keepTemp: true,
+      runCommandFn: runConsumerCommand,
+    });
+    assert.equal(verification.tempDir, consumer, 'release consumer path is retained for feature checks');
+    assert.ok(verification.imports.includes(CORE_SUBPATH), 'clean consumer imports the Core projection subpath');
+    assert.ok(verification.imports.includes(REVIEW_SUBPATH), 'clean consumer imports the canonical Review subpath');
+    assert.ok(verification.executedBins.includes('kern'), 'clean consumer executes the packed CLI');
+    await runPackedFeatureConsumer(consumer, temporary);
+  } finally {
+    if (consumer) await rm(consumer, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
+  }
 });

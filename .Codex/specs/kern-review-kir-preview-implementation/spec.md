@@ -88,6 +88,8 @@ input and therefore reconstructs `.kern` semantics through the legacy parser.
 | Field / Behavior | Type | Evidence | Tag |
 | --- | --- | --- | --- |
 | Public projection subpath | `@kernlang/core/frontend-projection` | Current export map has no conflicting subpath: `packages/core/package.json:8-68` | DECIDED |
+| Canonical Review subpath | `@kernlang/review/kir-preview` | Canonical CLI mode must not initialize the legacy Review root, parser, or `ts-morph` | DECIDED |
+| Dual Review subpath | `@kernlang/review/kir-preview-dual` | Dual mode intentionally owns both canonical and legacy closures without making either reachable from the stable Review root | DECIDED |
 | Projection call | `projectKernModules(request): Promise<KernProjectionResult>` | Async permits package-relative asset loading without exposing worker internals | DECIDED |
 | Verification call | `verifyKernProjection(request, result): Promise<VerifiedKernProjection>` | Closes request/result detachment before Review and shares the async public boundary | DECIDED |
 | Request | exact non-empty `modules` plus optional explicit budgets | Private request constraint: `worker.mjs:88-94` | DECIDED |
@@ -104,6 +106,26 @@ input and therefore reconstructs `.kern` semantics through the legacy parser.
 | Fact facets | modules, public API, imports/dependencies, capabilities, calls, effects, structure, target compatibility | Requested acceptance | DECIDED |
 | Target profile | versioned caller-supplied or package-default immutable profile with its digest in evidence | Current KIR carries no target profile | DECIDED |
 | Finding order | code-point order by facet, module, entity key, change kind, fingerprint | Current severity-only ordering is insufficient | DECIDED |
+
+### CLI base/head resolution
+
+The CLI must not manufacture a semantic comparison by passing one module set
+as both `base` and `head`. The supported preview contracts are:
+
+| Invocation | Canonical inputs | Observable contract |
+| --- | --- | --- |
+| `canonical-kir-preview` without `--diff` | the selected current module set is projected on both sides | labeled `snapshot`, proving projection/verification health only; it does not claim change findings |
+| `canonical-kir-preview` with `--diff <ref>` | complete `.kern` module sets at `<ref>` and in the worktree, optionally scoped by the explicit path | labeled `git-diff`, with added, deleted, and renamed paths retained on their actual side |
+| `dual-compare` with `--diff <ref>` | the same independently materialized base/head sets feed canonical analysis while legacy remains separately labeled | real comparison; canonical failure remains terminal for the CLI invocation |
+| `dual-compare` without a resolvable baseline | none | typed CLI failure; never a same-set fallback |
+
+Base source is read from Git object data and head source from the worktree.
+Module IDs are repository-relative for Git comparisons and cannot contain
+`..`; explicit files outside the current directory use a stable common source
+root rather than invalid upward-relative IDs. If either Git side has no module
+set that F5 can authenticate, the preview fails visibly instead of fabricating
+an empty artifact or inferring removals. The legacy default path and its
+existing diff loader remain byte-compatible.
 
 ### Projection receipt and verification
 
@@ -157,6 +179,10 @@ removal from missing evidence. Preview mode never imports/calls
 `parseWithDiagnostics`, `reviewKernSource`, `inferFromSource`, or `ts-morph`.
 Dual mode runs canonical and legacy independently and returns both labeled
 results plus divergence; legacy success never fills a missing canonical result.
+The canonical CLI path imports only `@kernlang/review/kir-preview`; dual mode
+imports only `@kernlang/review/kir-preview-dual`. The stable Review root gains
+no preview export or static/dynamic preview reachability, so existing Review,
+playground, MCP, and browser consumers retain their prior module graph.
 
 ## Implementation Options
 
