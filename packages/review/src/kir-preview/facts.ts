@@ -225,8 +225,9 @@ function collectNodeFacts(
       : named
         ? `${owner.kind}/${nodeName(owner) ?? '<anonymous>'}/${named}`
         : `${ownerIdentity}/${path}/${digests.node(node)}`;
-  const structuralDisplay = props.get('value')
-    ? renderExpression(props.get('value') as CanonicalValue, digests)
+  const propertyValue = props.get('value');
+  const structuralDisplay = propertyValue
+    ? renderExpression(propertyValue, digests)
     : `${node.kind}${named ? `:${named}` : ''}`;
   facts.push({
     facet: 'structure',

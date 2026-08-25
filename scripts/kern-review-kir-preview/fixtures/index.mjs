@@ -204,28 +204,34 @@ const fixtureCases = [
 
 const byId = new Map(fixtureCases.map((fixture) => [fixture.id, fixture]));
 
-function pair(id) {
+function requireFixture(id) {
   const fixture = byId.get(id);
+  if (!fixture) throw new Error(`unknown KIR review fixture: ${id}`);
+  return fixture;
+}
+
+export function fixturePair(id) {
+  const fixture = requireFixture(id);
   return { base: { modules: fixture.base }, head: { modules: fixture.head }, expected: fixture.expected };
 }
 
 const facetMutations = {
-  modules: pair('module-added-removed'),
-  publicApi: pair('public-api-signature'),
-  imports: pair('imports'),
-  dependencies: pair('dependencies'),
-  capabilities: pair('capability-operation'),
-  calls: pair('call-target-and-arguments'),
-  effects: pair('effects'),
-  structure: pair('structure-property'),
-  targetCompatibility: pair('target-compatibility'),
+  modules: fixturePair('module-added-removed'),
+  publicApi: fixturePair('public-api-signature'),
+  imports: fixturePair('imports'),
+  dependencies: fixturePair('dependencies'),
+  capabilities: fixturePair('capability-operation'),
+  calls: fixturePair('call-target-and-arguments'),
+  effects: fixturePair('effects'),
+  structure: fixturePair('structure-property'),
+  targetCompatibility: fixturePair('target-compatibility'),
 };
 
 const base = {
-  modules: byId.get('module-added-removed').base,
+  modules: requireFixture('module-added-removed').base,
 };
 
-const formattingOnly = pair('formatting-only');
+const formattingOnly = fixturePair('formatting-only');
 const reordered = {
   base: { modules: [
     { moduleId: 'z.kern', source: 'fn name=z export=true\n' },
@@ -239,9 +245,9 @@ const reordered = {
 };
 
 const projectionFailure = {
-  modules: byId.get('projection-rejection-malformed').base,
-  duplicateModules: byId.get('dual-failure-no-fallback').base,
-  expected: byId.get('projection-rejection-malformed').expected,
+  modules: requireFixture('projection-rejection-malformed').base,
+  duplicateModules: requireFixture('dual-failure-no-fallback').base,
+  expected: requireFixture('projection-rejection-malformed').expected,
 };
 
 const KIR_REVIEW_FIXTURES = {
@@ -250,7 +256,7 @@ const KIR_REVIEW_FIXTURES = {
   formattingOnly,
   reordered,
   projectionFailure,
-  cli: { source: byId.get('formatting-only').base[0].source },
+  cli: { source: requireFixture('formatting-only').base[0].source },
   cases: fixtureCases,
 };
 
