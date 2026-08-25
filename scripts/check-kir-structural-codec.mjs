@@ -29,7 +29,7 @@ function resolveSource(sourcePath, specifier) {
 }
 
 export function structuralKirReferences(source, sourcePath) {
-  return moduleSpecifiers(source, sourcePath).filter((specifier) => {
+  return moduleSpecifiers(source, sourcePath, { includeTypeOnly: false }).filter((specifier) => {
     if (!specifier.startsWith('.')) return false;
     const resolved = path.normalize(path.join(path.dirname(sourcePath), specifier.replace(/\.js$/u, '.ts')));
     return resolved.startsWith(`${ownRoot}${path.sep}`);

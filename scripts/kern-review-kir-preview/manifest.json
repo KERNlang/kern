@@ -37,6 +37,11 @@
       "lane": "RP0"
     },
     {
+      "id": "fixture-lookup",
+      "path": "scripts/kern-review-kir-preview/fixtures-index.test.mjs",
+      "lane": "RP0"
+    },
+    {
       "id": "semantic",
       "path": "scripts/kern-review-kir-preview/semantic-preview.test.mjs",
       "lane": "RP2"

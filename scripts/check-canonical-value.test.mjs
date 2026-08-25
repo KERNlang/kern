@@ -22,6 +22,15 @@ test('browser graph parser sees every supported module edge', () => {
     './legacy.js',
     './equal.js',
   ]);
+  assert.deepEqual(moduleSpecifiers(source, 'fixture.ts', { includeTypeOnly: false }), [
+    './side-effect.js',
+    './value.js',
+    './named.js',
+    './all.js',
+    './dynamic.js',
+    './legacy.js',
+    './equal.js',
+  ]);
 });
 
 test('browser graph parser fails closed on computed module edges', () => {
@@ -43,4 +52,32 @@ test('containment check follows module edges rather than matching comments or st
     ),
     ['./canonical-value/canonical.js'],
   );
+});
+
+test('containment ignores erased type-only imports but retains runtime canonical-value edges', () => {
+  const sourcePath = 'packages/core/src/frontend-projection/assets.ts';
+  const source = `
+    import type { CanonicalValueLimits } from '../canonical-value/types.js';
+    import { type CanonicalValue } from '../canonical-value/types.js';
+    import type LegacyCanonicalValue = require('../canonical-value/types.js');
+    import { CanonicalValueDecodeError } from '../canonical-value/types.js';
+    import { type CanonicalValue, CanonicalValueDecodeError as MixedValue } from '../canonical-value/types.js';
+    async function load() { return import('../canonical-value/canonical.js'); }
+    const legacy = require('../canonical-value/canonical.js');
+  `;
+  assert.deepEqual(canonicalValueReferences(source, sourcePath), [
+    '../canonical-value/types.js',
+    '../canonical-value/types.js',
+    '../canonical-value/canonical.js',
+    '../canonical-value/canonical.js',
+  ]);
+  assert.deepEqual(moduleSpecifiers(source, sourcePath), [
+    '../canonical-value/types.js',
+    '../canonical-value/types.js',
+    '../canonical-value/types.js',
+    '../canonical-value/types.js',
+    '../canonical-value/types.js',
+    '../canonical-value/canonical.js',
+    '../canonical-value/canonical.js',
+  ]);
 });
