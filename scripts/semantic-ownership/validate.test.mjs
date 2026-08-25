@@ -231,6 +231,27 @@ test('reader source and probe format are positively bound', () => {
   );
 });
 
+test('the exact packaged projection adapter is traversed while arbitrary CJS remains unresolvable', () => {
+  const adapter = 'packages/core/dist/frontend-projection-assets/adapter.cjs';
+  const dependency = 'packages/core/dist/frontend-projection-assets/adapter-dependency.cjs';
+  const frontendProjection = 'packages/core/src/frontend-projection.ts';
+  const overlay = new Map([
+    [adapter, "require('./adapter-dependency.cjs');\n"],
+    [dependency, 'module.exports = {};\n'],
+  ]);
+  const validate = () => validateSemanticOwnership(structuredClone(policy), {
+    readText(sourcePath) {
+      return overlay.get(sourcePath) ?? readFileSync(sourcePath, 'utf8');
+    },
+  });
+  assert.doesNotThrow(validate);
+  overlay.set(dependency, "require('./kir-reader-candidate.cjs');\n");
+  assert.throws(validate, /reader candidate is reachable through import/u);
+  overlay.set(dependency, 'module.exports = {};\n');
+  overlay.set(frontendProjection, `${readFileSync(frontendProjection, 'utf8')}\nrequire('./untrusted.cjs');\n`);
+  assert.throws(validate, /static import \.\/untrusted\.cjs from packages\/core\/src\/frontend-projection\.ts cannot be resolved/u);
+});
+
 test('indirect runtime reader adoption breaks transitive containment', () => {
   const overlay = new Map([
     [

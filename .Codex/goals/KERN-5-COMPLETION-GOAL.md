@@ -1,41 +1,104 @@
 # KERN 5.0 Completion Goal
 
-**Status:** KERN 5 IN PROGRESS; F0-F4 CURRENT-GATED INTERNAL-ORACLE SUBSTRATE;
-F5-F7 AND TERMINAL OWNERSHIP OPEN
+**Status:** KERN 5 IN PROGRESS; F0 LEDGER FROZEN; F1-F5 SOURCE-TO-KIR FOUNDATION MERGED;
+FIRST PRODUCT GOAL IS KIR-BACKED REVIEW PREVIEW; COMPILER, RUNTIME,
+INTEROPERABILITY, AND CANONICAL OWNERSHIP OPEN
 
-**Goal confidence:** 0.96
+**Goal confidence:** 0.89 after corrections, capped by three OPEN product
+decisions: external-import syntax, first ecosystem packages, and
+reference-service domain
 
-**Integrated source baseline:** `4.6.0`; pre-A1/A2 evidence-slice `origin/main`
-was verified at `d0631aff` and includes C13-LOCAL. This is historical slice provenance, not an
-assertion about the current remote ref or a KERN 5 release, tag, or publication.
+**Integrated source baseline:** `4.6.0`; `origin/main` was verified at
+`032f9e574673dcc1ca497458452556da49e2d4cd` after the F5 projection and exact
+work-ownership repairs. This is source provenance, not a KERN 5 release, tag,
+or publication.
 **Authoritative spec:**
-`.Codex/specs/kern-5-post-m4-171-completion/spec.md`
+`.Codex/specs/kern-5-runtime-compiler-review-replan/spec.md`.
+The first product goal is specified by
+`.Codex/specs/kern-review-kir-preview-release/spec.md`.
+The earlier
+`.Codex/specs/kern-5-post-m4-171-completion/spec.md` remains the historical
+terminal-contract authority where the replan does not explicitly supersede it.
 
 ## Start Prompt
 
 > Read `.Codex/goals/KERN-5-COMPLETION-GOAL.md` and its authoritative spec in
-> full. Create or resume the KERN 5 completion goal and execute the first
-> unfinished phase from a fresh worktree based on current `origin/main`. Treat
-> every ownership claim as untrusted until its binary oracle passes. Continue
-> through independently reviewed slices; stop only for a genuine product
-> decision, unavailable required reviewer/credential, or an irreversible
-> operation that lacks explicit authority.
+> full. Create or resume the KERN 5 completion goal from a fresh worktree based
+> on current `origin/main`. Advance the frontend and Review immediately from
+> accepted F5 KIR, with the packed KIR-backed Review preview as the first
+> shippable goal. Unlock compiler/runtime, interoperability, and service work
+> independently through their R0 contract cells. Integrate only at the declared
+> convergence milestones. Treat every ownership claim as untrusted until its
+> binary oracle passes. Stop only for a genuine product decision, unavailable
+> required reviewer/credential, or an irreversible operation that lacks explicit
+> authority.
 
 ## Objective
 
-Ship KERN `5.0.0` only when KERN owns the canonical parse, check, format,
-compile, and execute path over versioned KIR; host code supplies capabilities
-and transport only; clean Stage 1 equals Stage 2; normal execution cannot reach
-or silently fall back to TypeScript semantics; and the exact accepted packed RC
-passes the required product and recovery walls.
+Ship KERN `5.0.0` only when a developer can write, semantically review,
+compile, run, and deploy a KERN microservice. KERN must own canonical parse,
+check, format, KIR projection, target compilation, and runtime behavior; host
+code supplies capabilities, transport, and locked npm/PyPI package loading
+only. A Node-target gateway and Python-target compute service must interoperate
+over a versioned contract; clean Stage 1 must equal Stage 2; normal execution
+cannot reach or silently fall back to TypeScript semantics; and the exact
+accepted packed RC must pass the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After the production-checker, formatter, non-promoting frontend F0
-closure, runtime text-scaling prerequisite, P0 transport, production F1
-physical scanner, production F2 expression parser and document batch, F3
-logical-line/tree, and accepted F4 declaration/module-set slices, that wall
-contains 60 promoted gates and excludes the six remaining planned terminal
-gates.
+passes or because frontend evidence grows. The current wall contains 60
+promoted gates and excludes six planned terminal gates. Product progress is
+reported first by vertical capabilities: source-to-KIR, JavaScript compilation,
+Python compilation, runtime execution, locked ecosystem imports, KIR-backed
+Review, deployable microservices, canonical cutover, and self-hosting.
+
+## Strategic Execution Reset — 2026-08-24
+
+The accepted F5 KIR boundary permits parallel work. Frontend work continues as
+productionization and service-driven language closure; it no longer blocks the
+start of compiler, runtime, interoperability, or Review work.
+
+R0 is not a global phase barrier. Accepted F5 KIR and provenance unlock FE and
+REV immediately. An executable ABI cell independently unlocks RT, C-JS, and
+C-PY; a package-manifest cell unlocks INT; and a service wire/budget cell
+unlocks integration fixtures. Each lane advances when its own dependency is
+ready:
+
+1. **FE:** production source-to-KIR CLI path, diagnostics, and constructs
+   required by reference services;
+2. **C-JS:** KERN-owned KIR-to-JavaScript compilation;
+3. **C-PY:** KERN-owned KIR-to-Python compilation;
+4. **RT:** KERN-owned values, calls, control flow, effects, cancellation, and
+   capability execution;
+5. **INT:** locked npm and PyPI import manifests, resolvers, and policy;
+6. **REV:** canonical-KIR semantic diff, dependency/capability impact, and
+   target-compatibility Review.
+
+The lanes converge at walking-skeleton, interoperability-service,
+two-microservice, canonical-cutover, and self-host/release milestones. Focused
+lane gates run during development; combined and complete walls run only at
+those meaningful convergence or promotion points.
+
+The three OPEN product decisions block only their R0-PKG/R0-SVC fixtures and
+implementation. They do not block this documentation reset, the packed Review
+preview, or immediate FE/REV work.
+
+### First Product Goal — KIR-Backed Review Preview
+
+The first release-oriented milestone is an advisory KIR-backed Review preview
+(working label `4.8.0`; exact version not yet authorized). It productizes the
+accepted private F5 projection as a packed authenticated service, derives
+Review semantics from canonical KIR, and exposes explicit preview/dual modes in
+the Review package and CLI.
+
+It must be useful before KERN 5 is complete: semantic API, import/export,
+dependency, capability, call/effect, and structural changes are reported, while
+formatter-only edits are ignored. Canonical projection or analysis failure is
+visible and cannot silently become a legacy-parser or empty-success result.
+
+This milestone advances FE and REV together immediately. Runtime, compiler,
+package-import, and service-contract work remain parallel; they do not wait for
+the Review preview, and Review does not wait for them. No version, tag,
+publication, or deployment is authorized by this goal update.
 
 ## Post-M4.171 Baseline
 
@@ -67,17 +130,18 @@ frontend F0 closure slices:
   production parser or promote `test:kern-frontend`.
 - The execution-local Text cache prerequisite removes repeated Unicode-scalar
   materialization from reference-runner document walks. P0 transport and the
-  authenticated KERN-owned production F1 physical scanner, and the authenticated
-  KERN-owned production F2 expression parser and document batch, plus F3
-  logical-line/tree assembly and F4 declaration/module-set semantics, are
-  current internal oracles; F5-F7,
-  generated target parity, and terminal frontend promotion remain open.
+  authenticated KERN-owned F1 physical scanner, F2 expression parser/document
+  batch, F3 logical-line/tree assembly, F4 declaration/module-set semantics,
+  and merged F5 KIR projection form the source-to-KIR foundation. Production
+  frontend routing, KERN-owned target compilation/runtime, locked npm/PyPI
+  imports, KIR-backed Review, and terminal promotion remain open.
 
 Promoted-gate row coverage is `60 / 66 = 90.9%`. Phase 0 made three omitted
-terminal requirements visible; no implementation was lost. The source-grounded
-release-completion estimate is approximately 54-64%
-because the remaining gates are the high-weight ownership and cutover phases.
-This estimate is directional, not a repository metric.
+terminal requirements visible; no implementation was lost. The historical
+source-grounded release-completion estimate was approximately 54-64%. It
+remains directional, not a repository metric, and is no longer the primary
+progress report. Report vertical capabilities and convergence milestones
+instead.
 
 ## Target Gate Ledger
 
@@ -88,7 +152,12 @@ remain absent until an implementation slice promotes each with its complete
 binary oracle. The machine-readable authority is
 `scripts/kern-5-remaining-gates-v1.json`.
 
-| Gate | Current state after frontend F4 |
+Review-preview, R0-contract, and microservice commands are planned sub-gates,
+not terminal rows. Their implementation slices must create and authenticate
+their own manifests before adding root scripts; the eight-row terminal ledger
+does not enumerate unfinished sub-gates.
+
+| Gate | Current state after merged F5 source |
 | --- | --- |
 | `pnpm test:kern-checker` | current |
 | `pnpm test:kern-formatter` | current |
@@ -166,15 +235,25 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   as a nonterminal `internal-oracle`. Final review-driven source-canary and
   accounting repairs passed the post-review complete F4 wall `551/551`. This
   does not promote the terminal frontend gate or change the terminal ledger.
+- **[K5-CS3B VERIFIED]** F5 KIR projection and its exact work-ownership repairs
+  are merged at `032f9e57`. The final candidate passed the focused F5
+  `67/67` wall, complete F4 `551/551` wall, core tests, lint, root build,
+  repository consistency, exact `20/20` F5 descriptor validation, and
+  deterministic F4 authority regeneration before integration. F5 gives the new
+  parallel lanes a stable canonical-KIR input. It does not by itself promote
+  `test:kern-frontend`, provide a KERN-owned target compiler/runtime, or prove
+  npm/PyPI interoperability.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
   cutover, packed-release). Therefore the promoted prerequisite count remains
   `2 / 8` terminal rows and `60 / 66` all prerequisite gates; neither count is
   evidence that the merged candidate source is shippable.
-- **[K5-CS5 DECIDED]** Retain the directional 54–64% completion heuristic. It
-  weighs the still-open ownership/cutover gates rather than the 60/66 row count;
-  it is not a repository metric or publication forecast.
+- **[K5-CS5 SUPERSEDED]** The directional 54–64% heuristic remains historical
+  context only. Current reporting uses the vertical capability scoreboard:
+  source-to-KIR, JavaScript compilation, Python compilation, runtime execution,
+  locked ecosystem imports, KIR-backed Review, two-service deployment,
+  canonical cutover, and self-hosting/release proof.
 
 ### Authority boundary
 
@@ -185,14 +264,23 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 - **[K5-CS7 DECIDED]** Publication authority is separate again. This goal
   authorizes **no push, tag, release, package publication, or deployment**.
   Those actions require a later explicit authorization after a merged,
-  reproducible release candidate satisfies M7 below.
+  reproducible release candidate satisfies R6 below.
 
-## Bounded remaining-work milestones (M0–M7)
+For the KIR-backed Review Preview execution only, the 2026-08-24 task grants a
+narrower superseding authority: after all requested local gates and independent
+review pass, push `feat/kir-backed-review-preview` exactly once and hand over
+the native Git PR URL. This does not authorize main, merge, version, tag,
+registry, publication, or deployment operations and does not alter K5-CS7 for
+KERN 5 release work.
 
-This map supersedes the broad remaining-work ordering for execution planning;
-the historical Phase 0–7 record below is retained as provenance. A milestone is
-not complete until every listed acceptance gate is green on its candidate and
-its stated dependency is complete.
+## Accepted foundation and product convergence milestones
+
+M0-M4 record the accepted/merged source foundation. R0-R6 supersede the
+historical serial Phase 0-7 ordering for execution planning. A convergence
+milestone is not complete until every participating lane passes its focused
+gate and the listed combined acceptance is green on the integrated candidate.
+The complete historical Phase 0-7 narrative remains preserved in baseline
+commit `032f9e57`; it is provenance, not current execution authority.
 
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
@@ -200,127 +288,151 @@ its stated dependency is complete.
 | **M1 — F4A semantic closure (accepted)** | F4-A1 through F4-A6 and F4-A11 are accepted. A3a retains exact legacy parity, and A3b projects its frozen scalar source-form writes through public F4 with authenticated provenance and prospective occurrence ownership; dependency: M0. | The A3b public-path binary/mutation oracle, adjacent wall, complete F4 declarations wall, exact pin validation, and independent review passed. |
 | **M2 — F4B canonical graph closure (accepted)** | F4-A7/C15 provides deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Focused M2 `17/17`, adjacent `17/17` + `30/30` + `17/17`, complete F4 `481/481`, exact `43/43` pins, deterministic authority regeneration, and independent review passed. |
 | **M3 — F4 scale, adversarial closure, and promotion (accepted)** | C13-GLOBAL and F4-A8-A10 close the declared adversarial, scale, resource, work, byte, and promotion contract; dependency: M2. | A9 focused `41/41`, pre-review complete F4 `550/550`, post-review complete F4 `551/551`, exact `45/45` pins, cumulative KERN 5 fitness, and independent review passed. F4 is current only as a nonterminal internal oracle. |
-| **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
-| **M5 — F6/F7 frontend promotion** | Complete adversarial frontend closure and promote the terminal frontend gate only after F0–F6 converge; dependency: M4. | `pnpm test:kern-frontend` is added, current, and green; the ledger, policy, support matrix, and release train promote atomically. |
-| **M6 — remaining canonical ownership** | Complete compiler, fixed-point, interpreter-shadow, and canonical-cutover ownership serially; dependency: M5. | In order: `pnpm test:kern-compiler`, `pnpm test:selfhost-fixed-point`, `pnpm test:kern-interpreter-shadow`, and `pnpm test:kern-canonical-cutover` are each current and green. |
-| **M7 — exact packed RC** | Build and independently reproduce the accepted packed release candidate; dependency: M6. | `pnpm test:packed-release` is current and green, including recovery walls and exact artifact identity. Completion grants only technical acceptance; K5-CS7 still forbids publication without explicit authority. |
+| **M4 — F5 KIR projection (merged source foundation)** | KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | Merged at `032f9e57`; focused F5, cumulative F4, core, build, lint, pin, generation, and independent review evidence passed before integration. It remains nonterminal. |
+| **P0 — packed KIR-backed Review preview** | Productize accepted F5 behind a packed authenticated projection boundary, add KIR-native Review model/diff/findings, expose advisory preview/dual modes, and preserve legacy defaults; dependency: M4 only. | Planned `pnpm test:kern-review-kir-preview`, packed ESM/CLI consumer, semantic mutation matrix, formatter-only equality, no-legacy-call traps, full 22-package release policy, and independent review are green on the exact candidate. No KERN 5 terminal row is promoted. |
+| **R0 — independently unlockable contract cells** | R0-KIR is accepted F5 KIR/provenance; R0-ABI is executable runtime/compiler conformance; R0-PKG is authenticated package resolution; R0-SVC is the service wire/budget contract; dependency: M4. | FE/REV start from R0-KIR now. Other lanes start when their own cell passes its claim-tagged REDs; no lane waits for an unrelated cell and no terminal gate is promoted. |
+| **R1 — parallel walking skeleton** | FE, C-JS, C-PY, RT, INT, and REV implement their smallest complete boundaries against only the cells they consume. RT publishes executable ABI conformance before compiler fan-out. | The representative KERN fixture compiles/runs on JavaScript and Python; Review reports one semantic change; focused lane gates are green. Review is advisory during R1. |
+| **R2 — ecosystem microservices** | JavaScript gateway uses one locked npm export; Python compute service uses one locked PyPI export; dependency: the participating R1 boundaries and R0-SVC. | Planned `pnpm test:kern-microservices` builds and runs both services in clean locked roots, checks lifecycle/wire/cancellation/logging, reproduces artifact hashes, and rejects lock/package/export/policy/wire mutations. KIR Review evidence is mandatory and fail-closed. |
+| **R3 — product ownership promotion** | Integrate frontend production routing, both compiler targets, runtime shadow, ecosystem imports, and KIR-backed Review; dependency: R2. | `test:kern-frontend`, `test:kern-compiler`, and `test:kern-interpreter-shadow` become current and green atomically with ledger/matrix truth updates. |
+| **R4 — self-hosting fixed point** | KERN compiler/runtime build themselves from clean packed inputs; dependency: R3. | `pnpm test:selfhost-fixed-point` is current and Stage 1 equals Stage 2 twice. |
+| **R5 — canonical cutover** | Normal compile/run/review consumers use KERN-owned semantics; TypeScript is explicit oracle only; dependency: R4. | `pnpm test:kern-canonical-cutover` is current and import/call/fallback traps prove no silent legacy reachability. |
+| **R6 — exact packed RC** | Build and independently reproduce the accepted packed release candidate; dependency: R5. | `pnpm test:packed-release` is current and green, including both microservices, npm/PyPI clean installs, Review, recovery walls, and exact artifact identity. Completion grants only technical acceptance; K5-CS7 still forbids publication without explicit authority. |
 
-## Execution Phases
+## Parallel Execution Phases
 
-### Phase 0 — Reconcile the completion contract
+### P0 — Ship the Review preview first
 
-- Replace stale baselines and release-machinery claims with current evidence.
-- Repair missing-document references and conflicting KIR status language.
-- Add the three omitted planned gates and tests that require their root scripts
-  to remain absent until promotion.
-- Freeze the admitted v5 source, diagnostics, trivia, KIR, handler, capability,
-  trace, determinism, limit, and rejection contracts.
-- Produce one machine-readable remaining-gate ledger.
+- **RP0:** package the authenticated F1-F5 projection without repository
+  `scripts/`, `examples/`, workspace links, or stale outputs.
+- **RP1:** derive a KIR-native Review model from decoded module KIR and source
+  provenance.
+- **RP2:** implement semantic diff/findings for public API, imports/exports,
+  dependencies, capabilities, calls/effects, and structural changes.
+- **RP3:** add explicit advisory preview/dual CLI and package surfaces; preserve
+  existing Review defaults and make canonical failures visible.
+- **RP4:** pack the exact 22-package train and prove ESM/API/CLI behavior from a
+  fresh consumer root before recommending any release.
 
-**Exit:** all truth sources agree and every KERN 5 terminal requirement is
-machine-enumerated without promoting unfinished work.
+**Exit:** planned `pnpm test:kern-review-kir-preview` and the exact packed
+consumer gate are green, independent review has no verified blocker, and the
+candidate is ready for a separate version/publication decision.
 
-### Phase 1 — Finish frontend, checker, and formatter ownership
+### R0 — Complete independently unlockable contract cells
 
-- [x] Freeze the exhaustive frontend surface/disposition ledger and static
-  canonical/malformed goldens without promoting the terminal frontend gate.
-- [x] Land authenticated P0 result transport and the KERN-owned production F1
-  physical scanner without promoting the terminal frontend gate.
-- Extend M4.171 through cross-line parsing, decorators, multiline blocks,
-  nodes/trees, declarations, modules/imports, malformed-input diagnostics,
-  stable source evidence, and source-to-KIR emission.
-- [x] Finish production checker v2 over the frozen structural-facts contract.
-- [x] Finish deterministic, idempotent, trivia-preserving formatting.
-- Require zero-drift valid and malformed corpora plus mutations that kill
-  delegation, constants, reordering, partial coverage, and stale artifacts.
+- **R0-KIR:** use the accepted F5 KIR/provenance boundary immediately for FE
+  productionization and KIR-backed REV work.
+- **R0-ABI:** execute representative JSON, async I/O, concurrency,
+  cancellation, logs, latency, and memory behavior on provisional JavaScript
+  and Python adapters. The probe observes accepted KIR semantics; disagreement
+  stops the cell and cannot redefine semantics.
+- **R0-PKG:** decide authored import syntax and freeze a normalized artifact
+  descriptor while preserving raw npm SRI/PyPI lock identity. Authenticate raw
+  lock bytes, resolver identity, adapter contract, and byte-identical clean
+  regeneration.
+- **R0-SVC:** freeze typed HTTP/JSON, health/readiness, cancellation, logging,
+  latency, throughput, and memory fixtures/budgets.
+- Record cell schemas and REDs in planned
+  `scripts/kern-5-r0-contracts/manifest.json`, executed by planned
+  `pnpm test:kern-5-r0-contracts`.
+- Assign non-overlapping directories and one integration owner to every lane.
 
-**Exit:** `test:kern-frontend`, `test:kern-checker`, and
-`test:kern-formatter` are current and green.
+**Exit:** each lane can build independently as soon as the cells it consumes
+are versioned. Both compiler targets additionally require executable runtime
+ABI conformance; unrelated unfinished cells do not block FE, REV, or another
+ready lane.
 
-### Phase 2 — Finish compiler ownership
+### R1 — Build six lanes concurrently
 
-- Implement KERN-owned KIR-to-target compilation for the v5 support matrix.
-- Compile the KERN frontend, compiler, and runtime sources themselves.
-- Preserve required Node, browser, Python, Express, FastAPI, and maintained-app
-  behavior.
-- Prove the gate cannot be satisfied by host delegation or cached output.
+- **FE:** route real product source through F1-F5 and close only
+  service-discovered syntax/diagnostic gaps.
+- **C-JS/C-PY:** compile the shared accepted KIR subset to deterministic ESM and
+  Python.
+- **RT:** execute the shared value/control/effect/capability ABI.
+- **INT:** resolve and validate one locked npm and one locked PyPI import.
+- **REV:** consume F5 KIR/provenance for semantic diff and impact reporting.
 
-**Exit:** `test:kern-compiler` is current and green.
+**Exit:** both targets run the pure walking-skeleton fixture and Review reports
+the exact semantic delta. Review remains advisory during R1 and becomes
+mandatory and fail-closed at R2 convergence.
 
-### Phase 3 — Prove the fixed point
+### R2 — Prove the microservice product
+
+- Build a JavaScript gateway service and Python compute service from KERN.
+- Exercise target-native npm/PyPI packages, typed HTTP/JSON, health/readiness,
+  logs, timeout/cancellation, and clean shutdown.
+- Treat packages as separate versioned adapter contracts; require parity for
+  KERN semantics and the shared wire contract, not arbitrary third-party
+  package internals.
+- Run planned `pnpm test:kern-microservices` from
+  `scripts/kern-5-microservices/manifest.json`: create two fresh roots, perform
+  strict offline locked installs, build, launch, poll health/readiness, exchange
+  typed requests, exercise timeout/cancellation, verify logs, stop processes,
+  rebuild for identical hashes, and reject lock/package/export/policy/wire
+  mutations.
+- Review the source change and report API, dependency, capability, call/effect,
+  and target-compatibility impact from canonical KIR.
+- Treat missing Review evidence, analysis errors, legacy-parser fallback, or a
+  fabricated empty result as a hard R2 failure.
+
+**Exit:** the two-service proof passes from clean locked environments with no
+legacy semantic fallback.
+
+### R3 — Promote product ownership
+
+- Promote frontend, compiler, and interpreter-shadow gates only after the
+  integrated microservice candidate is green.
+- Update ledger, fitness policy, support matrix, release train, and docs
+  atomically.
+- Keep legacy TypeScript implementations as forced oracles.
+
+**Exit:** `test:kern-frontend`, `test:kern-compiler`, and
+`test:kern-interpreter-shadow` are current and green.
+
+### R4 — Prove self-hosting
 
 - Build Stage 1 from Stage 0 and Stage 2 from Stage 1 in separate clean roots
   using immutable packed inputs.
-- Require Stage 1 and Stage 2 byte identity after only enumerated normalization.
-- Repeat twice and bind source, tools, manifests, outputs, and tarball hashes.
-- Prove workspace links, stale `dist`, untracked files, or prior receipts cannot
-  satisfy the gate.
+- Require byte identity twice after only enumerated normalization.
+- Reject workspace links, stale outputs, untracked inputs, and cached receipts.
 
 **Exit:** `test:selfhost-fixed-point` is current and green.
 
-### Phase 4 — Finish interpreter ownership
+### R5 — Perform canonical cutover
 
-- Make the KERN interpreter consume the frozen KIR and handler/capability ABIs.
-- Cover every admitted v5 construct across sync and immediately resolved async
-  execution.
-- Require zero drift in values, events/stdout, diagnostics, completion,
-  cancellation, effects, and capability requests.
-- Reject unsupported shapes before partial output or effects.
+- Move compile, run, Review, CLI, browser, and required consumers to canonical
+  KERN semantics.
+- Trap every normal call/import/fallback edge into the TypeScript parser,
+  compiler, ReferenceRunner, and legacy KERN Review parser.
+- Keep forced-TypeScript oracle mode explicit and green.
 
-**Exit:** `test:kern-interpreter-shadow` is current and green.
+**Exit:** `test:kern-canonical-cutover` is current and green.
 
-### Phase 5 — Perform canonical cutover
+### R6 — Prove and optionally publish the exact RC
 
-- Migrate internal packages, CLI Node, browser, and required downstream
-  consumers in staged slices.
-- Keep TypeScript as an explicit forced oracle and emergency selector only.
-- Add import/call/fallback traps proving normal canonical execution cannot reach
-  TypeScript parser, compiler, or ReferenceRunner semantics.
-- Unsupported canonical inputs must fail loudly before effects; they must never
-  silently retry through TypeScript.
+- Pack once, test those exact files, reproduce independently, and record
+  source/tool/contract/stage/package hashes.
+- Prove both microservices, locked npm/PyPI installation, semantic Review,
+  fixed point, maintained consumers, recovery, and two clean fitness walls.
+- Pause before tag/registry work unless explicit publication authority exists.
 
-**Exit:** `test:kern-canonical-cutover` is current and green in canonical and
-forced-TypeScript CI lanes.
-
-### Phase 6 — Prove the exact packed RC
-
-- Build and pack once, test those exact files, and record immutable integrity.
-- Prove clean installation, exports/binaries, CLI check/format/compile/run,
-  canonical and forced-TS modes, browser budgets, Python, Express, FastAPI,
-  maintained app, fixed point, downstream canary, and recovery.
-- Run two complete KERN 5 fitness walls from separate clean roots.
-- Record source SHA, toolchain versions, contract hashes, stage hashes, tarball
-  integrities, and every gate result in the RC manifest.
-
-**Exit:** `test:packed-release` is current and green, and independent terminal
-review has no unresolved verified blocker.
-
-### Phase 7 — Publish public KERN 5.0
-
-- Pause immediately before public registry/tag work unless explicit authority
-  is already present.
-- Inject `5.0.0` only through release policy from the accepted RC source.
-- Rebuild and prove all non-version output matches the RC manifest.
-- Publish dependency-first and promote `kern-lang@latest` last.
-- Verify exact registry versions, dependencies, integrities, tags, provenance,
-  and a clean consumer install/run.
-- Never reuse a failed published version.
-
-**Exit:** final source equals accepted RC source and post-publication evidence
-is durable and complete.
+**Exit:** `test:packed-release` is current and green. If publication is
+separately authorized, final source equals RC source and registry/tag evidence
+is durable.
 
 ## Slice Protocol
 
 For each non-trivial slice:
 
-1. Fetch and branch from current `origin/main`; never reuse a merged branch.
+1. Fetch and branch each lane from the same accepted integration SHA; never
+   reuse a merged branch or edit another lane's owned directory.
 2. Ground the claim in current source and write/update a claim-tagged spec.
 3. State a 3-5 bullet plan, confidence, dependencies, and binary acceptance.
 4. Prove the missing behavior RED at the baseline, then implement the smallest
    complete ownership boundary.
 5. Keep handwritten source below 500 lines and policy configurable.
-6. Run focused tests first. Run the complete promoted KERN 5 wall at meaningful
-   promotion/cutover points and before a slice is declared ready.
+6. Run focused lane tests first. Run combined walls at declared convergence
+   milestones and the complete KERN 5 wall only at promotion/cutover/final
+   candidate boundaries.
 7. Run the local gate, then independent Agon review using automatic risk routing
    and the verified primary implementer identity. Resolve the live usable roster
    from configuration; never hardcode it.
@@ -329,14 +441,27 @@ For each non-trivial slice:
 9. Create granular KERN-signed commits. Push the complete feature branch once
    only when authorized; never use `gh`, never push to `main` without explicit
    confirmation, and hand over the PR URL emitted by native `git push`.
-10. Record the landed SHA, ownership gained, exact gate counts, review result,
-    remaining ledger, and next slice.
+10. Integrate through one owner against the accepted R0 cell contracts. Record
+    each landed SHA, ownership gained, exact gate counts, review result,
+    remaining ledger, and next convergence milestone.
 
 ## Binary Definition of Done
 
+- [ ] The KIR-backed Review preview is available from packed packages and CLI,
+      useful on real `.kern` diffs, formatter-insensitive, explicitly advisory,
+      and incapable of silent legacy fallback.
 - [ ] All eight target gates are present, current, and green.
 - [ ] KERN owns canonical parse, check, format, compile, and execution behavior.
 - [ ] KIR v1 is the actual canonical product contract.
+- [ ] JavaScript output loads an exact locked npm export through the external
+      package capability contract.
+- [ ] Python output loads an exact locked PyPI module/export through the same
+      logical contract.
+- [ ] KIR-backed Review reports semantic/API/dependency/capability/call-impact
+      changes and ignores formatter-only changes.
+- [ ] The Node gateway and Python compute service build, boot, communicate,
+      report health/readiness, enforce timeout/cancellation, log, and stop
+      cleanly from locked environments.
 - [ ] Stage 1 equals Stage 2 twice from clean packed inputs.
 - [ ] Normal execution has no TypeScript semantic call or silent fallback.
 - [ ] Explicit forced-TypeScript oracle mode remains green.

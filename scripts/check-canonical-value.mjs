@@ -21,7 +21,32 @@ function sourceFiles(directory) {
   });
 }
 
-export function moduleSpecifiers(source, sourcePath) {
+function isErasedTypeOnlyModuleDeclaration(node) {
+  if (ts.isImportDeclaration(node)) {
+    const importClause = node.importClause;
+    return (
+      importClause?.isTypeOnly === true ||
+      (importClause !== undefined &&
+        importClause.name === undefined &&
+        importClause.namedBindings !== undefined &&
+        ts.isNamedImports(importClause.namedBindings) &&
+        importClause.namedBindings.elements.length > 0 &&
+        importClause.namedBindings.elements.every((specifier) => specifier.isTypeOnly))
+    );
+  }
+  if (ts.isExportDeclaration(node)) {
+    return (
+      node.isTypeOnly ||
+      (node.exportClause !== undefined &&
+        ts.isNamedExports(node.exportClause) &&
+        node.exportClause.elements.length > 0 &&
+        node.exportClause.elements.every((specifier) => specifier.isTypeOnly))
+    );
+  }
+  return false;
+}
+
+export function moduleSpecifiers(source, sourcePath, { includeTypeOnly = true } = {}) {
   const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0)
     throw new Error(`cannot parse canonical value browser graph source ${sourcePath}`);
@@ -29,11 +54,11 @@ export function moduleSpecifiers(source, sourcePath) {
   function visit(node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
       if (!ts.isStringLiteral(node.moduleSpecifier)) throw new Error(`non-literal module specifier in ${sourcePath}`);
-      specifiers.push(node.moduleSpecifier.text);
+      if (includeTypeOnly || !isErasedTypeOnlyModuleDeclaration(node)) specifiers.push(node.moduleSpecifier.text);
     } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
       const specifier = node.moduleReference.expression;
       if (!specifier || !ts.isStringLiteral(specifier)) throw new Error(`non-literal import-equals in ${sourcePath}`);
-      specifiers.push(specifier.text);
+      if (includeTypeOnly || !node.isTypeOnly) specifiers.push(specifier.text);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const [argument] = node.arguments;
       if (!argument || !ts.isStringLiteral(argument)) throw new Error(`non-literal dynamic import in ${sourcePath}`);
@@ -50,7 +75,7 @@ export function moduleSpecifiers(source, sourcePath) {
 }
 
 export function canonicalValueReferences(source, sourcePath) {
-  return moduleSpecifiers(source, sourcePath).filter((specifier) => {
+  return moduleSpecifiers(source, sourcePath, { includeTypeOnly: false }).filter((specifier) => {
     if (!specifier.startsWith('.')) return false;
     const resolved = path.normalize(path.join(path.dirname(sourcePath), specifier.replace(/\.js$/u, '.ts')));
     return resolved.startsWith(`${ownRoot}${path.sep}`);

@@ -42,6 +42,7 @@
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
     "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
+    "test:kern-review-kir-preview": "node ./scripts/kern-review-kir-preview/gate.mjs",
     "test:kern-semantic-ownership": "node --test scripts/semantic-ownership/validate.test.mjs && node ./scripts/check-semantic-ownership.mjs",
     "test:kern-ir-eligibility": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/validate-eligibility.test.mjs && node ./scripts/check-kir-v1-eligibility.mjs",
     "test:kern-ir-profile": "pnpm --filter @kernlang/core build && node --import tsx --test packages/core/tests/kir-v1.test.ts && node --test scripts/kir-v1/acceptance-manifest.test.mjs && node ./scripts/check-kir-v1-profile.mjs",

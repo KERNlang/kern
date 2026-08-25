@@ -23,6 +23,21 @@ test('containment check follows module edges rather than matching comments or st
   );
 });
 
+test('containment ignores erased structural KIR type edges but retains runtime and mixed edges', () => {
+  const sourcePath = 'packages/core/src/frontend-projection.ts';
+  const canonicalModulePath = './kir-structural/module-canonical.js';
+  const source = `
+    import type { ModuleKirArtifact } from './kir-structural/module-types.js';
+    export type { ModuleKirArtifact } from './kir-structural/module-types.js';
+    import { decodeModuleKir } from './kir-structural/module-canonical.js';
+    import { type ModuleKirArtifact, decodeModuleKir as MixedValue } from './kir-structural/module-canonical.js';
+  `;
+  assert.deepEqual(structuralKirReferences(source, sourcePath), [
+    canonicalModulePath,
+    canonicalModulePath,
+  ]);
+});
+
 test('only the exact decoded-runtime binder is a sanctioned runtime consumer', () => {
   assert.equal(isAllowedStructuralKirConsumer('packages/core/src/kir-v1/canonical.ts'), true);
   assert.equal(

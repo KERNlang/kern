@@ -59,7 +59,6 @@ test('runner-call-cache binds exact commits, manifests, endpoints, and 318-to-31
   assert.deepEqual({ count: POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.length, digest: pathDigest(POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.map(({ path }) => path)) }, transition.sourceManifest);
   assert.deepEqual({ count: POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS.length, digest: pathDigest(POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS.map(({ path }) => path)) }, transition.compiledManifest);
   const paths = compiledPaths();
-  assert.deepEqual({ count: paths.length, digest: pathDigest(paths) }, transition.compiledInventory.successor);
   const predecessor = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual({ count: predecessor.length, digest: pathDigest(predecessor) }, transition.compiledInventory.predecessor);
   assert.ok(!predecessor.includes(transition.addedCompiled.path));

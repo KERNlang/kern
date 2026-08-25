@@ -116,6 +116,9 @@ const EXPECTED_READER_BINDING = Object.freeze([
   'kern.semantic-kir.probe.1',
   'internal-candidate',
 ]);
+const BUILT_RUNTIME_ASSET_IMPORTS = Object.freeze(new Map([
+  ['packages/core/src/frontend-projection.ts\u0000./frontend-projection-assets/adapter.cjs', 'packages/core/dist/frontend-projection-assets/adapter.cjs'],
+]));
 
 function fail(message) {
   throw new Error(`semantic ownership: ${message}`);
@@ -281,6 +284,15 @@ function moduleSpecifiers(source, sourcePath) {
 }
 
 function resolveRelativeSource(fromPath, specifier, readText) {
+  const builtAsset = BUILT_RUNTIME_ASSET_IMPORTS.get(`${fromPath}\u0000${specifier}`);
+  if (builtAsset !== undefined) {
+    try {
+      readText(builtAsset);
+      return builtAsset;
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'EISDIR' && error?.code !== 'EPERM') throw error;
+    }
+  }
   const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(fromPath), specifier));
   if (resolved === '..' || resolved.startsWith('../') || path.posix.isAbsolute(resolved)) {
     fail(`static import ${specifier} from ${fromPath} escapes the repository`);

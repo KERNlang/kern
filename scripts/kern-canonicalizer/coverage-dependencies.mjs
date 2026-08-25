@@ -40,6 +40,7 @@ import {
   POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
   validateExecutionMetadataHardeningHistoricalTransition,
 } from './execution-metadata-hardening-historical-transition.mjs';
+import { reconstructFrontendProjectionCompiledCoreJavaScriptPaths } from './frontend-projection-historical-transition.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
 import {
   LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION,
@@ -227,20 +228,22 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
   return historicalPaths;
 }
 
+export { reconstructFrontendProjectionCompiledCoreJavaScriptPaths };
+
 export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths) {
-  assertCanonicalRelativeJavaScriptPaths(paths, 'runner-call-cache successor compiled core inventory');
+  const successorPaths = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(paths);
   const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;
   if (
-    paths.length !== transition.compiledInventory.successor.count ||
-    hashPathInventory(paths) !== transition.compiledInventory.successor.digest
+    successorPaths.length !== transition.compiledInventory.successor.count ||
+    hashPathInventory(successorPaths) !== transition.compiledInventory.successor.digest
   ) {
     fail('runner-call-cache historical membership requires the authenticated successor inventory');
   }
   const addedPath = transition.addedCompiled.path;
-  if (!paths.includes(addedPath)) {
+  if (!successorPaths.includes(addedPath)) {
     fail('runner-call-cache added path must exist in the authenticated successor inventory');
   }
-  const predecessorPaths = paths.filter((path) => path !== addedPath);
+  const predecessorPaths = successorPaths.filter((path) => path !== addedPath);
   if (
     predecessorPaths.length !== transition.compiledInventory.predecessor.count ||
     hashPathInventory(predecessorPaths) !== transition.compiledInventory.predecessor.digest

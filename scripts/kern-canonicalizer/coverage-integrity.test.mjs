@@ -338,6 +338,10 @@ test('current compiled core identity is sensitive to post-M4.145 runtime modules
   const root = resolve(process.cwd(), 'packages/core/dist');
   for (const name of [
     'each-collection-reference.js',
+    'frontend-projection.js',
+    'frontend-projection/assets.js',
+    'frontend-projection/contracts.js',
+    'frontend-projection/integrity.js',
     'kir-v1/canonical.js',
     'kir-v1/types.js',
     'kir-structural/each-collection-reference.js',
@@ -367,6 +371,10 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
   assert.deepEqual([...omitted].sort(), [
     'each-collection-reference.js',
+    'frontend-projection.js',
+    'frontend-projection/assets.js',
+    'frontend-projection/contracts.js',
+    'frontend-projection/integrity.js',
     'ir/semantics/internal-effect-machine-deferred-binding.js',
     'ir/semantics/internal-effect-machine-text-splice.js',
     'ir/semantics/internal-text-code-point-cache.js',
