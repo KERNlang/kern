@@ -66,6 +66,7 @@ Selected: keep focused behavior and contract gates blocking on pull requests, mo
 - [x] Root `pnpm build` composes `pnpm build:packages` with the `@kernlang/playground` production build, which remains in `product-smoke`.
 - [x] KIR Review Preview failures retain a bounded inner diagnostic so packed-consumer contract failures remain actionable.
 - [x] KRI-A11 installs the packed Core tarball with an empty pnpm store and only locally packed runtime dependencies, so its offline consumer proof cannot rely on a warm machine cache or registry access.
+- [x] The measured browser budget may retry only a policy-bounded Chrome DevTools port timeout with a fresh profile; spawn failures, fixture failures, and budget failures remain single-attempt blockers.
 - [x] `test:infra` composes `test:infra:contracts`, then invokes every current frontend fitness gate in order with no duplicate segment.
 - [x] The focused successful-line command and every PR-reachable frontend leaf run behavior checks without `replay.test.mjs` or a cumulative regression-wall script.
 - [x] The scheduled/manual exhaustive workflow runs bounded contracts, foundation, properties-core, properties-extended, full composition, language, and tooling shards; it must not invoke the monolithic `test:infra` command.
