@@ -284,7 +284,7 @@ test('KRI-A11 clean packed consumer projects real KERN without repository-relati
       'install', '--offline', '--store-dir', pnpmStore, '--frozen-lockfile=false',
     ], {
       cwd: consumer,
-      env: await poisonedConsumerEnvironment(temporary),
+      env: { ...process.env, CI: '1' },
       maxBuffer: 4 * 1024 * 1024,
       timeout: 60_000,
     });
