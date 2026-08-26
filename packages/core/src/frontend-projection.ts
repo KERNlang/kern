@@ -7,7 +7,6 @@ import {
 } from './frontend-projection/assets.js';
 import {
   inspectPlainRecord,
-  type KernProjectedResult,
   type KernProjectionDiagnostic,
   type KernProjectionFailure,
   type KernProjectionReceipt,
@@ -65,7 +64,6 @@ const RECEIPT_KEYS = [
   'terminalSeal',
 ] as const;
 const RESULT_KEYS = ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'] as const;
-const VERIFIED = new WeakMap<object, { artifactDigest: string; assetManifestDigest: string }>();
 const ISSUED = new WeakMap<
   object,
   {
@@ -77,6 +75,7 @@ const ISSUED = new WeakMap<
     readonly normalizedRequest: NormalizedProjectionRequest;
   }
 >();
+const VERIFIED = new WeakMap<object, () => boolean>();
 
 interface PrivateDiagnostic {
   readonly code?: unknown;
@@ -346,25 +345,26 @@ export async function verifyKernProjection(
     diagnostics: Object.freeze([]),
     receipt: deepFreeze(expectedReceipt),
   }) as VerifiedKernProjection;
-  VERIFIED.set(verified, { artifactDigest, assetManifestDigest: state.manifestDigest });
+  VERIFIED.set(verified, () => {
+    const currentState = loadProjectionAssetState();
+    return (
+      currentState.manifestDigest === state.manifestDigest &&
+      verified.bytes instanceof Uint8Array &&
+      sha256(verified.bytes) === artifactDigest &&
+      Object.isFrozen(verified) &&
+      Object.isFrozen(verified.artifact) &&
+      Object.isFrozen(verified.receipt)
+    );
+  });
   return verified;
 }
 
 export function isVerifiedKernProjection(value: unknown): value is VerifiedKernProjection {
   if (value === null || typeof value !== 'object') return false;
-  const evidence = VERIFIED.get(value);
-  if (evidence === undefined) return false;
+  const check = VERIFIED.get(value);
+  if (check === undefined) return false;
   try {
-    const projected = value as KernProjectedResult;
-    const state = loadProjectionAssetState();
-    return (
-      state.manifestDigest === evidence.assetManifestDigest &&
-      projected.bytes instanceof Uint8Array &&
-      sha256(projected.bytes) === evidence.artifactDigest &&
-      Object.isFrozen(projected) &&
-      Object.isFrozen(projected.artifact) &&
-      Object.isFrozen(projected.receipt)
-    );
+    return check();
   } catch {
     return false;
   }

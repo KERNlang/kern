@@ -42,6 +42,10 @@
       "types": "./dist/runtime-handler.d.ts",
       "default": "./dist/runtime-handler.js"
     },
+    "./runtime/kir": {
+      "types": "./dist/runtime-kir.d.ts",
+      "default": "./dist/runtime-kir.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
