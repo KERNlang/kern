@@ -104,6 +104,7 @@
     "test:kern-frontend-f5-projection": "pnpm --filter @kernlang/core exec tsc -b --force && node --test scripts/kern-frontend-f5-projection/*.test.mjs",
     "test:kern-5-r0-contracts": "KERN_NODE22=\"$(node -p 'process.execPath')\" pnpm --filter @kernlang/core --filter @kernlang/review build && KERN_NODE22=\"$(node -p 'process.execPath')\" node --test scripts/kern-5-r0-contracts/*.test.mjs && KERN_NODE22=\"$(node -p 'process.execPath')\" node scripts/kern-5-r0-contracts/check.mjs",
     "test:kern-5-r1-runtime-owner": "pnpm --filter @kernlang/core build && node --test scripts/kern-5-r1-runtime-owner/*.test.mjs",
+    "test:kern-5-r2-js-lowering": "pnpm --filter @kernlang/core build && node --test scripts/kern-5-r2-js-lowering/owner-oracle.test.mjs && node --test scripts/kern-5-r2-js-lowering/behavior.test.mjs && node --test scripts/kern-5-r2-js-lowering/differential.test.mjs && node --test scripts/kern-5-r2-js-lowering/closure.test.mjs",
     "write:kern-canonicalizer-composition": "node ./scripts/kern-canonicalizer/composition.mjs --write",
     "write:kern-canonicalizer-coverage": "pnpm --filter @kernlang/core build && node ./scripts/check-kern-canonicalizer-coverage.mjs --write",
     "build:kern-alpha-receipt": "node ./scripts/kir-v1/alpha-receipt.mjs",

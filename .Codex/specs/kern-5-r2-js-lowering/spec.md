@@ -1,9 +1,9 @@
 # KERN 5 R2: linked KIR-to-JavaScript ESM lowering
 
-**Status:** SPEC
+**Status:** READY TO BUILD — RED AT BASE
 **Date:** 2026-08-26
 **Initial confidence (pre-challenge):** 0.82
-**Revised confidence:** 0.87
+**Revised confidence:** 0.91
 
 ## Executive Summary
 
@@ -90,6 +90,7 @@ export function linkVerifiedKernKirProgram(
 `@kernlang/core/compiler/kir-js-esm` exports these values and no CLI entrypoint:
 
 ```ts
+export const KERN_KIR_JS_ESM_COMPILER_OWNER = 'kern.compiler.kir-js-esm.owner.v1';
 export const KERN_KIR_JS_ESM_COMPILER_FORMAT = 'kern.compiler.kir-js-esm.v1';
 export const KERN_KIR_JS_ESM_ARTIFACT_FORMAT = 'kern.target.kir-js-esm.v1';
 export const KERN_KIR_JS_ESM_HOST_PROFILE = 'kern.javascript-esm.node.v1';
@@ -178,7 +179,7 @@ These are binary RED-oracle criteria. Every fixture is constructed from a verifi
 - [ ] Two compilations of one verified projection/exact request produce byte-identical `entry.mjs` and `manifest.json`; compiler-request, artifact, manifest, projection-artifact, linked-program, and kernel SHA-256 bindings independently recompute from returned bytes/canonical data.
 - [ ] A fresh isolated Node process loads emitted ESM with empty import graph and executes fresh runtime values, fresh provider replies, and novel valid KIR; output varies by semantics rather than fixture strings/transcripts.
 - [ ] Differential fixtures compare emitted ESM with refactored RT-1 for exact subset success and errors, malformed request, provider/result failure, tagged KERN JSON edge cases, every limit family, pre-cancel, external abort, timeout, and out-of-order concurrent `execute` calls.
-- [ ] Generated code uses null-prototype tagged records/entry arrays and rejects duplicate/dangerous KERN JSON host-object paths; it contains no host `JSON.parse`/`JSON.stringify`, raw KIR identifiers, import/require/eval/Function/process/I-O/network, parser/emitter/ReferenceRunner/runtime/R0 dependency, loop, recursion, regex, or concurrent-capability scheduler.
+- [ ] Generated code uses null-prototype tagged records/entry arrays and rejects duplicate/dangerous KERN JSON host-object paths; it contains no host `JSON.parse`/`JSON.stringify`, raw KIR identifiers, import/require/eval/Function/process/I-O/network, parser/emitter/ReferenceRunner/runtime/R0 dependency, KIR-authored loop/recursion/regex, or concurrent-capability scheduler. Bounded loops inside the fixed JSON/value/inspection kernel are permitted and metered.
 - [ ] Synchronous work is bounded by linked-program size and charged at the same RT-1 statement/expression boundaries. Tests establish that cancellation cannot preempt synchronous JavaScript in either backend, but is delivered at those boundaries and while a capability is unresolved; capabilities execute sequentially and every `execute` call is isolated.
 - [ ] Mutation tests fail for RT-1 fallback, generic dispatcher, fixture output, skipped auth, source/parser fallback, host JSON, prototype-bearing records, omitted limit/cancellation charge, missing manifest binding, kernel-digest mismatch, and cross-request state leakage.
 - [ ] R0 compiler/result/target/runtime formats are rejected at R2 ingress and unchanged R0 conformance gates pass. Compiler result union is exhaustive and has exact code/field behavior; it writes no files and creates no CLI command.
@@ -226,7 +227,9 @@ The parent ran Agon brainstorm `/Users/nicolascukas/.agon/runs/brainstorm-178776
 
 **Challenge delta:** replace independent R2 admission with internal `kern.linked-kir-program.v1`; make old/new RT-1 parity a gate; separate specialized emitted operations from fixed target semantic kernel; bind projection/link/kernel hashes and telemetry identity; prohibit cycles/regex/concurrent scheduling; state boundary-only cancellation and recompilation/revocation for kernel revisions. R0 remains private evidence only.
 
-**Revised confidence:** 0.87. No OPEN/ASSUMED blocker remains. Per repository policy, a 0.85-0.89 plan needs one adversarial `agon nero` pass before code; the cited Nero run supplies that challenge, so implementation may proceed only with the stated differential and parity gates.
+The focused gate was then executed on the exact stacked base under Node 22. Core built successfully and the first semantic owner-discovery test failed with `KIR_JS_ESM_OWNER_MISSING`, before any future module import or behavior suite. This is RED for the intended missing production-owner reason.
+
+**Revised confidence:** 0.91. The full-roster brainstorm, focused Nero challenge, source verification, and discriminating RED-at-base oracle resolved the architectural dependencies. No OPEN/ASSUMED blocker remains; implementation may proceed only with the stated differential and parity gates.
 
 ## Corrections Log
 
