@@ -145,15 +145,30 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
 
   const packageTests = workflowJob(workflow, 'package-tests');
   assert.match(packageTests, /name: Package tests excluding IR semantics/u);
-  const cliBuildIndex = commandIndex(packageTests, 'pnpm --filter @kernlang/cli build');
+  assert.equal(
+    packageJson.scripts['build:packages'],
+    'tsc -b && node ./scripts/build-kern-canonicalizer-cli-assets.mjs && node ./scripts/build-kern-checker-cli-assets.mjs && node ./scripts/build-kern-formatter-cli-assets.mjs',
+    'build:packages must retain the full TypeScript and CLI-artifact package train without the playground production build',
+  );
+  assert.equal(
+    packageJson.scripts.build,
+    'pnpm build:packages && pnpm --filter @kernlang/playground build',
+    'root build must compose the package train with the playground production build',
+  );
+  const packageTestsTrainBuildIndex = commandIndex(packageTests, 'pnpm build:packages');
   const packageTestIndex = commandIndex(
     packageTests,
     "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics",
   );
-  assert.ok(cliBuildIndex >= 0, 'package tests must build their cross-package CLI dependency');
+  assert.ok(packageTestsTrainBuildIndex >= 0, 'package tests must build the package-only train');
   assert.ok(
-    cliBuildIndex < packageTestIndex,
-    'package tests must build the CLI before @kernlang/python runs its differential test',
+    packageTestsTrainBuildIndex < packageTestIndex,
+    'package tests must build the package-only train before recursive package tests',
+  );
+  assert.doesNotMatch(
+    packageTests,
+    /pnpm --filter @kernlang\/cli build/u,
+    'package tests must not rely on the insufficient standalone CLI prebuild',
   );
 
   const productSmoke = workflowJob(workflow, 'product-smoke');

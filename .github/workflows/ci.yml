@@ -95,8 +95,8 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Build CLI differential dependency
-        run: pnpm --filter @kernlang/cli build
+      - name: Build package train
+        run: pnpm build:packages
       - name: Package tests excluding IR semantics
         run: pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics
 

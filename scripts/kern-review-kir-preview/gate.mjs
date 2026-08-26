@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createBoundedTailCollector, failureExcerpt } from './diagnostics.mjs';
 import { KIR_REVIEW_FIXTURES } from './fixtures/fixtures.mjs';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -46,33 +47,23 @@ function runNodeTest(testPath) {
   return runCommand(process.execPath, ['--test', testPath]);
 }
 
-function runCommand(command, args) {
+export function runCommand(command, args) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.on('error', (error) => resolve({ status: 1, stdout, stderr: String(error) }));
-    child.on('close', (status) => resolve({ status: status ?? 1, stdout, stderr }));
+    const output = createBoundedTailCollector();
+    child.stdout.on('data', (chunk) => output.stdout.append(chunk));
+    child.stderr.on('data', (chunk) => output.stderr.append(chunk));
+    child.on('error', (error) => resolve({ status: 1, stdout: output.stdout.text(), stderr: String(error) }));
+    child.on('close', (status) => resolve({ status: status ?? 1, stdout: output.stdout.text(), stderr: output.stderr.text() }));
   });
 }
 
 function runPackageBuild(packageName) {
   const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
   return runCommand(command, ['--filter', packageName, 'run', 'build']);
-}
-
-function failureExcerpt(result) {
-  const lines = `${result.stdout}\n${result.stderr}`.split(/\r?\n/u);
-  return lines.find((line) => /contract missing|missing KIR|ERR_MODULE_NOT_FOUND|Cannot find package|must be a supported public|missing KIR preview API/iu.test(line))
-    ?? lines.find((line) => line.startsWith('not ok'))
-    ?? result.stderr.split(/\r?\n/u).find(Boolean)
-    ?? lines.find(Boolean)
-    ?? 'no failure detail';
 }
 
 async function readManifest() {
