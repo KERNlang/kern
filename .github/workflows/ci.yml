@@ -95,7 +95,9 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Package tests excluding the differential harness
+      - name: Build CLI differential dependency
+        run: pnpm --filter @kernlang/cli build
+      - name: Package tests excluding IR semantics
         run: pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics
 
   semantics:
@@ -296,6 +298,8 @@ jobs:
         run: pnpm test:kern
       - name: Runner smoke and browser budget
         run: pnpm test:runner-smoke
+      - name: Build package train
+        run: pnpm build
       - name: KIR Review Preview
         run: pnpm test:kern-review-kir-preview
 
