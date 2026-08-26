@@ -17,6 +17,7 @@ export function compilePySource({ artifactPath, capabilitySeal, compilerRequestS
   const params = paramNames.map((name) => `    ${name} = args[${JSON.stringify(name)}]`).join('\n'); const count = handlerChildren.filter((statement) => statement.kind === 'capability').length;
   return `import asyncio, hashlib, json, os, re, sys
 KIR_SHA256=${JSON.stringify(kirSha256)}; COMPILER_REQUEST_SHA256=${JSON.stringify(compilerRequestSha256)}; SEMANTIC_SHA256=${JSON.stringify(semanticSha256)}; ENTRY=${JSON.stringify(entry)}; MANIFEST_FILE=${JSON.stringify(manifestFile)}; ARTIFACT_PATH=${JSON.stringify(artifactPath)}; CAPABILITY_SEAL=${JSON.stringify(capabilitySeal)}; TARGET=${JSON.stringify(target)}; COUNT=${count}; LIMIT_KEYS=['maxBytes','maxCollectionLength','maxDepth','maxDiagnostics','maxEvents','maxStringBytes']
+sys.stdout.reconfigure(encoding='utf-8',errors='strict',newline='\\n')
 def canonical(v):
     if v is None:return 'null'
     if isinstance(v,bool):return 'true' if v else 'false'
@@ -26,6 +27,7 @@ def canonical(v):
     if isinstance(v,list):return '['+','.join(canonical(x) for x in v)+']'
     if isinstance(v,dict):return '{'+','.join(json.dumps(k,ensure_ascii=False,separators=(',',':'))+':'+canonical(v[k]) for k in sorted(v,key=lambda x:[ord(c) for c in x]))+'}'
     raise ValueError('non-portable JSON')
+def emit(v):print(canonical(v))
 def exact(v, keys): return isinstance(v,dict) and set(v)==set(keys)
 def positive(v): return isinstance(v,int) and not isinstance(v,bool) and v>0 and v<=9007199254740991
 def portable(v): return isinstance(v,dict) and ((set(v)=={'tag'} and v.get('tag')=='null') or (set(v)=={'tag','value'} and ((v.get('tag')=='text' and isinstance(v['value'],str)) or (v.get('tag')=='boolean' and isinstance(v['value'],bool)) or (v.get('tag')=='integer' and isinstance(v['value'],str) and re.fullmatch(r'-?(?:0|[1-9][0-9]*)',v['value']) is not None and -(2**53-1)<=int(v['value'])<=2**53-1))))
@@ -89,19 +91,19 @@ ${params}
 ${statements.join('')}
 async def main():
     try:raw=sys.stdin.buffer.read();r=json.loads(raw)
-    except Exception:print(canonical(fail({},'invalid-handler-arguments','link')));return
+    except Exception:emit(fail({},'invalid-handler-arguments','link'));return
     try:bad=validate(r,raw)
     except Exception:bad='handler-link-error'
-    if bad:print(canonical(fail(r,bad,'link' if bad=='handler-link-error' else 'execution')));return
-    if r['control']['preCancelled']:print(canonical(fail(r,'execution-cancelled')));return
+    if bad:emit(fail(r,bad,'link' if bad=='handler-link-error' else 'execution'));return
+    if r['control']['preCancelled']:emit(fail(r,'execution-cancelled'));return
     c={'events':[],'index':0,'request':r,'tick':0}
     try:
         result=await handler(r['arguments'],c)
         if c['index']!=COUNT:raise Exception('capability-error')
         response={'completion':{'kind':'return'},'diagnostics':[],'events':c['events'],'format':'kern.runtime.kir.r0','outcome':'success','requestId':r['requestId'],'result':result}
         if len((canonical(response)+'\\n').encode())>r['limits']['maxBytes']:raise Exception('runtime-limit-exceeded')
-        print(canonical(response))
-    except Exception as e:print(canonical(fail(r,str(e) if str(e) in ['capability-error','execution-cancelled','execution-timeout','runtime-limit-exceeded'] else 'internal-runner-error')))
+        emit(response)
+    except Exception as e:emit(fail(r,str(e) if str(e) in ['capability-error','execution-cancelled','execution-timeout','runtime-limit-exceeded'] else 'internal-runner-error'))
 asyncio.run(main())
 `;
 }

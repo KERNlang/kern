@@ -18,11 +18,11 @@
     },
     {
       "artifactPath": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a/python/main.py",
-      "artifactSha256": "6537b560aab2c336972b14354b8abafab6ead2c7275fbde64c64106175c30540",
+      "artifactSha256": "fade0cb73d541874918554245303b03961cc67503cf8442acd26861d093b513f",
       "capabilities": [{ "namespace": "r0fixture", "operation": "resolve" }],
       "compilerRequestSha256": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a",
       "manifestPath": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a/python/manifest.json",
-      "manifestSha256": "ca875b3804f98f8e3d6ffdb88b4c1c4c1a750031c8a978e3cf2dcc4d7da69a5a",
+      "manifestSha256": "7926e4c6386c4c1119e3acf79e03a607cb2ca4c22467995bdbfc42e598568102",
       "target": "python"
     }
   ]

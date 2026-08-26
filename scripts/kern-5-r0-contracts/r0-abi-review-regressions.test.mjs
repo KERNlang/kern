@@ -45,18 +45,21 @@ async function harness(input = defaultInput(), outputPrefix = 'kern-r0-review-')
   function run(target, overrides = {}) {
     return parseCanonicalJsonBytes(runTargetArtifact(target, resolve(outputRoot, targets[target].artifact.path), request(target, overrides)), `${target} response`);
   }
-  function runRaw(target, raw) {
+  function runRaw(target, raw, { env = process.env } = {}) {
     const command = target === 'javascript-esm' ? (process.env.KERN_NODE22 ?? process.execPath) : 'python3';
-    const result = spawnSync(command, [resolve(outputRoot, targets[target].artifact.path)], { encoding: null, input: raw });
+    const result = spawnSync(command, [resolve(outputRoot, targets[target].artifact.path)], { encoding: null, env, input: raw });
     assert.equal(result.status, 0, `${target} raw target exited cleanly: ${result.stderr.toString('utf8')}`);
     return parseCanonicalJsonBytes(result.stdout, `${target} raw response`);
   }
   return { dispose: () => rmSync(outputRoot, { force: true, recursive: true }), generated, manifest, outputRoot, request, run, runRaw, targets };
 }
 
-function exactFailure(response, code, requestId) {
+function exactFailure(response, code, requestId, phase = 'execution') {
+  assert.deepEqual(response.completion, { kind: 'error' });
+  assert.equal(response.diagnostics.length, 1);
+  assert.deepEqual(response.diagnostics[0], { category: 'runtime', code, phase });
+  assert.equal(response.outcome, 'failure');
   assert.equal(response.requestId, requestId);
-  assert.equal(response.diagnostics[0].code, code);
   assert.deepEqual(response.events, []);
   assert.deepEqual(response.result, { presence: 'absent' });
 }
@@ -133,7 +136,7 @@ test('tampered compiler and semantic sidecar digests fail as canonical handler l
       const tampered = { ...original, [key]: original[key] === 'f'.repeat(64) ? 'e'.repeat(64) : 'f'.repeat(64) };
       const bytes = canonicalJsonBytes(tampered);
       writeFileSync(resolve(probe.outputRoot, probe.targets[target].manifest.path), bytes);
-      exactFailure(probe.run(target, { artifactManifestSha256: sha256Hex(bytes) }), 'handler-link-error', `review-${target}`);
+      exactFailure(probe.run(target, { artifactManifestSha256: sha256Hex(bytes) }), 'handler-link-error', `review-${target}`, 'link');
       writeFileSync(resolve(probe.outputRoot, probe.targets[target].manifest.path), pristine.bytes);
     }
   } finally { probe.dispose(); }
@@ -190,6 +193,18 @@ test('escaped lone surrogate request IDs return a canonical failure on both targ
     );
     assert.deepEqual(responses[0], responses[1]);
     exactFailure(responses[0], 'invalid-handler-arguments', null);
+  } finally { probe.dispose(); }
+});
+
+test('Python emits canonical UTF-8 bytes independently of the stdout locale', async () => {
+  const probe = await harness();
+  try {
+    const requestId = 'réview-python';
+    const response = probe.runRaw('python', canonicalJsonBytes(probe.request('python', { requestId })), {
+      env: { ...process.env, PYTHONIOENCODING: 'ascii' },
+    });
+    assert.equal(response.outcome, 'success');
+    assert.equal(response.requestId, requestId);
   } finally { probe.dispose(); }
 });
 
