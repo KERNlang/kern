@@ -1,10 +1,6 @@
 name: CI
 
 on:
-  # `push` only on main (post-merge sanity); dev is NOT here on purpose — a
-  # push to dev while a dev→main PR is open otherwise runs CI twice (push +
-  # pull_request) on the same code. dev iteration is gated locally (pre-push
-  # rule-based review + tests) and validated by the dev→main PR run below.
   push:
     branches: [main]
   pull_request:
@@ -15,83 +11,119 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  quality:
+    name: Quality and contract gates
     runs-on: ubuntu-latest
-
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-
       - name: Activate pnpm
         run: |
           corepack enable
           corepack prepare pnpm@10.32.1 --activate
           pnpm --version
-
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-
-      - name: Install Python MCP SDK (for transpiler E2E tests)
+      - name: Install Python MCP SDK
         run: pip install mcp
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-
       - name: Lint
         run: pnpm lint
-
+      - name: CI test tier contract
+        run: pnpm test:ci-contract
       - name: Build
         run: pnpm build
-
-      - name: Frozen runtime contract v1
-        run: pnpm test:kern-runtime-contract-v1
-
       - name: Verify kern facades in sync
         run: pnpm --filter @kernlang/test kern:check
-
       - name: Rule coverage gate
         run: pnpm check:rule-coverage
-
       - name: Python codegen quality gate
         run: pnpm check:python-codegen
-
-      # Differential parity gate: executes portable KERN expressions through BOTH
-      # the Python (FastAPI) and Express (JS) codegen paths and diffs the runtime
-      # results. Unlike the codegen quality gate above (ast-valid but semantically
-      # blind), this proves Python<->TS behavioral parity by actually running the
-      # generated artifacts -- it is what caught the host-builtin and array/string
-      # method portability bug cliffs. Needs python3 (set up above) + the built
-      # core/python/express dist (the script builds them).
-      - name: Differential conformance (Python<->Express parity)
+      - name: Differential conformance
         run: pnpm check:conformance
-
-      - name: Test (excluding IR-semantics harness)
-        run: pnpm test:non-semantics
-
       - name: Contract docs drift
         run: pnpm docs:contracts:check
 
-      # PR-5b — IR-semantics differential harness lives in its own step (not
-      # folded into `pnpm test:non-semantics`) so its contract-docs summary
-      # stays separate; local `pnpm test` keeps running everything. Graduated
-      # to a blocking step on 2026-06-01 (UTC) — the burn-in window closed with
-      # the harness green, so the date-gate, the `KERN_SEMANTICS_GATE` repo-var
-      # escape hatch, and the expiry guard were removed.
-      - name: Differential harness (IR semantics)
+  infrastructure-contracts:
+    name: Infrastructure contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Infrastructure contracts
+        run: pnpm test:infra:contracts
+
+  package-tests:
+    name: Package tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Python MCP SDK
+        run: pip install mcp
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Package tests excluding the differential harness
+        run: pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics
+
+  semantics:
+    name: IR semantics contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Python MCP SDK
+        run: pip install mcp
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Differential harness
         shell: bash
         run: |
-          # PR-5 buddy-review fix (codex 0.97): capture pipeline status BEFORE
-          # the summary block, then exit with it. Without `exit "$status"` the
-          # step's exit code is whatever the last command in the run block
-          # produces (the summary `>>` redirect, always 0), which silently
-          # swallows harness failures.
           set -o pipefail
           status=0
           pnpm test:ir-semantics 2>&1 | tee semantics.log || status=$?
@@ -101,7 +133,6 @@ jobs:
             pnpm docs:contracts
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
-
       - name: Upload contract artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -112,24 +143,174 @@ jobs:
             semantics.log
           if-no-files-found: warn
 
-      - name: Native KERN Tests
+  frontend-foundation:
+    name: Frontend foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Frontend foundation
+        run: pnpm test:pr-frontend-foundation
+
+  frontend-properties-core:
+    name: Frontend generic properties core
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Frontend generic properties core
+        run: pnpm test:pr-frontend-properties-core
+
+  frontend-properties-extended:
+    name: Frontend generic properties extended
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Frontend generic properties extended
+        run: pnpm test:pr-frontend-properties-extended
+
+  frontend-composition:
+    name: Frontend composition
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Focused frontend composition
+        run: pnpm test:pr-frontend-composition
+
+  frontend-language:
+    name: Frontend F1 through F4
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Frontend language layers
+        run: pnpm test:pr-frontend-language
+
+  frontend-tooling:
+    name: Frontend canonicalizer, checker, and formatter
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Frontend tooling
+        run: pnpm test:pr-frontend-tooling
+
+  product-smoke:
+    name: Native, runner, and preview gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Python MCP SDK
+        run: pip install mcp
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Native KERN tests
         run: pnpm test:kern
-
-      # Runner smoke + browser budget gate (KERN 5 plan, milestone 5.0): runs
-      # `kern run` smoke fixtures, the KERN 5 preview app end-to-end check, and
-      # the browser-runner budget (import-graph invariant: the browser entry
-      # must never pull `typescript` or Node builtins; static closure size,
-      # cold import+execute, and — when Chrome is present on the runner — a
-      # measured headless-browser lane). Previously manual-only, which meant a
-      # browser-unsafe import could merge green.
-      - name: Runner smoke + browser budget
+      - name: Runner smoke and browser budget
         run: pnpm test:runner-smoke
+      - name: KIR Review Preview
+        run: pnpm test:kern-review-kir-preview
 
-      # PR review is handled by the kern-guard GitHub App (KERNlang/kern-guard),
-      # installed on this repo — it runs the same @kernlang/review engine on the
-      # PR head (changed files only, baseline-deduped, posted as Checks
-      # annotations) in parallel with this workflow. The old in-CI
-      # `kern review packages/ --recursive` step was removed so review no longer
-      # serializes inside Actions. Local fail-fast still runs rule-based review
-      # in the pre-push hook; the agon multi-engine review remains the hard gate
-      # before commits.
+  build-and-test:
+    name: Build & Test
+    if: ${{ always() }}
+    needs: [quality, infrastructure-contracts, package-tests, semantics, frontend-foundation, frontend-properties-core, frontend-properties-extended, frontend-composition, frontend-language, frontend-tooling, product-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI lane to succeed
+        run: |
+          for result in "${{ needs.quality.result }}" "${{ needs.infrastructure-contracts.result }}" "${{ needs.package-tests.result }}" "${{ needs.semantics.result }}" "${{ needs.frontend-foundation.result }}" "${{ needs.frontend-properties-core.result }}" "${{ needs.frontend-properties-extended.result }}" "${{ needs.frontend-composition.result }}" "${{ needs.frontend-language.result }}" "${{ needs.frontend-tooling.result }}" "${{ needs.product-smoke.result }}"; do
+            if [ "$result" != success ]; then
+              echo "A required CI lane did not succeed: $result"
+              exit 1
+            fi
+          done

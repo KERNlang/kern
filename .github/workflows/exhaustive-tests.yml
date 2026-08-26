@@ -1,0 +1,57 @@
+name: Exhaustive Tests
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Exhaustive ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeoutMinutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: contracts
+            script: pnpm test:infra:contracts
+            timeoutMinutes: 75
+          - name: frontend-foundation
+            script: pnpm test:pr-frontend-foundation
+            timeoutMinutes: 75
+          - name: frontend-properties-core
+            script: pnpm test:pr-frontend-properties-core
+            timeoutMinutes: 75
+          - name: frontend-properties-extended
+            script: pnpm test:pr-frontend-properties-extended
+            timeoutMinutes: 75
+          - name: frontend-composition
+            script: pnpm test:exhaustive-frontend-composition
+            timeoutMinutes: 180
+          - name: frontend-language
+            script: pnpm test:pr-frontend-language
+            timeoutMinutes: 75
+          - name: frontend-tooling
+            script: pnpm test:pr-frontend-tooling
+            timeoutMinutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run exhaustive evidence
+        run: ${{ matrix.script }}
