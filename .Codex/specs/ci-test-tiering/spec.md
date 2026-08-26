@@ -62,6 +62,9 @@ Selected: keep focused behavior and contract gates blocking on pull requests, mo
 - [x] The contract test is RED on the pre-change tree because focused scripts and exhaustive workflow are absent.
 - [x] No PR CI job invokes `pnpm test`, `pnpm test:non-semantics`, `pnpm test:infra`, or the full successful-line replay wall.
 - [x] PR CI invokes the KIR Review Preview gate and a bounded `infrastructure-contracts` lane.
+- [x] The `package-tests` lane runs the package-only TypeScript and CLI-artifact train (`pnpm build:packages`) after dependency installation and before recursive package tests, excluding the `@kernlang/playground` production Next build; a standalone CLI prebuild cannot substitute.
+- [x] Root `pnpm build` composes `pnpm build:packages` with the `@kernlang/playground` production build, which remains in `product-smoke`.
+- [x] KIR Review Preview failures retain a bounded inner diagnostic so packed-consumer contract failures remain actionable.
 - [x] `test:infra` composes `test:infra:contracts`, then invokes every current frontend fitness gate in order with no duplicate segment.
 - [x] The focused successful-line command and every PR-reachable frontend leaf run behavior checks without `replay.test.mjs` or a cumulative regression-wall script.
 - [x] The scheduled/manual exhaustive workflow runs bounded contracts, foundation, properties-core, properties-extended, full composition, language, and tooling shards; it must not invoke the monolithic `test:infra` command.

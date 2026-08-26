@@ -13,7 +13,8 @@
   "homepage": "https://github.com/KERNlang/kern#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "build": "tsc -b && node ./scripts/build-kern-canonicalizer-cli-assets.mjs && node ./scripts/build-kern-checker-cli-assets.mjs && node ./scripts/build-kern-formatter-cli-assets.mjs && pnpm --filter @kernlang/playground build",
+    "build:packages": "tsc -b && node ./scripts/build-kern-canonicalizer-cli-assets.mjs && node ./scripts/build-kern-checker-cli-assets.mjs && node ./scripts/build-kern-formatter-cli-assets.mjs",
+    "build": "pnpm build:packages && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test && pnpm test:infra && pnpm check:rule-coverage",
     "test:non-semantics": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:infra && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
@@ -42,7 +43,7 @@
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
     "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
-    "test:kern-review-kir-preview": "node ./scripts/kern-review-kir-preview/gate.mjs",
+    "test:kern-review-kir-preview": "node --test ./scripts/kern-review-kir-preview/diagnostics.test.mjs && node ./scripts/kern-review-kir-preview/gate.mjs",
     "test:kern-semantic-ownership": "node --test scripts/semantic-ownership/validate.test.mjs && node ./scripts/check-semantic-ownership.mjs",
     "test:kern-ir-eligibility": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/validate-eligibility.test.mjs && node ./scripts/check-kir-v1-eligibility.mjs",
     "test:kern-ir-profile": "pnpm --filter @kernlang/core build && node --import tsx --test packages/core/tests/kir-v1.test.ts && node --test scripts/kir-v1/acceptance-manifest.test.mjs && node ./scripts/check-kir-v1-profile.mjs",
