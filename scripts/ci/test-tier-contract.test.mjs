@@ -23,6 +23,10 @@ function workflowJob(workflow, id) {
   return next < 0 ? workflow.slice(start) : workflow.slice(start, bodyStart + next);
 }
 
+function commandIndex(job, command) {
+  return job.indexOf(`        run: ${command}\n`);
+}
+
 const prFrontendTiers = [
   'test:pr-frontend-foundation',
   'test:pr-frontend-properties-core',
@@ -138,6 +142,29 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
     assert.match(job, /python-version: '3\.12'/u);
     assert.match(job, /pip install mcp/u);
   }
+
+  const packageTests = workflowJob(workflow, 'package-tests');
+  assert.match(packageTests, /name: Package tests excluding IR semantics/u);
+  const cliBuildIndex = commandIndex(packageTests, 'pnpm --filter @kernlang/cli build');
+  const packageTestIndex = commandIndex(
+    packageTests,
+    "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics",
+  );
+  assert.ok(cliBuildIndex >= 0, 'package tests must build their cross-package CLI dependency');
+  assert.ok(
+    cliBuildIndex < packageTestIndex,
+    'package tests must build the CLI before @kernlang/python runs its differential test',
+  );
+
+  const productSmoke = workflowJob(workflow, 'product-smoke');
+  const packageTrainBuildIndex = commandIndex(productSmoke, 'pnpm build');
+  const runnerSmokeIndex = commandIndex(productSmoke, 'pnpm test:runner-smoke');
+  const previewTestIndex = commandIndex(productSmoke, 'pnpm test:kern-review-kir-preview');
+  assert.ok(packageTrainBuildIndex >= 0, 'product smoke must build the complete package train');
+  assert.ok(
+    runnerSmokeIndex < packageTrainBuildIndex && packageTrainBuildIndex < previewTestIndex,
+    'product smoke must build the complete package train after runner smoke and before packed-consumer preview',
+  );
 
   const semantics = workflowJob(workflow, 'semantics');
   assert.match(semantics, /status=0/u);
