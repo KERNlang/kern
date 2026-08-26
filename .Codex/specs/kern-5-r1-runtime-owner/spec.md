@@ -89,7 +89,7 @@ with source or turns KIR expressions back into source before execution.
 | Request | Exact plain data `{ format, requestId, entry, arguments, control, limits }`; arguments are named tagged portable values; never source, IR, topology, transcript, or expected output | RT-1 contract decision derived from R0 `runtime-request.json:14-101` | DECIDED |
 | Capabilities | Options provide one async `invoke({ namespace, operation, input, signal })` callback returning a tagged portable slot; calls/results become ordered tagged events | RT-1 contract decision derived from `runtime-handler.ts:20-68,93-102` and R0 event shape | DECIDED |
 | Result | Closed `{ completion, diagnostics, events, format, outcome, requestId, result }` envelope; portable values use R0 tags `null`, `boolean`, `text`, `integer`, `decimal`, `list`, and `record` | RT-1 contract decision derived from `schema/runtime-envelope.json:5-30` and existing internal value closure | DECIDED |
-| Unsupported input | One atomic failure envelope, zero partial effects | KERN 5 goal and R0 contract | VERIFIED precedent |
+| Unsupported semantic shape | Complete preflight fails before provider calls or events; a later data/runtime failure preserves every already committed capability event | KERN 5 fail-closed goal plus RT-1 auditability correction | DECIDED |
 
 The owner marker, format, request, capability, and result shapes above are
 frozen RT-1 contract decisions and become source authority in the new contracts
@@ -120,8 +120,12 @@ explicitly admitted KIR node/expression kinds; meter every step, value, string,
 event, diagnostic, and call depth; and return exact envelopes.
 
 This is the only option that creates package ownership now while making parser
-reachability mechanically impossible. Unsupported semantics remain explicit
-and become the queue for later RT slices.
+reachability mechanically impossible from the semantic evaluator. The public
+owner has one read-only authentication edge to the packaged F5 producer so it
+can consult the producer-private `WeakMap`; the closure oracle treats that edge
+as an explicit boundary and separately proves that evaluator modules cannot
+reach parsing, inflation, or legacy runners. Unsupported semantics remain
+explicit and become the queue for later RT slices.
 
 ### B — Refactor or wrap the internal effect machine
 
@@ -161,6 +165,24 @@ selection; later slices replace the bootstrap evaluator behind the same oracle.
 
 Every handwritten source file remains below 500 lines. New logic is not added
 to already oversized legacy runtime files.
+
+### Authentication and JavaScript module boundary
+
+RT-1 keeps verified projection issuance inside `frontend-projection.ts`'s
+lexical scope. The emitted authentication facade is read-only: it can check the
+producer-private `WeakMap`, but it cannot issue, mint, or register an object.
+The runtime's authenticated import closure therefore reaches the packaged F5
+producer module solely for this private identity check. Its semantic evaluator
+closure stops at that facade and remains unable to reach or call a parser,
+structural inflater, runner, compatibility engine, or fallback.
+
+This boundary rejects ordinary same-process clones, reconstructions, detached
+bytes, and direct-file imports attempting to find an issuance API. JavaScript
+module encapsulation does not defend against a caller that can rewrite installed
+package files, replace the module loader, or otherwise execute code inside the
+producer module's lexical scope; those are package/process integrity threats,
+not supported runtime inputs. No claim of resistance to such host compromise is
+made.
 
 ## Acceptance Criteria
 
@@ -262,3 +284,15 @@ producer-first/consumer-second migration. Silent mutation is forbidden.
 | Existing private KIR handler could be promoted directly. | It inflates canonical expressions to strings and reaches `parseExpression`. | Direct promotion is rejected; RT-1 gets an isolated closure. |
 | A new branded projection shape was needed. | `verifyKernProjection` already issues a non-forgeable same-process brand. | Consume the existing verified type and runtime check. |
 | R0 adapters could become the package runtime. | They are generated test targets using sealed transcripts. | Reuse their contracts/fixtures, not their ownership model. |
+| A separately emitted shared brand module could safely expose issuance. | Direct file-URL imports bypass package exports and could call the issuer. | Issuance is producer-private; the runtime imports a read-only authentication facade and the closure oracle distinguishes authentication from semantic reachability. |
+
+## Mutation follow-up
+
+The RT-1 regression gate covers the surviving negative-zero integer, UTF-8 byte
+count, extended-array property, zero-limit, bare `Json`, exact depth and
+collection boundaries, malformed surrogate/control character, missing required
+property, and one-child leaf mutations. Manifest-rotation mutation is not
+directly injected: the live manifest is package asset state and adding a public
+or test-only rotation hook would weaken the exact authentication boundary this
+slice repairs. The production equality check remains in place; rotation is
+covered when the package asset lifecycle gains an isolated asset-root harness.
