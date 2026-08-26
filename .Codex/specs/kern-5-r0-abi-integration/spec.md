@@ -1,6 +1,6 @@
 # KERN 5 R0 Executable ABI Integration
 
-**Status:** INTEGRATED ON CURRENT MAIN — FINAL GATES, REVIEW, AND PUSH PENDING
+**Status:** FOCUSED GATES, REVIEW, AND MUTATION GREEN — PUSH PENDING
 **Date:** 2026-08-26
 **Current base:** `origin/main` at `aae0a0fe44b1aaba88addcb1995cd66e2af2254d`
 **Historical candidate:** `feat/kern-5-r0-abi`, commits `d4f401c1..b7fb9492`
@@ -200,10 +200,10 @@ workflows, versions, tags, and publication configuration remain untouched.
       and change `changed`; base/head source differs only in the semantic
       module-name root.
 - [x] Review remains advisory and no terminal KERN 5 gate is promoted.
-- [ ] Focused gates and current risk-routed independent review pass on the
+- [x] Focused gates and current risk-routed independent review pass on the
       final candidate.
 - [x] All handwritten source files remain under 500 lines.
-- [ ] All new commits carry the required Agon author and footer.
+- [x] All new commits carry the required Agon author and footer.
 - [ ] The feature branch is pushed once and remote SHA equals local HEAD.
 
 ## Mutation Controls
@@ -261,6 +261,38 @@ hardening, asserts the complete one-item finding array, and continues to assert
 status and empty diagnostics so silent advisory failure is red. No unresolved
 design dependency remains. **VERIFIED design decision.** Revised confidence:
 0.96.
+
+## Final Verification Evidence
+
+- **VERIFIED:** `pnpm test:kern-5-r0-contracts` passes 42 tests plus the
+  authenticated checker. The final manifest digest is
+  `1eb42818b905578da2393a37ec94fd35456448f5940ad36663702c6b33141900`.
+- **VERIFIED:** `pnpm test:kern-review-kir-preview` passes its manifest, three
+  package builds, and five implementation tests after the required root build.
+- **VERIFIED:** `pnpm test:kern-kir-runtime-binding` passes 5 tests and
+  `pnpm test:kern-runtime-contract-v1` passes 82 tests plus its checker.
+- **VERIFIED:** `pnpm build`, `pnpm build:packages`, `pnpm lint`, and
+  `git diff --check` pass. The Next.js build emits only the pre-existing
+  TypeScript externalization and dynamic-trace warnings.
+- **VERIFIED:** High-risk role-lens review run
+  `review-1787750091803-jfhikf-kern5-r0-current-main` found a real hostile
+  request-identity crash. The candidate now redacts the non-encodable identity
+  and emits the same canonical failure from both targets.
+- **VERIFIED:** Targeted security review run
+  `review-1787751186008-97s8i5-kern5-r0-request-id-fix` confirmed the blocker
+  fix and identified Python stdout encoding and failure-oracle nits; both are
+  fixed and regression-tested.
+- **VERIFIED:** Routing retry
+  `review-1787752495673-z2wtmy-kern5-r0-routing-retry` filled the original
+  timed-out reviewer seat with no blocker. Its timing-tool portability concern
+  does not fail the supported macOS/Linux gate, which intentionally fails
+  closed when peak-RSS measurement is unavailable.
+- **VERIFIED:** Mutation run
+  `mutate-1787752023040-cvt3hn-kern5-r0-node22-final` used the pinned Node 22
+  environment and killed all 25 selected mutations (16 semantic and 9
+  mechanical), with zero survivors.
+- **VERIFIED:** All 16 commits reachable from current `origin/main` use the
+  required Agon author identity and exact forging/co-author footer.
 
 ## Deployment, Skew, and Rollback
 
