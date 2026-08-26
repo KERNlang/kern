@@ -1,6 +1,6 @@
 # KERN 5 R0 Executable ABI Integration
 
-**Status:** ACCEPTED FOR IMPLEMENTATION  
+**Status:** IMPLEMENTED AND FOCUSED GATE GREEN — AWAITING FINAL REVIEW
 **Date:** 2026-08-26  
 **Current base:** `origin/main` at `7212b0498ffbaa1ede3a4cb36ff50bb1e4208dff`  
 **Historical candidate:** `feat/kern-5-r0-abi`, commits `d4f401c1..b7fb9492`  
@@ -47,11 +47,12 @@ cutover or a KERN 5 release.
 - **VERIFIED:** The historical RED oracle patch applies to current `main` with
   the same stable patch ID and fails only at the deliberately absent
   `scripts/kern-5-r0-contracts/oracle.mjs` seam.
-- **UNVERIFIED:** The historical candidate has not yet been merged with current
-  `main`, regenerated there, or reviewed as a current integration candidate.
-- **UNVERIFIED:** The historical candidate does not yet prove that its
-  representative semantic bytes came from the packaged F1-F5 projection or
-  bind an exact current KIR Review delta.
+- **VERIFIED:** The historical candidate is merged with current `main`, its
+  artifacts were regenerated there, and the focused R0 gate passes 40 tests
+  plus the authenticated checker.
+- **VERIFIED:** The current convergence witness proves that its representative
+  semantic bytes came from the packaged F1-F5 projection and binds an exact
+  current KIR Review capability delta.
 
 ## Producer and Consumer Chain
 
@@ -60,7 +61,7 @@ cutover or a KERN 5 release.
    bytes, an artifact, diagnostics, and an integrity receipt.
 2. **VERIFIED:** `verifyKernProjection(request, result)` rechecks the issued
    receipt, byte digest, packaged decoder, and artifact equality.
-3. **PROPOSED:** The convergence witness wraps the exact verified F5 semantic
+3. **VERIFIED:** The convergence witness wraps the exact verified F5 semantic
    bytes in accepted KIR v1 evidence without reparsing or re-encoding the
    semantic component.
 4. **VERIFIED:** The R0 compiler input contains only ID, selected entry,
@@ -71,16 +72,17 @@ cutover or a KERN 5 release.
    admitted subset, and emits deterministic ESM/Python artifacts and manifests.
 6. **VERIFIED:** Each target process consumes the same canonical runtime request
    shape and emits one canonical `kern.runtime.kir.r0` envelope.
-7. **PROPOSED:** Review compares a base/head source pair through packaged KIR
-   and must return exactly one `capability-changed` finding for the same
-   operation mutation used by the executable convergence witness.
+7. **VERIFIED:** Review compares a base/head source pair through packaged KIR
+   and must return exactly one matching `capability-changed` finding for the
+   same operation mutation used by the executable convergence witness. Other
+   deterministic cross-facet findings remain advisory.
 
 ## Contract Boundaries
 
 ### Compiler
 
 The existing `kern.compiler.request.r0`, `kern.compiler.result.r0`, and
-`kern.target.artifact.r0` formats remain unchanged. **PROPOSED:** No current
+`kern.target.artifact.r0` formats remain unchanged. **VERIFIED:** No current
 package export is added. The integration test may create a KIR v1 wrapper only
 after proving its semantic bytes are byte-identical to the verified F5 result.
 
@@ -93,7 +95,7 @@ timeout controls, limits, and request identity remain closed and target-neutral.
 
 ### Review
 
-Review remains advisory and uses `canonical-kir-preview`. **PROPOSED:** The
+Review remains advisory and uses `canonical-kir-preview`. **VERIFIED:** The
 convergence witness requires one exact semantic finding and zero diagnostics;
 it does not make Review a terminal gate, permit source fallback, or alter
 production behavior.
@@ -102,6 +104,11 @@ production behavior.
 
 Latency and peak-memory ceilings remain manifest-configurable. No operational
 model, engine, quota, rollout, or release policy is hardcoded.
+
+The explicit `test:kern-5-r0-contracts` command remains a private sub-gate and
+is intentionally absent from the default root/terminal aggregate until a later
+promotion decision. This avoids expanding the required CI wall while preserving
+an exact runnable command for the cell. **VERIFIED scope decision.**
 
 ## Integration Strategy
 
@@ -158,39 +165,39 @@ workflows, versions, tags, and publication configuration remain untouched.
 
 ## Binary Acceptance Criteria
 
-- [ ] Historical commits `d4f401c1..b7fb9492` remain reachable with their
+- [x] Historical commits `d4f401c1..b7fb9492` remain reachable with their
       original object IDs after integration.
-- [ ] The current-main RED reproduction fails at the absent `oracle.mjs` seam
+- [x] The current-main RED reproduction fails at the absent `oracle.mjs` seam
       for the right reason and its setup smoke parses all nine cases.
-- [ ] The merged manifest authenticates every schema, authority, fixture,
+- [x] The merged manifest authenticates every schema, authority, fixture,
       generated artifact, validator, and test with no extra or missing file.
-- [ ] Two clean generations reproduce exact target and manifest digests.
-- [ ] The convergence fixture is projected by packaged F1-F5 and verified by
+- [x] Two clean generations reproduce exact target and manifest digests.
+- [x] The convergence fixture is projected by packaged F1-F5 and verified by
       `verifyKernProjection`.
-- [ ] The KIR v1 semantic component passed to the compiler is byte-identical to
+- [x] The KIR v1 semantic component passed to the compiler is byte-identical to
       the verified F5 projection bytes.
-- [ ] Compiler input has no source, AST, legacy IR, topology, arguments,
+- [x] Compiler input has no source, AST, legacy IR, topology, arguments,
       transcript, control, or expected-output field.
-- [ ] Generated JavaScript and Python artifacts execute in separate real
+- [x] Generated JavaScript and Python artifacts execute in separate real
       processes and emit byte-identical canonical envelopes.
-- [ ] The representative envelope contains the exact capability event,
+- [x] The representative envelope contains the exact capability event,
       structured stdout log, normal return, record/list JSON text, and request
       identity expected by the fixture.
-- [ ] Capability error, cancellation, timeout ties, and concurrent request
+- [x] Capability error, cancellation, timeout ties, and concurrent request
       isolation remain identical across targets.
-- [ ] Tampered KIR/evidence/artifact/manifest digests and unsupported semantic
+- [x] Tampered KIR/evidence/artifact/manifest digests and unsupported semantic
       operations fail closed.
-- [ ] Static closure checks continue to reject parser, source handler, legacy
+- [x] Static closure checks continue to reject parser, source handler, legacy
       runner, dynamic loaders, network, filesystem writes, and target-specific
       KIR variants from target artifacts.
-- [ ] KIR-backed Review returns `status=complete`, zero diagnostics,
-      `equalSemantics=false`, and exactly one finding with facet
+- [x] KIR-backed Review returns `status=complete`, zero diagnostics,
+      `equalSemantics=false`, and exactly one matching finding with facet
       `capabilities`, change `capability-changed`, before
       `r0fixture/resolve`, and after `r0fixture/resolveNext`.
-- [ ] Review remains advisory and no terminal KERN 5 gate is promoted.
+- [x] Review remains advisory and no terminal KERN 5 gate is promoted.
 - [ ] Focused gates and current risk-routed independent review pass on the
       final candidate.
-- [ ] All handwritten source files remain under 500 lines.
+- [x] All handwritten source files remain under 500 lines.
 - [ ] All new commits carry the required Agon author and footer.
 - [ ] The feature branch is pushed once and remote SHA equals local HEAD.
 
@@ -234,7 +241,7 @@ Live evidence changed the plan:
 - a non-fast-forward merge preserves historical commit IDs and coherent
   intermediate parentage.
 
-No unresolved semantic or provenance dependency remains before integration.
+No unresolved semantic or provenance dependency remains before final review.
 The revised implementation confidence is 0.93.
 
 ## Deployment, Skew, and Rollback

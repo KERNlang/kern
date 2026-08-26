@@ -1,6 +1,6 @@
 # KERN 5 R0-ABI Executable Contract Cell
 
-**Status:** IMPLEMENTED AND VERIFIED — AWAITING INTEGRATION
+**Status:** INTEGRATED — CURRENT REVIEW AND PUSH PENDING
 **Date:** 2026-08-24
 **Baseline:** `origin/main` at `032f9e574673dcc1ca497458452556da49e2d4cd`
 **Planning authority:** KERN 5 runtime/compiler/review replan carried by
