@@ -182,6 +182,17 @@ test('escaped lone surrogates have parity and are invalid handler arguments at t
   } finally { probe.dispose(); }
 });
 
+test('escaped lone surrogate request IDs return a canonical failure on both targets', async () => {
+  const probe = await harness();
+  try {
+    const responses = ['javascript-esm', 'python'].map((target) =>
+      probe.runRaw(target, canonicalJsonBytes(probe.request(target, { requestId: '\ud800' }))),
+    );
+    assert.deepEqual(responses[0], responses[1]);
+    exactFailure(responses[0], 'invalid-handler-arguments', null);
+  } finally { probe.dispose(); }
+});
+
 test('a non-object capability transcript item is invalid-handler-arguments on both targets', async () => {
   const probe = await harness();
   try {

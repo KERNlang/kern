@@ -38,7 +38,13 @@ def valid_step(s):
     if not isinstance(s,dict):return False
     has_r='result' in s; has_e='error' in s; keys=['namespace','operation','input','delayTicks']+(['result'] if has_r else ['error'])
     return has_r != has_e and exact(s,keys) and isinstance(s['namespace'],str) and len(s['namespace'])>0 and isinstance(s['operation'],str) and len(s['operation'])>0 and s['input']=={'presence':'absent'} and isinstance(s['delayTicks'],int) and not isinstance(s['delayTicks'],bool) and s['delayTicks']>=0 and s['delayTicks']<=9007199254740991 and (not has_r or exact(s['result'],['presence','value']) and s['result']['presence']=='value' and portable(s['result']['value'])) and (not has_e or exact(s['error'],['code']) and isinstance(s['error']['code'],str) and len(s['error']['code'])>0)
-def fail(r,c,p='execution'):return {'completion':{'kind':'error'},'diagnostics':[{'category':'runtime','code':c,'phase':p}],'events':[],'format':'kern.runtime.kir.r0','outcome':'failure','requestId':r.get('requestId') if isinstance(r,dict) and isinstance(r.get('requestId'),str) else None,'result':{'presence':'absent'}}
+def safe_request_id(r):
+    v=r.get('requestId') if isinstance(r,dict) else None
+    if not isinstance(v,str):return None
+    try:v.encode()
+    except UnicodeEncodeError:return None
+    return v
+def fail(r,c,p='execution'):return {'completion':{'kind':'error'},'diagnostics':[{'category':'runtime','code':c,'phase':p}],'events':[],'format':'kern.runtime.kir.r0','outcome':'failure','requestId':safe_request_id(r),'result':{'presence':'absent'}}
 def validate(r,raw):
     if not exact(r,['format','requestId','artifactManifestSha256','kirSha256','entry','arguments','limits','capabilityTranscript','control']):return 'invalid-handler-arguments'
     try:

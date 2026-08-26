@@ -190,6 +190,8 @@ workflows, versions, tags, and publication configuration remain untouched.
       isolation remain identical across targets.
 - [x] Tampered KIR/evidence/artifact/manifest digests and unsupported semantic
       operations fail closed.
+- [x] A non-encodable request identity produces the same canonical failure on
+      both targets and is redacted to `null` instead of crashing emission.
 - [x] Static closure checks continue to reject parser, source handler, legacy
       runner, dynamic loaders, network, filesystem writes, and target-specific
       KIR variants from target artifacts.
@@ -266,6 +268,13 @@ The cell is private and additive. Downstream RT, C-JS, and C-PY work may pin
 the final bundle manifest digest after merge. Any contract correction requires
 a new component version and explicit producer-first/consumer-second skew plan;
 silent mutation is forbidden.
+
+The provisional target processes receive stdin only from the trusted probe
+harness. They materialize the request before applying its request-owned
+`maxBytes` value. A future public or untrusted host route must add a trusted,
+configurable pre-parse input ceiling; this R0 cell neither exposes such a route
+nor promotes its request-owned limit as a denial-of-service boundary.
+**VERIFIED scope boundary.**
 
 Rollback removes the private sub-gate, bundle, and integration spec. No 4.x
 public API or production compiler/runtime route changes, so mixed published
