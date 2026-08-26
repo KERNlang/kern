@@ -13,6 +13,7 @@
     "maxBrowserImportExecuteMs": 750,
     "coldStartRuns": 5,
     "browserStartRuns": 3,
+    "chromeDevToolsStartupAttempts": 2,
     "cdpTimeoutMs": 10000
   },
   "transition": {

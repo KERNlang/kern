@@ -10,6 +10,7 @@ import {
   assertRunnerBrowserBudgetLifecycle,
   loadRunnerBrowserBudgetPolicy,
 } from './runner-browser-budget-policy.mjs';
+import { ChromeDevToolsStartupTimeoutError, retryChromeDevToolsStartup } from './runner-browser-budget-retry.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -57,6 +58,7 @@ const MAX_COLD_IMPORT_EXECUTE_MS = BUDGET_POLICY.limits.maxColdImportExecuteMs;
 const MAX_BROWSER_IMPORT_EXECUTE_MS = BUDGET_POLICY.limits.maxBrowserImportExecuteMs;
 const COLD_START_RUNS = BUDGET_POLICY.limits.coldStartRuns;
 const BROWSER_START_RUNS = BUDGET_POLICY.limits.browserStartRuns;
+const CHROME_DEVTOOLS_STARTUP_ATTEMPTS = BUDGET_POLICY.limits.chromeDevToolsStartupAttempts;
 const BROWSER_BUDGET_MODE = browserBudgetModeFromArgs() ?? process.env.KERN_BROWSER_BUDGET ?? 'auto';
 const CDP_TIMEOUT_MS = BUDGET_POLICY.limits.cdpTimeoutMs;
 const ACTIVE_CHROME_SESSIONS = new Set();
@@ -229,7 +231,15 @@ async function measureBrowserDeviceBudget() {
   try {
     for (let index = 0; index < BROWSER_START_RUNS; index += 1) {
       const url = `${server.origin}/examples/browser-runner-smoke/index.html?run=${index}`;
-      const sample = await runBrowserSmokeInChrome(chromePath, url);
+      const sample = await retryChromeDevToolsStartup(
+        () => runBrowserSmokeInChrome(chromePath, url),
+        CHROME_DEVTOOLS_STARTUP_ATTEMPTS,
+        (error, attempt) => {
+          console.warn(
+            `Chrome DevTools startup timed out on attempt ${attempt}/${CHROME_DEVTOOLS_STARTUP_ATTEMPTS}; retrying: ${error.message}`,
+          );
+        },
+      );
       samples.push(sample.browserElapsedMs);
       metrics.push(sample.metrics);
     }
@@ -489,7 +499,7 @@ async function waitForDevToolsPort(child, portFile, stderr, spawnError) {
     }
     await delay(50);
   }
-  throw new Error(`timed out waiting for Chrome DevTools port: ${stderr()}`);
+  throw new ChromeDevToolsStartupTimeoutError(stderr());
 }
 
 async function waitForPageTarget(port) {

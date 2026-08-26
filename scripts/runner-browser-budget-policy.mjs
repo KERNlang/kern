@@ -24,6 +24,7 @@ export function loadRunnerBrowserBudgetPolicy(path) {
     ['limits.maxBrowserImportExecuteMs', policy.limits.maxBrowserImportExecuteMs],
     ['limits.coldStartRuns', policy.limits.coldStartRuns],
     ['limits.browserStartRuns', policy.limits.browserStartRuns],
+    ['limits.chromeDevToolsStartupAttempts', policy.limits.chromeDevToolsStartupAttempts],
     ['limits.cdpTimeoutMs', policy.limits.cdpTimeoutMs],
     ['transition.preTransitionMaxInternalRawBytes', policy.transition.preTransitionMaxInternalRawBytes],
     ['transition.preTransitionMaxInternalGzipBytes', policy.transition.preTransitionMaxInternalGzipBytes],
