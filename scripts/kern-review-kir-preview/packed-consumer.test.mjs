@@ -21,6 +21,8 @@ const CORE_DIR = path.join(ROOT, 'packages/core');
 const CORE_SUBPATH = '@kernlang/core/frontend-projection';
 const REVIEW_SUBPATH = '@kernlang/review/kir-preview';
 const FEATURE_MODULE_URL = new URL('../../packages/core/dist/frontend-projection.js', import.meta.url);
+const CORE_REQUIRE = createRequire(path.join(CORE_DIR, 'package.json'));
+const CORE_RUNTIME_DEPENDENCIES = Object.keys(CORE_REQUIRE('./package.json').dependencies ?? {}).sort();
 const FORBIDDEN_LEGACY_REACHABILITY = /\b(?:parseWithDiagnostics|reviewKernSource|inferFromSource|ts-morph)\b/u;
 const FORBIDDEN_BOUNDARY_RECONSTRUCTION = /\b(?:parseWithDiagnostics|reviewKernSource|inferFromSource|ts-morph|parseDocumentStrict|encodeModuleKir|projectStructuralNode|deriveModuleGraph|parseExpression)\b/u;
 
@@ -45,6 +47,20 @@ async function packCore(destination) {
   const packed = JSON.parse(stdout);
   assert.equal(packed.name, '@kernlang/core', 'packed core package identity');
   return packed.filename;
+}
+
+async function packCoreRuntimeDependencies(destination) {
+  const overrides = {};
+  for (const dependencyName of CORE_RUNTIME_DEPENDENCIES) {
+    const dependencyPackagePath = CORE_REQUIRE.resolve(`${dependencyName}/package.json`);
+    const { stdout } = await execFileAsync('pnpm', [
+      '--dir', path.dirname(dependencyPackagePath), 'pack', '--pack-destination', destination, '--json',
+    ], { cwd: ROOT, maxBuffer: 4 * 1024 * 1024, timeout: 60_000 });
+    const packed = JSON.parse(stdout);
+    assert.equal(packed.name, dependencyName, `packed Core runtime dependency identity for ${dependencyName}`);
+    overrides[dependencyName] = `file:${packed.filename}`;
+  }
+  return overrides;
 }
 
 async function unpack(tarball, destination) {
@@ -253,17 +269,25 @@ test('KRI-A11 clean packed consumer projects real KERN without repository-relati
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'kern-kir-preview-consumer-'));
   try {
     const tarball = await packCore(temporary);
+    const runtimeDependencyOverrides = await packCoreRuntimeDependencies(temporary);
     const consumer = path.join(temporary, 'consumer');
+    const pnpmStore = path.join(temporary, 'isolated-pnpm-store');
     await mkdir(consumer);
-    await execFileAsync('pnpm', ['init'], {
-      cwd: consumer,
-      env: { ...process.env, CI: '1' },
-      maxBuffer: 4 * 1024 * 1024,
-      timeout: 30_000,
-    });
+    await mkdir(pnpmStore);
+    await writeFile(path.join(consumer, 'package.json'), `${JSON.stringify({
+      name: 'kern-kir-preview-consumer',
+      private: true,
+      dependencies: { '@kernlang/core': `file:${tarball}` },
+      pnpm: { overrides: runtimeDependencyOverrides },
+    }, null, 2)}\n`);
     await execFileAsync('pnpm', [
-      'add', '--offline', `file:${tarball}`,
-    ], { cwd: consumer, maxBuffer: 4 * 1024 * 1024, timeout: 60_000 });
+      'install', '--offline', '--store-dir', pnpmStore, '--frozen-lockfile=false',
+    ], {
+      cwd: consumer,
+      env: await poisonedConsumerEnvironment(temporary),
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+    });
     const source = [
       "import { projectKernModules, verifyKernProjection } from '@kernlang/core/frontend-projection';",
       `const request = { modules: [{ moduleId: 'consumer.kern', source: ${JSON.stringify(KIR_REVIEW_FIXTURES.cli.source)} }] };`,
