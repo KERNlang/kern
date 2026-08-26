@@ -1,0 +1,31 @@
+{
+  "$id": "kern.runtime.envelope.r0",
+  "additionalProperties": false,
+  "properties": {
+    "completion": {"additionalProperties": false, "properties": {"kind": {"enum": ["return", "error"], "type": "string"}}, "required": ["kind"], "type": "object"},
+    "diagnostics": {"items": {"additionalProperties": false, "properties": {"category": {"const": "runtime", "type": "string"}, "code": {"minLength": 1, "type": "string"}, "phase": {"enum": ["execution", "link"], "type": "string"}}, "required": ["category", "code", "phase"], "type": "object"}, "type": "array"},
+    "events": {"items": {"oneOf": [
+      {"additionalProperties": false, "properties": {"input": {"const": {"presence": "absent"}, "type": "object"}, "namespace": {"type": "string"}, "op": {"const": "capability", "type": "string"}, "operation": {"type": "string"}, "result": {"additionalProperties": false, "properties": {"presence": {"const": "value", "type": "string"}, "value": {"oneOf": [
+        {"additionalProperties": false, "properties": {"tag": {"const": "null", "type": "string"}}, "required": ["tag"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "text", "type": "string"}, "value": {"type": "string"}}, "required": ["tag", "value"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "boolean", "type": "string"}, "value": {"type": "boolean"}}, "required": ["tag", "value"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "integer", "type": "string"}, "value": {"pattern": "^-?(?:0|[1-9][0-9]*)$", "portableInteger": true, "type": "string"}}, "required": ["tag", "value"], "type": "object"}
+      ]}}, "required": ["presence", "value"], "type": "object"}}, "required": ["input", "namespace", "op", "operation", "result"], "type": "object"},
+      {"additionalProperties": false, "properties": {"op": {"const": "stdout", "type": "string"}, "text": {"type": "string"}}, "required": ["op", "text"], "type": "object"}
+    ]}, "type": "array"},
+    "format": {"const": "kern.runtime.kir.r0", "type": "string"},
+    "outcome": {"enum": ["success", "failure"], "type": "string"},
+    "requestId": {"type": ["string", "null"]},
+    "result": {"oneOf": [
+      {"additionalProperties": false, "properties": {"presence": {"const": "absent", "type": "string"}}, "required": ["presence"], "type": "object"},
+      {"additionalProperties": false, "properties": {"presence": {"const": "value", "type": "string"}, "value": {"oneOf": [
+        {"additionalProperties": false, "properties": {"tag": {"const": "null", "type": "string"}}, "required": ["tag"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "text", "type": "string"}, "value": {"type": "string"}}, "required": ["tag", "value"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "boolean", "type": "string"}, "value": {"type": "boolean"}}, "required": ["tag", "value"], "type": "object"},
+        {"additionalProperties": false, "properties": {"tag": {"const": "integer", "type": "string"}, "value": {"pattern": "^-?(?:0|[1-9][0-9]*)$", "portableInteger": true, "type": "string"}}, "required": ["tag", "value"], "type": "object"}
+      ]}}, "required": ["presence", "value"], "type": "object"}
+    ]}
+  },
+  "required": ["completion", "diagnostics", "events", "format", "outcome", "requestId", "result"],
+  "type": "object"
+}
