@@ -53,7 +53,7 @@ cutover or a KERN 5 release.
   plus the authenticated checker.
 - **VERIFIED:** The integrated convergence witness proves that its
   representative semantic bytes came from the packaged F1-F5 projection.
-- **PLANNED:** The final witness will bind exactly one raw KIR Review module
+- **VERIFIED:** The final witness binds exactly one raw KIR Review module
   finding. The historical capability assertion filtered the finding set and
   could therefore hide additional cross-facet deltas.
 
@@ -193,7 +193,7 @@ workflows, versions, tags, and publication configuration remain untouched.
 - [x] Static closure checks continue to reject parser, source handler, legacy
       runner, dynamic loaders, network, filesystem writes, and target-specific
       KIR variants from target artifacts.
-- [ ] KIR-backed Review returns `status=complete`, zero diagnostics,
+- [x] KIR-backed Review returns `status=complete`, zero diagnostics,
       `equalSemantics=false`, and exactly one raw finding with facet `modules`
       and change `changed`; base/head source differs only in the semantic
       module-name root.

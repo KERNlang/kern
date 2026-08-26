@@ -29,14 +29,15 @@ const limits = {
   maxStringBytes: 8192,
 };
 
-function sourceFor(operation) {
+function sourceFor(moduleName) {
   return [
+    `module name=${moduleName}`,
     'fn name=compose export=true returns=string',
     '  param name=text type=string',
     '  param name=textList type=string[]',
     '  handler lang=kern',
     '    let name=payload value="Json.parse(text)"',
-    `    capability namespace=r0fixture operation=${operation} name=reply`,
+    '    capability namespace=r0fixture operation=resolveNext name=reply',
     '    let name=result value="Json.stringify({ labels: textList, payload: payload, reply: reply })"',
     '    print value="result"',
     '    return value="result"',
@@ -59,7 +60,7 @@ function wrapVerifiedProjection(verified, source) {
           endByte: startByte + Buffer.byteLength(content, 'utf8'),
           id: 'convergence-json-parse',
           moduleId,
-          nodePath: [0, 2, 0],
+          nodePath: [1, 2, 0],
           propertyKey: 'value',
           startByte,
         },
@@ -116,8 +117,15 @@ function requestFor(generated, manifestSha256) {
 }
 
 test('current main frontend, R0 targets, and advisory Review converge on exact F5 semantic bytes', async () => {
-  const base = { modules: [{ moduleId, source: sourceFor('resolve') }] };
-  const head = { modules: [{ moduleId, source: sourceFor('resolveNext') }] };
+  const baseSource = sourceFor('r0ConvergenceV1');
+  const headSource = sourceFor('r0ConvergenceV2');
+  assert.equal(
+    baseSource.replace('module name=r0ConvergenceV1', 'module name=r0ConvergenceV2'),
+    headSource,
+    'Review convergence sources must differ only in the semantic module-name root',
+  );
+  const base = { modules: [{ moduleId, source: baseSource }] };
+  const head = { modules: [{ moduleId, source: headSource }] };
   const projected = await projectKernModules(head);
   assert.equal(projected.status, 'projected');
   assert.deepEqual(projected.diagnostics, []);
@@ -192,17 +200,19 @@ test('current main frontend, R0 targets, and advisory Review converge on exact F
     assert.deepEqual(review.diagnostics, []);
     assert.equal(review.equalSemantics, false);
     assert.deepEqual(
-      review.findings
-        .filter((finding) => finding.facet === 'capabilities')
-        .map(({ facet, change, before, after }) => ({ facet, change, before, after })),
+      review.findings,
       [
         {
-          facet: 'capabilities',
-          change: 'capability-changed',
-          before: 'r0fixture/resolve',
-          after: 'r0fixture/resolveNext',
+          after: moduleId,
+          before: moduleId,
+          change: 'changed',
+          facet: 'modules',
+          fingerprint: 'kir-preview:6be4798f92784f4c50dabd6bb5afd65d71152f35faefe65ce53a10c75e5d6b8c',
+          key: moduleId,
+          moduleId,
         },
       ],
+      'advisory Review must report exactly one raw module-semantic finding',
     );
   } finally {
     rmSync(outputRoot, { force: true, recursive: true });
