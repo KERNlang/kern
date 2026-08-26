@@ -1,12 +1,13 @@
 # KERN 5 R0 Executable ABI Integration
 
-**Status:** IMPLEMENTED AND FOCUSED GATE GREEN — AWAITING FINAL REVIEW
-**Date:** 2026-08-26  
-**Current base:** `origin/main` at `7212b0498ffbaa1ede3a4cb36ff50bb1e4208dff`  
-**Historical candidate:** `feat/kern-5-r0-abi`, commits `d4f401c1..b7fb9492`  
-**Initial integration confidence:** 0.89  
-**Nero verdict:** FLAWED, critic confidence in the original plan 0.18  
-**Revised confidence:** 0.93
+**Status:** INTEGRATED ON CURRENT MAIN — FINAL GATES, REVIEW, AND PUSH PENDING
+**Date:** 2026-08-26
+**Current base:** `origin/main` at `aae0a0fe44b1aaba88addcb1995cd66e2af2254d`
+**Historical candidate:** `feat/kern-5-r0-abi`, commits `d4f401c1..b7fb9492`
+**Initial integration confidence:** 0.89
+**First Nero verdict:** FLAWED, critic confidence in the original plan 0.18
+**Exact-finding Nero verdict:** FLAWED, critic confidence in the original plan 0.15
+**Revised confidence:** 0.96
 
 ## Objective
 
@@ -50,9 +51,11 @@ cutover or a KERN 5 release.
 - **VERIFIED:** The historical candidate is merged with current `main`, its
   artifacts were regenerated there, and the focused R0 gate passes 40 tests
   plus the authenticated checker.
-- **VERIFIED:** The current convergence witness proves that its representative
-  semantic bytes came from the packaged F1-F5 projection and binds an exact
-  current KIR Review capability delta.
+- **VERIFIED:** The integrated convergence witness proves that its
+  representative semantic bytes came from the packaged F1-F5 projection.
+- **PLANNED:** The final witness will bind exactly one raw KIR Review module
+  finding. The historical capability assertion filtered the finding set and
+  could therefore hide additional cross-facet deltas.
 
 ## Producer and Consumer Chain
 
@@ -72,10 +75,11 @@ cutover or a KERN 5 release.
    admitted subset, and emits deterministic ESM/Python artifacts and manifests.
 6. **VERIFIED:** Each target process consumes the same canonical runtime request
    shape and emits one canonical `kern.runtime.kir.r0` envelope.
-7. **VERIFIED:** Review compares a base/head source pair through packaged KIR
-   and must return exactly one matching `capability-changed` finding for the
-   same operation mutation used by the executable convergence witness. Other
-   deterministic cross-facet findings remain advisory.
+7. **VERIFIED design:** Review compares base/head sources that differ only in
+   the inert semantic module-name root. The head's exact verified projection
+   still drives both target adapters. Review must return one raw
+   `modules/changed` finding and no diagnostics; filtering before the count is
+   forbidden.
 
 ## Contract Boundaries
 
@@ -117,9 +121,8 @@ an exact runnable command for the cell. **VERIFIED scope decision.**
    authorship, parentage, and prior review evidence remain reachable.
 3. Resolve only genuine current-main integration conflicts; do not rewrite the
    historical series.
-4. Add a separate Agon-signed integration commit for the F5/Review convergence
-   witness, current baseline/status correction, and authenticated manifest
-   rebinding.
+4. Add separate Agon-signed commits for current baseline/spec hygiene and the
+   exact F5/Review convergence witness plus authenticated manifest rebinding.
 5. Run the focused R0, KIR runtime binding, runtime contract, Review Preview,
    build/typecheck, lint, and diff/file-size gates in proportion to risk.
 6. Run current high-risk Agon review with automatic live-roster routing and
@@ -190,10 +193,10 @@ workflows, versions, tags, and publication configuration remain untouched.
 - [x] Static closure checks continue to reject parser, source handler, legacy
       runner, dynamic loaders, network, filesystem writes, and target-specific
       KIR variants from target artifacts.
-- [x] KIR-backed Review returns `status=complete`, zero diagnostics,
-      `equalSemantics=false`, and exactly one matching finding with facet
-      `capabilities`, change `capability-changed`, before
-      `r0fixture/resolve`, and after `r0fixture/resolveNext`.
+- [ ] KIR-backed Review returns `status=complete`, zero diagnostics,
+      `equalSemantics=false`, and exactly one raw finding with facet `modules`
+      and change `changed`; base/head source differs only in the semantic
+      module-name root.
 - [x] Review remains advisory and no terminal KERN 5 gate is promoted.
 - [ ] Focused gates and current risk-routed independent review pass on the
       final candidate.
@@ -212,12 +215,12 @@ The final tests must kill or explicitly report survivors for mutations that:
 5. accept stale KIR, evidence, artifact, or manifest digests;
 6. return success or partial events after cancellation/timeout;
 7. share transcript/request state across concurrent runs;
-8. change Review operation semantics without the exact advisory finding;
+8. change Review module semantics without exactly one raw advisory finding;
 9. silently fall back to legacy Review or production source execution.
 
 ## RED-at-Base Evidence
 
-**VERIFIED:** On current `origin/main` `7212b049`, applying only historical
+**VERIFIED:** On current `origin/main` `aae0a0fe`, applying only historical
 commit `d4f401c1` yields the same stable patch ID as the original. Under Node
 22.22.0, the narrow `r0-abi.test.mjs` exits 1 before running tests with
 `ERR_MODULE_NOT_FOUND` for the deliberately absent `oracle.mjs`. A separate
@@ -243,6 +246,19 @@ Live evidence changed the plan:
 
 No unresolved semantic or provenance dependency remains before final review.
 The revised implementation confidence is 0.93.
+
+A second Nero challenge rejected batching spec cleanup with the exact Review
+assertion and questioned whether a module-root rename could cascade into
+multiple findings or cross-target divergence. Live packaged Review execution
+on the pinned current implementation returned exactly one raw
+`modules/changed` finding for an otherwise identical module. The target oracle
+compiles only the verified head projection and compares normalized execution
+envelopes; it never requires JavaScript and Python source bytes to match each
+other. The final plan separates provenance merge, spec hygiene, and witness
+hardening, asserts the complete one-item finding array, and continues to assert
+status and empty diagnostics so silent advisory failure is red. No unresolved
+design dependency remains. **VERIFIED design decision.** Revised confidence:
+0.96.
 
 ## Deployment, Skew, and Rollback
 
