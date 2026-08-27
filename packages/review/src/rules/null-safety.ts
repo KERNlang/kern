@@ -74,7 +74,13 @@ function isGuardingIfStatement(stmt: import('ts-morph').Statement, varName: stri
 function isAssertOkNarrowing(stmt: import('ts-morph').Statement, varName: string): boolean {
   if (!Node.isExpressionStatement(stmt)) return false;
   const expression = stmt.getExpression();
-  if (!Node.isCallExpression(expression) || expression.getArguments().length !== 1) return false;
+  if (
+    !Node.isCallExpression(expression) ||
+    expression.getArguments().length < 1 ||
+    expression.getArguments().length > 2
+  ) {
+    return false;
+  }
   const callee = expression.getExpression();
   const argument = expression.getArguments()[0];
   return (

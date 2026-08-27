@@ -14,6 +14,7 @@ import {
   type SourceFile,
   SyntaxKind,
 } from 'ts-morph';
+import { acceptsTaintedSinkArgument, isBenignCommandInputReference } from './taint-sink-arguments.js';
 import type { InternalSinkFunction, TaintPath, TaintResult, TaintSink, TaintSource } from './taint-types.js';
 import {
   HTTP_PARAM_NAMES,
@@ -28,7 +29,6 @@ import {
   SINK_NAMES,
   SQL_BUILDER_VERBS,
 } from './taint-types.js';
-import { acceptsTaintedSinkArgument } from './taint-sink-arguments.js';
 import type { InferResult } from './types.js';
 
 // ── Intra-File Sink Map ─────────────────────────────────────────────────
@@ -90,10 +90,12 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx)) continue;
 
         const arg = allArgs[argIdx];
-        const argText = arg.getText();
         for (let i = 0; i < params.length; i++) {
           const paramName = params[i].getName();
-          if (argText === paramName || argText.startsWith(`${paramName}.`) || argText.startsWith(`${paramName}[`)) {
+          const taintedParam = findTaintedIdentifier(arg, new Set([paramName]), (reference) =>
+            isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+          );
+          if (taintedParam) {
             taintedParamIndices.add(i);
             if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
             sinkCategories.get(i)!.add(sinkDef);
@@ -108,10 +110,12 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
             const expr = tplSpan.getExpression();
-            const exprText = expr.getText();
             for (let i = 0; i < params.length; i++) {
               const paramName = params[i].getName();
-              if (exprText === paramName || exprText.startsWith(`${paramName}.`)) {
+              const taintedParam = findTaintedIdentifier(expr, new Set([paramName]), (reference) =>
+                isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+              );
+              if (taintedParam) {
                 taintedParamIndices.add(i);
                 if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
                 sinkCategories.get(i)!.add(sinkDef);
@@ -360,7 +364,9 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // the projection argument as injection.
         if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
-        const taintedArg = findTaintedIdentifier(arg, taintedNames);
+        const taintedArg = findTaintedIdentifier(arg, taintedNames, (reference) =>
+          isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+        );
         if (!taintedArg) continue;
         if (isTaintedNameShadowedAt(call, taintedArg, body)) continue;
         // findById-style methods: scalar `req.params.*` is not classic
@@ -808,17 +814,6 @@ function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>, sawSqlVerb: boole
 }
 
 /**
- * For NoSQL sinks, restrict tainted-arg detection to the method's query
- * positions and (for findById-style methods) reject scalar `req.params.*`
- * tainted sources. Returns the set of arg indexes worth scanning, or
- * `undefined` when the sink isn't NoSQL.
- */
-function nosqlAcceptsArgIndex(methodName: string, argIndex: number): boolean {
-  const allowed = NOSQL_QUERY_ARG_INDEXES[methodName];
-  return allowed ? allowed.has(argIndex) : false;
-}
-
-/**
  * `findById(req.params.id)` with a string is not classic operator injection.
  * Reject when the call is a *ById method AND the arg traces back to a static
  * property chain rooted at `req.params` / `request.params` — those are
@@ -905,21 +900,26 @@ function getStaticAccessPath(expr: Node): string | undefined {
 }
 
 /** Find the first tainted identifier in an expression tree */
-function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | undefined {
+function findTaintedIdentifier(
+  expr: Node,
+  taintedNames: Set<string>,
+  shouldIgnore: (node: Node) => boolean = () => false,
+): string | undefined {
+  if (shouldIgnore(expr)) return undefined;
   const k = expr.getKindName();
   if (k === 'Identifier' && taintedNames.has(expr.getText())) return expr.getText();
   if (k === 'PropertyAccessExpression') {
-    return findTaintedIdentifier((expr as any).getExpression(), taintedNames);
+    return findTaintedIdentifier((expr as any).getExpression(), taintedNames, shouldIgnore);
   }
   // Check binary expressions (string concatenation: 'cmd ' + userInput)
   if (k === 'BinaryExpression') {
     return (
-      findTaintedIdentifier((expr as any).getLeft(), taintedNames) ||
-      findTaintedIdentifier((expr as any).getRight(), taintedNames)
+      findTaintedIdentifier((expr as any).getLeft(), taintedNames, shouldIgnore) ||
+      findTaintedIdentifier((expr as any).getRight(), taintedNames, shouldIgnore)
     );
   }
   for (const child of expr.getChildren()) {
-    const found = findTaintedIdentifier(child, taintedNames);
+    const found = findTaintedIdentifier(child, taintedNames, shouldIgnore);
     if (found) return found;
   }
   return undefined;

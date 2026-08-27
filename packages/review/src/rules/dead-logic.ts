@@ -10,7 +10,7 @@
 
 import { SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { isReturnedCollectionOrderingOperation } from './collection-operations.js';
+import { isConsumedCollectionOrderingOperation } from './collection-operations.js';
 import { finding, span } from './utils.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ function unusedCollection(ctx: RuleContext): ReviewFinding[] {
         if (pa.getExpression() === ident) {
           const method = pa.getName();
           if (writeOps.has(method)) hasWrite = true;
-          if (readOps.has(method) || isReturnedCollectionOrderingOperation(pa)) hasRead = true;
+          if (readOps.has(method) || isConsumedCollectionOrderingOperation(pa)) hasRead = true;
         }
       } else if (parent.getKind() !== SyntaxKind.VariableDeclaration) {
         // Any other usage (arg, return, spread, etc.) is a read

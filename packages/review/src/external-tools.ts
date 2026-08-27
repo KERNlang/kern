@@ -156,6 +156,7 @@ export interface RunTSCDiagnosticsOptions {
    * The name is kept for backward compatibility; scope broadened deliberately.
    */
   downgradeProjectLoadingErrors?: boolean;
+  /** Compare suspected ts-morph-only diagnostics against canonical on-disk tsc output. */
   canonicalFilePaths?: string[];
 }
 
@@ -405,9 +406,13 @@ export function runTSCDiagnostics(
     if (process.env.KERN_DEBUG) console.error('tsc diagnostics error:', (err as Error).message);
   }
 
-  return options.canonicalFilePaths
+  return options.canonicalFilePaths && findings.some(isSuspectedTsMorphOnlyDiagnostic)
     ? filterToCanonicalBuildDiagnostics(findings, options.canonicalFilePaths, health)
     : findings;
+}
+
+function isSuspectedTsMorphOnlyDiagnostic(finding: ReviewFinding): boolean {
+  return finding.ruleId === 'ts1470';
 }
 
 function collectReviewModeSuppressedModuleMisses(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): {
@@ -973,8 +978,6 @@ function filterToCanonicalBuildDiagnostics(
   return findings.filter((finding) => canonical.keys.has(tscFindingKey(finding)));
 }
 
-const canonicalBuildDiagnosticsCache = new Map<string, Set<string> | undefined>();
-
 function collectCanonicalBuildDiagnosticKeys(
   filePaths: string[],
   health?: ReviewHealthBuilder,
@@ -990,11 +993,7 @@ function collectCanonicalBuildDiagnosticKeys(
 
   const keys = new Set<string>();
   for (const tsconfigPath of tsconfigPaths) {
-    let configKeys = canonicalBuildDiagnosticsCache.get(tsconfigPath);
-    if (configKeys === undefined && !canonicalBuildDiagnosticsCache.has(tsconfigPath)) {
-      configKeys = collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
-      canonicalBuildDiagnosticsCache.set(tsconfigPath, configKeys);
-    }
+    const configKeys = collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
     if (!configKeys) return { attempted: false, keys: new Set() };
     for (const key of configKeys) keys.add(key);
   }

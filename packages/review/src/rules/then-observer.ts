@@ -16,12 +16,17 @@ function isSynchronousObserver(node: import('ts-morph').Node): boolean {
   if (!Node.isBlock(body)) return false;
   if (body.getDescendantsOfKind(SyntaxKind.NewExpression).length > 0) return false;
   if (body.getDescendantsOfKind(SyntaxKind.ThrowStatement).length > 0) return false;
-  if (body.getDescendantsOfKind(SyntaxKind.ReturnStatement).some((statement) => statement.getExpression() != null)) return false;
+  if (body.getDescendantsOfKind(SyntaxKind.ReturnStatement).some((statement) => statement.getExpression() != null))
+    return false;
 
   const calls = body.getDescendantsOfKind(SyntaxKind.CallExpression);
   if (calls.some((call) => !isObserverCall(call))) return false;
+  const parameterNames = new Set(node.getParameters().map((parameter) => parameter.getName()));
   const accesses = body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
-  return accesses.every(isObserverPropertyAccess) && calls.length + countAssignments(body) > 0;
+  return (
+    accesses.every((access) => isObserverPropertyAccess(access, parameterNames)) &&
+    calls.length + countAssignments(body) > 0
+  );
 }
 
 function isObserverCall(call: import('ts-morph').CallExpression): boolean {
@@ -31,9 +36,22 @@ function isObserverCall(call: import('ts-morph').CallExpression): boolean {
   return callee.getExpression().getText() === 'console' && CONSOLE_METHOD_NAMES.has(callee.getName());
 }
 
-function isObserverPropertyAccess(access: import('ts-morph').PropertyAccessExpression): boolean {
+function isObserverPropertyAccess(
+  access: import('ts-morph').PropertyAccessExpression,
+  parameterNames: ReadonlySet<string>,
+): boolean {
   const parent = access.getParent();
   if (Node.isCallExpression(parent) && parent.getExpression() === access) return isObserverCall(parent);
+  if (
+    access.getName() === 'message' &&
+    Node.isIdentifier(access.getExpression()) &&
+    parameterNames.has(access.getExpression().getText()) &&
+    Node.isCallExpression(parent) &&
+    parent.getArguments().includes(access) &&
+    isObserverCall(parent)
+  ) {
+    return true;
+  }
   return (
     Node.isBinaryExpression(parent) &&
     parent.getOperatorToken().getKind() === SyntaxKind.EqualsToken &&

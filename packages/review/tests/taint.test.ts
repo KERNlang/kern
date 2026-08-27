@@ -196,26 +196,55 @@ export function runCommand(req: Request, res: Response): void {
     expect(taintFindings[0].severity).toBe('error');
   });
 
-  it('ignores spawn options.input while still flagging tainted executable and argv', () => {
+  it('ignores only command options.input while retaining execution-affecting options, executable, and argv', () => {
     const source = `
 export function run(req: Request): void {
   const executable = req.body.executable;
   const argv = req.body.argv;
   const input = req.body.input;
+  const env = req.body.env;
+  const cwd = req.body.cwd;
+  const shell = req.body.shell;
+  const execPath = req.body.execPath;
+  const execArgv = req.body.execArgv;
   spawn(executable, ['--flag']);
   spawn('node', argv);
   spawn('node', ['script'], { input });
   spawnSync('node', ['script'], { input });
   execFile('node', ['script'], { input });
+  spawn('node', ['script'], { env });
+  spawn('node', ['script'], { cwd });
+  spawn('node', ['script'], { shell });
+  spawn('node', ['script'], { execPath });
+  spawn('node', ['script'], { execArgv });
 }
 `;
     const report = reviewSource(source, 'handler.ts');
     const findings = report.findings.filter((f) => f.ruleId === 'taint-command');
 
-    expect(findings).toHaveLength(2);
-    expect(findings.map((f) => f.message).join('\n')).toContain("Variable 'executable'");
-    expect(findings.map((f) => f.message).join('\n')).toContain("Variable 'argv'");
-    expect(findings.map((f) => f.message).join('\n')).not.toContain("Variable 'input'");
+    const messages = findings.map((f) => f.message).join('\n');
+    expect(findings).toHaveLength(7);
+    for (const name of ['executable', 'argv', 'env', 'cwd', 'shell', 'execPath', 'execArgv']) {
+      expect(messages).toContain(`Variable '${name}'`);
+    }
+    expect(messages).not.toContain("Variable 'input'");
+
+    const mixedReport = reviewSource(
+      `
+export function run(req: Request): void {
+  const input = req.body.input;
+  const mixedEnv = req.body.mixedEnv;
+  spawn('node', ['script'], { input, env: mixedEnv });
+}
+`,
+      'mixed-handler.ts',
+    );
+    const mixedMessages = mixedReport.findings
+      .filter((finding) => finding.ruleId === 'taint-command')
+      .map((finding) => finding.message)
+      .join('\n');
+    expect(mixedMessages).toContain("Variable 'mixedEnv'");
+    expect(mixedMessages).not.toContain("Variable 'input'");
   });
 });
 

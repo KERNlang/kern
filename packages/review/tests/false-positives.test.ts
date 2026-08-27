@@ -193,11 +193,26 @@ declare const result: Promise<string>;
 
 result.then(
   (value) => { console.log(value); },
-  (error) => { console.error(error); process.exitCode = 1; },
+  (error) => { console.error(error.message); process.exitCode = 1; },
 );
 `;
     const report = reviewSource(source, 'cli.ts', { target: 'cli' });
     expect(report.findings.find((f) => f.ruleId === 'floating-promise')).toBeUndefined();
+  });
+
+  it('still rejects arbitrary error properties and calls in synchronous two-arm observers', () => {
+    for (const failureBody of ['console.error(error.stack);', 'report(error.message);']) {
+      const source = `
+declare const result: Promise<string>;
+declare function report(value: string): void;
+result.then(
+  (value) => { console.log(value); },
+  (error) => { ${failureBody} process.exitCode = 1; },
+);
+`;
+      const report = reviewSource(source, 'cli.ts', { target: 'cli' });
+      expect(report.findings.find((f) => f.ruleId === 'floating-promise')).toBeDefined();
+    }
   });
 
   it('still fires on an ordinary ignored promise chain', () => {

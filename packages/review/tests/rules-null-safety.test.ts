@@ -35,11 +35,11 @@ describe('Null Safety Rules', () => {
       const users = [{ id: 1, name: 'Alice' }];
       function nameOf(id: number): string {
         const identifier = users.find((user) => user.id === id);
-        assert.ok(identifier);
+        assert.ok(identifier, 'expected user');
         return identifier.name;
       }
     `;
-    const report = reviewSource(source, 'test.mjs');
+    const report = reviewSource(source, 'test.ts');
     const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
     expect(findings).toHaveLength(0);
   });
@@ -61,9 +61,21 @@ describe('Null Safety Rules', () => {
         return name;
       }
     `;
-    const report = reviewSource(source, 'test.mjs');
+    const report = reviewSource(source, 'test.ts');
     const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
     expect(findings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not treat a different assertion method as assert.ok narrowing', () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      const users = [{ id: 1, name: 'Alice' }];
+      const identifier = users.find((user) => user.id === 1);
+      assert.equal(identifier, true);
+      console.log(identifier.name);
+    `;
+    const report = reviewSource(source, 'test.ts');
+    expect(report.findings.find((finding) => finding.ruleId === 'unchecked-find')).toBeDefined();
   });
 
   // Regression: kern-sight review-panel.ts:6264 — `if (!a || !b) continue;`

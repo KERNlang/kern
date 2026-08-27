@@ -825,7 +825,14 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
     } catch {
       // File may have been deleted between read and stat; leave mtime unrecorded.
     }
-    return reviewSourceInternal(source, filePath, config, fsProject, sf);
+    return reviewSourceInternal(
+      source,
+      filePath,
+      config,
+      fsProject,
+      sf,
+      existsSync(filePath) ? sf.getFilePath() : undefined,
+    );
   } catch (err) {
     // Fs project failed — fall back to in-memory project, but record the degradation on the
     // report so callers can tell this file was reviewed without full type resolution.
@@ -864,6 +871,7 @@ function reviewSourceInternal(
   config: ReviewConfig | undefined,
   project: import('ts-morph').Project,
   sourceFile: import('ts-morph').SourceFile,
+  canonicalFilePath?: string,
 ): ReviewReport {
   const totalLines = source.split('\n').length;
   const fileRole = classifyFileRole(sourceFile, filePath);
@@ -1013,11 +1021,13 @@ function reviewSourceInternal(
   allFindings.push(
     ...safePhase(
       'tsc',
-      () => runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true, canonicalFilePaths: [filePath] }),
+      () =>
+        runTSCDiagnostics(project, {
+          downgradeProjectLoadingErrors: true,
+          canonicalFilePaths: canonicalFilePath ? [canonicalFilePath] : undefined,
+        }),
       [],
-    ).filter(
-      (f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath,
-    ),
+    ).filter((f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath),
   );
 
   // Build confidence graph if any nodes have confidence props
