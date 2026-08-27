@@ -160,6 +160,20 @@ export function assertExactlyOneRuntimeOwner(owners) {
   return owners[0];
 }
 
+export function assertMcpServerExecutableOnlyManifest(manifest) {
+  assert.deepEqual(manifest?.bin, { 'kern-mcp': './dist/index.js' });
+  assert.deepEqual(manifest?.exports, {});
+}
+
+test('MCP server remains executable-only and exposes no JavaScript import target', () => {
+  const manifest = manifestValue(resolve(ROOT, 'packages/mcp-server/package.json'));
+  assertMcpServerExecutableOnlyManifest(manifest);
+  assert.throws(
+    () => assertMcpServerExecutableOnlyManifest({ ...manifest, exports: undefined }),
+    assert.AssertionError,
+  );
+});
+
 test('RT-1 has exactly one semantic package-owned KIR runtime owner', async () => {
   const owner = assertExactlyOneRuntimeOwner(await discoverRuntimeOwners());
   assert.ok(owner.sourcePath.startsWith(resolve(ROOT, 'packages')));

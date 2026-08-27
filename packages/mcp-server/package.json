@@ -8,12 +8,7 @@
   "bin": {
     "kern-mcp": "./dist/index.js"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
+  "exports": {},
   "files": [
     "dist",
     "README.md"
