@@ -1,6 +1,6 @@
 # KERN 5 RT-1 Package-Owned KIR Runtime
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED — review corrections verified locally (uncommitted)
 **Date:** 2026-08-26
 **Stacked base:** `origin/main` `aae0a0fe44b1aaba88addcb1995cd66e2af2254d`
 plus R0 ABI `89bbd360ddf39c4a3be38cf3629b319aea28e115`
@@ -220,6 +220,17 @@ made.
 - [ ] Granular commits use the required Agon identity/footer; one complete
       feature-branch push is remotely SHA-verified.
 
+### Implemented review-correction acceptance
+
+- [x] The executable-only `@kernlang/mcp-server` manifest retains its `kern-mcp`
+      bin entry and has exact `exports: {}`; an omitted-exports helper fixture is
+      RED, so executable modules cannot re-enter semantic owner discovery.
+- [x] The R1 inventory transition independently pins its predecessor and
+      successor SHAs and rejects hostile candidate shapes without invoking a
+      getter.
+- [x] Focused R1 owner tests pass 22/22, and the complete canonicalizer gate
+      passes 859/859 after the current receipt writer refresh.
+
 ## RED Oracle Design
 
 The first test enumerates package manifests and exports, resolves each candidate
@@ -285,6 +296,8 @@ producer-first/consumer-second migration. Silent mutation is forbidden.
 | A new branded projection shape was needed. | `verifyKernProjection` already issues a non-forgeable same-process brand. | Consume the existing verified type and runtime check. |
 | R0 adapters could become the package runtime. | They are generated test targets using sealed transcripts. | Reuse their contracts/fixtures, not their ownership model. |
 | A separately emitted shared brand module could safely expose issuance. | Direct file-URL imports bypass package exports and could call the issuer. | Issuance is producer-private; the runtime imports a read-only authentication facade and the closure oracle distinguishes authentication from semantic reachability. |
+| An empty set of JavaScript export targets was sufficient for the MCP executable. | A missing `exports` field changes package-resolution semantics and can restore the executable import path. | The owner oracle now requires exact `exports: {}` and rejects an omission fixture. |
+| JSON serialization was sufficient to authenticate the R1 inventory transition definition. | Serialization can invoke `toJSON`/getters and omits symbol or non-enumerable extras. | The transition uses recursive own data-descriptor shape/value validation before any historical reconstruction. |
 
 ## Mutation follow-up
 
