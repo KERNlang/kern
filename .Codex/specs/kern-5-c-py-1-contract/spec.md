@@ -1,6 +1,6 @@
 # C-PY-1 Package-Owned KIR-to-Python Lowering
 
-**Status:** READY TO BUILD — SEMANTIC RED AT BASE
+**Status:** DONE LOCALLY — AWAITING PREDECESSOR PROMOTION
 **Date:** 2026-08-27
 **Confidence:** 0.92
 
@@ -142,19 +142,19 @@ Implement only after the linked-KIR/JS-v1 predecessor stack is available:
   `KIR_PYTHON_OWNER_MISSING: @kernlang/core does not export ./compiler/kir-python`.
 - [x] Before production code, stacked semantic oracles fail for the intended
   missing Python owner/behavior and cannot pass from an export-map/source stub.
-- [ ] Core exports exactly one Python KIR owner after build, with matching source
+- [x] Core exports exactly one Python KIR owner after build, with matching source
   and built facades.
-- [ ] The compiler accepts only the exact seven-limit request shape; its linker
+- [x] The compiler accepts only the exact seven-limit request shape; its linker
   authenticates projection before any projection read.
-- [ ] A deterministic compilation produces only `entry.py` and `manifest.json`
+- [x] A deterministic compilation produces only `entry.py` and `manifest.json`
   with bound digests and Python target identity.
-- [ ] The representative RT-1 program preserves return value, ordered
+- [x] The representative RT-1 program preserves return value, ordered
   capability/stdout events, result validation, and envelope byte boundary.
-- [ ] Pre-cancellation after inspection/link and cancellation at every
+- [x] Pre-cancellation after inspection/link and cancellation at every
   cooperative checkpoint produce no later provider/event effect; missing
   provider yields `capability-error`; an awaitable provider is best-effort
   cancelled without awaiting a non-cooperative task.
-- [ ] Emitted Python executes from a clean root without package/repository
+- [x] Emitted Python executes from a clean root without package/repository
   imports through a trusted temporary native-execute driver.
 
 ## Out of Scope
@@ -192,6 +192,23 @@ its public export in one compatible change. Before that export exists, consumers
 receive the explicit missing-owner condition; no mixed-version fallback to the
 legacy Python source transpiler is permitted.
 
+## Post-implementation Verification
+
+- **VERIFIED:** Core build/typecheck passed and the final C-PY-1 wall passed
+  `29/29`; the R2 JavaScript predecessor wall remained `14/14` green on
+  `67ff31671df885779dbb84069649464f0d1d6a54` (Node 22.22.0, 2026-08-27).
+- **VERIFIED:** high-risk role-lens review completed across the six usable Agon
+  engines at `review-1787834351288-9b8gxh-c-py-1-production`; its genuine
+  cancellation and number-tokenization findings were repaired and covered by
+  new regressions.
+- **VERIFIED:** targeted correctness convergence completed with no verified or
+  needs-check finding at
+  `review-1787837947153-ztdc88-c-py-1-cancel-followup`.
+- **VERIFIED:** the final direct mechanical mutation run targeted the six
+  changed production lines and reported that no applicable mutants could be
+  generated (`mutate-1787838282446-dqynm0-c-py-1-cancel-followup-direct`);
+  this is recorded as no score, not as mutation success.
+
 ## Corrections Log
 
 | Original Claim | Reality | Impact |
@@ -199,3 +216,5 @@ legacy Python source transpiler is permitted.
 | Current `origin/main` already has R1/R2 package paths | The requested base predates all of them | Mark predecessor-dependent rows DECISION; do not cite absent files as live APIs |
 | C-PY-1 must define a versioned stdio harness | Native artifact execution has a complete `asyncio` ABI; a temporary trusted driver suffices | Move stdio framing to later CLI-shadow scope and remove the blocking OPEN |
 | Projection must authenticate before compiler request inspection | Request admission is projection-independent; linker auth protects all projection reads | Correct ordering and pre-cancel checkpoint in the execution contract |
+| Python should emulate JavaScript's default UTF-16 record-key order | Direct RT-1 and the JavaScript target explicitly use Unicode code-point order | Preserve Python's matching code-point order and add a three-way differential witness |
+| Direct RT-1 and emitted targets should share the same `maxSteps` boundary | Direct RT-1 meters linking; emitted JS and Python artifacts meter execution only | Pin Python to the existing emitted-target boundary without changing predecessor semantics |
