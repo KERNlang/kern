@@ -233,6 +233,34 @@ describe('Dead Logic Rules', () => {
       const f = report.findings.filter((f) => f.ruleId === 'unused-collection');
       expect(f.length).toBe(0);
     });
+
+    it('treats populated arrays returned through sort() and reverse() as read', () => {
+      for (const operation of ['sort', 'reverse']) {
+        const source = `
+          function collect(): string[] {
+            const items: string[] = [];
+            items.push('a');
+            return items.${operation}();
+          }
+        `;
+        const report = reviewSource(source, 'test.ts');
+        const findings = report.findings.filter((f) => f.ruleId === 'unused-collection');
+        expect(findings).toHaveLength(0);
+      }
+    });
+
+    it('still flags a populated collection when sort/reverse are genuinely discarded', () => {
+      for (const operation of ['sort', 'reverse']) {
+        const source = `
+          const items: string[] = [];
+          items.push('a');
+          items.${operation}();
+        `;
+        const report = reviewSource(source, 'test.ts');
+        const findings = report.findings.filter((f) => f.ruleId === 'unused-collection');
+        expect(findings).toHaveLength(1);
+      }
+    });
   });
 
   // ── empty-collection-access ────────────────────────────────────────────

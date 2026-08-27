@@ -8,6 +8,32 @@ function createSourceFile(source: string, filePath = 'test.ts') {
 }
 
 describe('Concept Extraction (TS)', () => {
+  describe('boundary-mutation', () => {
+    it('does not classify filter/includes reads as state mutation', () => {
+      const source = `
+        const sharedStore: { items: string[] } = { items: [] };
+        export function hasVisibleItem(): boolean {
+          return sharedStore.items.filter(Boolean).includes('visible');
+        }
+      `;
+      const report = reviewSource(source, 'state.ts');
+      expect(report.findings.filter((finding) => finding.ruleId.startsWith('boundary-mutation'))).toEqual([]);
+    });
+
+    it('continues to report shared and global property assignments', () => {
+      const source = `
+        declare const sharedStore: { value: string[] };
+        declare const globalState: { value: string[] };
+        sharedStore.value = [];
+        globalState.value = [];
+      `;
+      const report = reviewSource(source, 'state.ts');
+      const ids = report.findings.filter((finding) => finding.ruleId.startsWith('boundary-mutation')).map((f) => f.ruleId);
+      expect(ids).toContain('boundary-mutation-shared');
+      expect(ids).toContain('boundary-mutation-global');
+    });
+  });
+
   describe('error_raise', () => {
     it('extracts throw statements', () => {
       const sf = createSourceFile(`
