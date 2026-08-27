@@ -62,12 +62,11 @@ const MALFORMED_SOURCES = [
 ] as const;
 
 describe('Text.utf8Length — portable machine admission and values', () => {
-  test('ships as the additive KERN 4.6.0 language surface', () => {
+  test('keeps root, Core, and generated KERN versions in lockstep', () => {
     const rootPackage = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
     const corePackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    expect(rootPackage.version).toBe('4.6.0');
-    expect(corePackage.version).toBe('4.6.0');
-    expect(KERN_VERSION).toBe('4.6.0');
+    expect(corePackage.version).toBe(rootPackage.version);
+    expect(KERN_VERSION).toBe(rootPackage.version);
   });
 
   test('structural admission accepts exactly the unshadowed one-argument call', () => {
