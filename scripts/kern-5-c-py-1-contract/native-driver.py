@@ -69,6 +69,12 @@ async def execute_one(module, spec):
                 raise
         return slot(spec.get("reply", "reply"))
 
+    if scenario == "provider-cancelled-sync":
+        def invoke(call):
+            metadata["calls"].append(capture_call(call, external))
+            started.set()
+            raise asyncio.CancelledError()
+
     options = {}
     if scenario != "missing-provider":
         options["invoke"] = invoke
@@ -86,13 +92,26 @@ async def execute_one(module, spec):
     started_at = time.monotonic()
     execution = asyncio.create_task(module.execute(spec["request"], options or None))
     if scenario == "outer-task-cancel":
-        await started.wait()
-        execution.cancel()
+        started_wait = asyncio.create_task(started.wait())
         try:
-            await execution
-            raise AssertionError("outer execution cancellation was swallowed")
-        except asyncio.CancelledError:
-            result = {"outerCancellationPropagated": True}
+            done, _pending = await asyncio.wait(
+                {execution, started_wait}, timeout=2, return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:
+                raise TimeoutError("outer-task-cancel provider start timed out")
+            if execution in done:
+                result = execution.result()
+            else:
+                execution.cancel()
+                try:
+                    await asyncio.wait_for(execution, timeout=2)
+                    raise AssertionError("outer execution cancellation was swallowed")
+                except asyncio.CancelledError:
+                    result = {"outerCancellationPropagated": True}
+                    await asyncio.sleep(0)
+        finally:
+            if not started_wait.done():
+                started_wait.cancel()
     else:
         result = await asyncio.wait_for(execution, timeout=2)
     metadata["elapsedMs"] = round((time.monotonic() - started_at) * 1000, 3)

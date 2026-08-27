@@ -57,7 +57,10 @@ async def _invoke_capability(invoke, call, internal_signal, deadline, reason, sy
     if internal_signal.is_set():
         deadline.check()
         raise _Fault("execution-timeout" if reason["value"] == "timeout" else "execution-cancelled", "execution")
-    raw = invoke(call)
+    try:
+        raw = invoke(call)
+    except asyncio.CancelledError:
+        raise _Fault("capability-error", "execution")
     if not hasattr(raw, "__await__"):
         sync_external()
         return raw
@@ -85,6 +88,8 @@ async def _invoke_capability(invoke, call, internal_signal, deadline, reason, sy
         deadline.check()
         raise _Fault("execution-timeout" if reason["value"] == "timeout" else "execution-cancelled", "execution")
     finally:
+        if not provider_task.done():
+            provider_task.cancel()
         if not interrupted.done():
             interrupted.cancel()
 

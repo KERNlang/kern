@@ -76,6 +76,8 @@ test('fresh inputs and provider results stay isolated across repeated and concur
 test('hostile KERN JSON and all runtime limits retain exact RT-1 envelope parity', async () => {
   const { verified, result } = await compiled();
   const cases = [
+    runtimeRequest('terminal-integer', '12', []),
+    runtimeRequest('terminal-decimal', '12.34', []),
     runtimeRequest('big', '{"😀":9007199254740993,"\uE000":2}', []),
     runtimeRequest('event-limit', '{"x":1}', [], { limits: { ...LIMITS, maxEvents: 1 } }),
     runtimeRequest('string-limit', '{"x":1}', [], { limits: { ...LIMITS, maxStringBytes: 4 } }),
@@ -89,7 +91,7 @@ test('hostile KERN JSON and all runtime limits retain exact RT-1 envelope parity
     const expected = await executeKernKir(verified, request, provider('reply'));
     assert.deepEqual((await nativeOne(result.artifact.bytes, { request, reply: 'reply' })).result, expected, request.requestId);
   }
-  for (const text of ['{"x":1,"x":2}', '{"x":1e3}', '{"x":-0}', '{"x":"\\uD800"}']) {
+  for (const text of ['{"x":1,"x":2}', '{"x":1e3}', '12e3', '{"x":-0}', '{"x":"\\uD800"}']) {
     const request = runtimeRequest(`reject-${text.length}`, text, []);
     const expected = await executeKernKir(verified, request, provider('reply'));
     assert.equal(expected.outcome, 'failure', text);

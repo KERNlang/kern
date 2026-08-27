@@ -142,7 +142,25 @@ test('provider-owned CancelledError becomes capability-error while outer task ca
   assert.equal(code(providerCancelled.result), 'capability-error');
   assert.equal(providerCancelled.metadata.calls.length, 1);
 
+  const syncProviderCancelled = await nativeOne(bytes, { request, scenario: 'provider-cancelled-sync' });
+  assert.equal(code(syncProviderCancelled.result), 'capability-error');
+  assert.equal(syncProviderCancelled.metadata.calls.length, 1);
+
   const outerCancelled = await nativeOne(bytes, { request, scenario: 'outer-task-cancel' });
   assert.deepEqual(outerCancelled.result, { outerCancellationPropagated: true });
   assert.equal(outerCancelled.metadata.calls.length, 1);
+  assert.equal(outerCancelled.metadata.providerCancelled, true);
+  assert.ok(outerCancelled.metadata.elapsedMs < 1_000, `outer cancellation awaited the provider for ${outerCancelled.metadata.elapsedMs}ms`);
+});
+
+test('outer-task-cancel reports a pre-provider failure without waiting for a provider start', async () => {
+  const { bytes } = await fixture();
+  const request = {
+    ...runtimeRequest('outer-cancel-pre-provider-fault', '{"x":1}', []),
+    arguments: {},
+  };
+  const native = await nativeOne(bytes, { request, scenario: 'outer-task-cancel' });
+  assert.equal(code(native.result), 'invalid-handler-arguments');
+  assert.equal(native.metadata.calls.length, 0);
+  assert.ok(native.metadata.elapsedMs < 1_000, `pre-provider failure waited for ${native.metadata.elapsedMs}ms`);
 });
