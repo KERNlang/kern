@@ -168,4 +168,3 @@ node scripts/run-node-tests.mjs "packages/review/tests/concepts/concept-rules.te
 node scripts/run-node-tests.mjs "packages/review/tests/tsc-canonical-packaged-runtime.test.ts"
   FAIL: reviewFile emitted TS1470; canonical helper assertion passed
 ```
-
