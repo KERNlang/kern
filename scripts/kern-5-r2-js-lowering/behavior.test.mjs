@@ -14,6 +14,7 @@ import {
   compilerOwner,
   compilerRequest,
   emittedModule,
+  executeKernKir,
   failureCode,
   projection,
   sha256,
@@ -101,4 +102,19 @@ test('projection authentication and unsupported KIR fail closed without target b
     '    return value="bad"', '',
   ].join('\n'));
   assert.equal(failureCode(await compile(unsupported)), 'handler-entry-unsupported');
+});
+
+test('RT-1 authenticates a projection before it can inspect hostile request or execution-option proxies', async () => {
+  const forged = { ...(await projection()) };
+  let traps = 0;
+  const hostile = (target) => new Proxy(target, {
+    get(targetValue, key, receiver) { traps += 1; return Reflect.get(targetValue, key, receiver); },
+    getOwnPropertyDescriptor(targetValue, key) { traps += 1; return Reflect.getOwnPropertyDescriptor(targetValue, key); },
+    getPrototypeOf(targetValue) { traps += 1; return Reflect.getPrototypeOf(targetValue); },
+    ownKeys(targetValue) { traps += 1; return Reflect.ownKeys(targetValue); },
+  });
+  const envelope = await executeKernKir(forged, hostile(Object.create(null)), hostile(Object.create(null)));
+  assert.equal(envelope.outcome, 'failure');
+  assert.equal(envelope.diagnostics[0]?.code, 'projection-authentication-error');
+  assert.equal(traps, 0, 'forged projections must reject before request/options proxy effects');
 });

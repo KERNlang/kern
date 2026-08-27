@@ -4,14 +4,14 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { projectKernModules, verifyKernProjection } from '../../packages/core/dist/frontend-projection.js';
 import { KERN_KIR_RUNTIME_FORMAT, executeKernKir } from '../../packages/core/dist/runtime-kir.js';
 
 import { COMPILER_FORMAT, assertExactlyOneJavaScriptEsmOwner, discoverJavaScriptEsmOwners } from './owner.mjs';
 
-export const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+export const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 export const LIMITS = Object.freeze({
   maxBytes: 100_000,
   maxCollectionLength: 100,
@@ -39,8 +39,8 @@ export async function compilerOwner() {
   return assertExactlyOneJavaScriptEsmOwner(await discoverJavaScriptEsmOwners(ROOT));
 }
 
-export async function projection(source = SOURCE) {
-  const request = { modules: [{ moduleId: 'main.kern', source }] };
+export async function projection(source = SOURCE, moduleId = 'main.kern') {
+  const request = { modules: [{ moduleId, source }] };
   const projected = await projectKernModules(request);
   assert.equal(projected.status, 'projected');
   return verifyKernProjection(request, projected);

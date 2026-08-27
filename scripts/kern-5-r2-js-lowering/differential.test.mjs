@@ -6,6 +6,7 @@ import {
   SOURCE,
   assertCompileSuccess,
   compile,
+  compilerRequest,
   emittedModule,
   executeKernKir,
   isolatedExecute,
@@ -123,4 +124,49 @@ test('concurrent executions isolate bindings and novel linked KIR changes progra
   const originalOutput = await original.module.execute(input, provider('reply'));
   const changedOutput = await changed.module.execute(input, provider('reply'));
   assert.notDeepEqual(originalOutput, changedOutput);
+});
+
+test('large Unicode module identifiers lower to ESM without argument-spread overflow and retain RT-1 parity', async () => {
+  const moduleId = `entry-😀-${'x'.repeat(150_000)}.kern`;
+  const limits = { ...LIMITS, maxBytes: 1_000_000, maxStringBytes: 200_000 };
+  const entry = { moduleId, handlerName: 'compose' };
+  const verified = await projection(SOURCE, moduleId);
+  const result = assertCompileSuccess(await compile(verified, compilerRequest({ entry, limits })));
+  const text = new TextDecoder().decode(result.artifact.bytes);
+  assert.equal('😀'.codePointAt(0), 0x1f600);
+  assert.notEqual('😀'.codePointAt(0), '😀'.charCodeAt(0), 'the emitted literal must retain its Unicode code point');
+  assert.ok(text.includes('128512'), 'the non-BMP module identifier must be emitted as a code point');
+  const module = await emittedModule(result.artifact.bytes);
+  const input = runtimeRequest('large-module', '{"ok":true}', ['unicode'], { entry, limits });
+  assert.deepEqual(await module.execute(input, provider('reply')), await executeKernKir(verified, input, provider('reply')));
+});
+
+test('maxBytes accepts the exact success-envelope boundary and rejects one byte below in direct and emitted paths', async () => {
+  const { verified, module } = await compiled();
+  const baseline = runtimeRequest('byte-boundary', '{"ok":true}', ['boundary']);
+  const reference = await executeKernKir(verified, baseline, provider('reply'));
+  assert.equal(reference.outcome, 'success');
+  const resultText = reference.result.value.value;
+  const maxBytes = Buffer.byteLength([
+    '{"completion":{"kind":"return"},"diagnostics":[],"events":[',
+    '{"input":{"presence":"absent"},"namespace":"fixture","op":"capability","operation":"resolve","result":{"presence":"value","value":"reply"}},',
+    `{"op":"stdout","text":${JSON.stringify(resultText)}}`,
+    '],"format":"kern.runtime.kir.v1","outcome":"success","requestId":"byte-boundary","result":{"presence":"value","value":',
+    JSON.stringify(resultText),
+    '}}',
+  ].join(''));
+  const atBoundary = runtimeRequest('byte-boundary', '{"ok":true}', ['boundary'], { limits: { ...LIMITS, maxBytes } });
+  for (const execute of [
+    () => executeKernKir(verified, atBoundary, provider('reply')),
+    () => module.execute(atBoundary, provider('reply')),
+  ]) assert.deepEqual(await execute(), reference);
+  const belowBoundary = { ...atBoundary, limits: { ...atBoundary.limits, maxBytes: maxBytes - 1 } };
+  for (const { label, execute } of [
+    { label: 'direct', execute: () => executeKernKir(verified, belowBoundary, provider('reply')) },
+    { label: 'emitted', execute: () => module.execute(belowBoundary, provider('reply')) },
+  ]) {
+    const result = await execute();
+    assert.equal(result.outcome, 'failure', label);
+    assert.equal(result.diagnostics[0]?.code, 'runtime-limit-exceeded', label);
+  }
 });
