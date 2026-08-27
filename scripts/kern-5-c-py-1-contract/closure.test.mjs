@@ -13,7 +13,7 @@ const FORBIDDEN_SOURCE = /(?:ReferenceRunner|executeKernKir|generateR0|kern\.[\w
 const STANDARD_LIBRARY = new Set([
   'asyncio', 'dataclasses', 'decimal', 'hashlib', 'math', 're', 'time', 'typing', 'unicodedata',
 ]);
-const FORBIDDEN_EMITTED = /(?:\b(?:eval|exec|compile|input|print)\s*\(|\bJSON\b|json\.(?:loads|dumps)|sys\.(?:stdin|stdout|stderr)|subprocess|importlib|pathlib|site-packages|node_modules|@kernlang|packages\/|scripts\/|ReferenceRunner|executeKernKir|generateR0|kern\.[\w.-]*\.r0|generic.{0,40}(?:dispatch|interpret)|(?:dispatch|evaluate)\w*\s*\(\s*(?:kir|program|statement|expression)|(?:kir|program|statement|expression)\s*(?:\[|\.)\s*['"]?(?:kind|type|tag))/iu;
+const FORBIDDEN_EMITTED = /(?:\b(?:eval|exec|input|print)\s*\(|(?<!\.)\bcompile\s*\(|\bJSON\b|json\.(?:loads|dumps)|sys\.(?:stdin|stdout|stderr)|subprocess|importlib|pathlib|site-packages|node_modules|@kernlang|packages\/|scripts\/|ReferenceRunner|executeKernKir|generateR0|kern\.[\w.-]*\.r0|generic.{0,40}(?:dispatch|interpret)|(?:dispatch|evaluate)\w*\s*\(\s*(?:kir|program|statement|expression)|(?:kir|program|statement|expression)\s*(?:\[|\.)\s*['"]?(?:kind|type|tag))/iu;
 
 function here(relative) {
   return resolve(fileURLToPath(new URL(relative, import.meta.url)));
@@ -87,4 +87,12 @@ test('entry.py has only standard-library imports and no stdio, host JSON, generi
     runs: [{ request: runtimeRequest('closure', '{"ok":true}', []), reply: 'reply' }],
   });
   assert.equal(output.results[0].outcome, 'success');
+});
+
+test('entry.py parses numbers with a position-based compiled regex and no remaining-source copy', async () => {
+  const result = assertCompileSuccess(await compile(await projection()));
+  const text = new TextDecoder().decode(result.artifact.bytes);
+  assert.match(text, /_NUMBER\s*=\s*re\.compile\(/u);
+  assert.match(text, /_NUMBER\.match\(self\.source, self\.index\)/u);
+  assert.doesNotMatch(text, /self\.source\[self\.index:\]/u);
 });

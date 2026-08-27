@@ -72,7 +72,10 @@ async def _invoke_capability(invoke, call, internal_signal, deadline, reason, sy
         )
         sync_external()
         if provider_task in done and not internal_signal.is_set():
-            return provider_task.result()
+            try:
+                return provider_task.result()
+            except asyncio.CancelledError:
+                raise _Fault("capability-error", "execution")
         if provider_task not in done:
             if interrupted not in done:
                 reason["value"] = "timeout"

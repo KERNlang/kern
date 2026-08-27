@@ -57,6 +57,21 @@ test('compile request admits exactly format, entry, and all seven positive safe 
   assert.equal(failureCode(await compile(verified, symbolField)), 'invalid-compiler-request');
 });
 
+test('compiler request meter faults map to invalid-compiler-request', async () => {
+  const verified = await projection();
+  const request = compilerRequest({
+    entry: { moduleId: `${'x'.repeat(32)}.kern`, handlerName: 'compose' },
+    limits: { ...compilerRequest().limits, maxStringBytes: 16 },
+  });
+  assert.equal(failureCode(await compile(verified, request)), 'invalid-compiler-request');
+});
+
+test('linker meter faults retain the closed handler-link-error mapping', async () => {
+  const verified = await projection();
+  const request = compilerRequest({ limits: { ...compilerRequest().limits, maxSteps: 1 } });
+  assert.equal(failureCode(await compile(verified, request)), 'handler-link-error');
+});
+
 test('request inspection precedes projection authentication and authentication precedes projection reads', async () => {
   const verified = await projection();
   let traps = 0;

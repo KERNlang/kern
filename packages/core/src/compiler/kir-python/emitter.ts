@@ -1,5 +1,5 @@
 import type { KernKirValue } from '../../kir-runtime/contracts.js';
-import { canonicalJson, sha256 } from '../../kir-runtime/digest.js';
+import { sha256 } from '../../kir-runtime/digest.js';
 import type {
   LinkedKernKirExpression,
   LinkedKernKirHandler,

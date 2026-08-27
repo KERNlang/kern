@@ -49,12 +49,14 @@ async def execute_one(module, spec):
         started.set()
         if scenario == "rejection":
             raise RuntimeError("provider rejected")
+        if scenario == "provider-cancelled":
+            raise asyncio.CancelledError()
         if scenario == "malformed-result":
             return {"presence": "value", "value": {"tag": "not-a-kir-value"}}
         if scenario == "signal-after-result":
             external.set()
             return slot(spec.get("reply", "reply"))
-        if scenario in {"pending", "slow-cancel"}:
+        if scenario in {"pending", "slow-cancel", "outer-task-cancel"}:
             try:
                 await asyncio.Future()
             except asyncio.CancelledError:
@@ -82,7 +84,17 @@ async def execute_one(module, spec):
     if scenario in {"pending", "slow-cancel"} and external is not None:
         watcher = asyncio.create_task(set_signal_after_start())
     started_at = time.monotonic()
-    result = await asyncio.wait_for(module.execute(spec["request"], options or None), timeout=2)
+    execution = asyncio.create_task(module.execute(spec["request"], options or None))
+    if scenario == "outer-task-cancel":
+        await started.wait()
+        execution.cancel()
+        try:
+            await execution
+            raise AssertionError("outer execution cancellation was swallowed")
+        except asyncio.CancelledError:
+            result = {"outerCancellationPropagated": True}
+    else:
+        result = await asyncio.wait_for(execution, timeout=2)
     metadata["elapsedMs"] = round((time.monotonic() - started_at) * 1000, 3)
     if watcher is not None:
         await watcher

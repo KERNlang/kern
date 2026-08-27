@@ -1,5 +1,7 @@
 export const TARGET_JSON_SOURCE = String.raw`
 
+_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
+
 def _json_rejected():
     raise _Fault("unsupported-runtime-input", "execution")
 
@@ -138,16 +140,17 @@ class _JsonReader:
 
     def read_number(self):
         self.meter.check()
-        match = re.match(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", self.source[self.index:])
+        match = _NUMBER.match(self.source, self.index)
         if match is None:
             _json_rejected()
         token = match.group(0)
-        following = self.source[self.index + len(token):self.index + len(token) + 1]
+        end = match.end()
+        following = self.source[end] if end < len(self.source) else None
         if following and (following in "eE." or re.match(r"[0-9A-Za-z_+\-]", following)):
             _json_rejected()
         if token == "-0":
             _json_rejected()
-        self.index += len(token)
+        self.index = end
         self.meter.text(token)
         return {"tag": "decimal" if "." in token else "integer", "value": token}
 

@@ -13,6 +13,11 @@ import {
   provider,
   runtimeRequest,
 } from './support.mjs';
+import {
+  compile as compileJavaScript,
+  compilerRequest as javascriptCompilerRequest,
+  emittedModule as emittedJavaScriptModule,
+} from '../kern-5-r2-js-lowering/support.mjs';
 
 async function compiled(source = SOURCE, moduleId = 'main.kern', request = compilerRequest()) {
   const verified = await projection(source, moduleId);
@@ -162,4 +167,113 @@ test('novel linked KIR changes artifact, digest, and native output', async () =>
   const originalOutput = (await nativeOne(original.result.artifact.bytes, { request, reply: 'reply' })).result;
   const changedOutput = (await nativeOne(changed.result.artifact.bytes, { request, reply: 'reply' })).result;
   assert.notDeepEqual(originalOutput, changedOutput);
+});
+
+test('member optionality and list element types retain exact direct-runtime semantics', async () => {
+  const memberSource = (optional) => [
+    'fn name=compose export=true returns=string',
+    '  param name=text type=string',
+    '  handler lang=kern',
+    '    let name=payload value="Json.parse(text)"',
+    `    return value="payload${optional ? '?.' : '.'}missing"`,
+    '',
+  ].join('\n');
+  const memberRequest = {
+    ...runtimeRequest('member', '{}', []),
+    arguments: { text: { tag: 'text', value: '{}' } },
+  };
+  for (const optional of [false, true]) {
+    const { verified, result } = await compiled(memberSource(optional));
+    const expected = await executeKernKir(verified, memberRequest);
+    const actual = (await nativeOne(result.artifact.bytes, { request: memberRequest })).result;
+    assert.deepEqual(actual, expected);
+    assert.equal(
+      actual.diagnostics[0]?.code,
+      optional ? 'invalid-handler-result' : 'unsupported-runtime-input',
+    );
+  }
+
+  const { verified, result } = await compiled();
+  const mismatched = runtimeRequest('list-element-mismatch', '{"x":1}', [], {
+    arguments: {
+      text: { tag: 'text', value: '{"x":1}' },
+      labels: { tag: 'list', value: [{ tag: 'integer', value: '1' }] },
+    },
+  });
+  const expected = await executeKernKir(verified, mismatched, provider('reply'));
+  const actual = (await nativeOne(result.artifact.bytes, { request: mismatched, reply: 'reply' })).result;
+  assert.deepEqual(actual, expected);
+  assert.equal(actual.diagnostics[0]?.code, 'invalid-handler-arguments');
+});
+
+test('JSON Unicode edges and UTF-8 byte limits stay differential', async () => {
+  const { verified, result } = await compiled();
+  const cases = [
+    runtimeRequest('surrogate-pair', '{"x":"\\uD83D\\uDE00"}', []),
+    runtimeRequest('case-distinct', '{"a":1,"A":2}', []),
+    runtimeRequest('raw-unit-separator', `{"x":"${String.fromCharCode(0x1f)}"}`, []),
+    runtimeRequest('utf8-byte-limit', '"😀😀😀"', [], {
+      limits: { ...LIMITS, maxStringBytes: 12 },
+    }),
+  ];
+  for (const request of cases) {
+    const expected = await executeKernKir(verified, request, provider('reply'));
+    const actual = (await nativeOne(result.artifact.bytes, { request, reply: 'reply' })).result;
+    assert.deepEqual(actual, expected, request.requestId);
+  }
+  assert.match(
+    (await executeKernKir(verified, cases[0], provider('reply'))).result.value.value,
+    /😀/u,
+  );
+  assert.equal((await executeKernKir(verified, cases[2], provider('reply'))).outcome, 'failure');
+  assert.equal((await executeKernKir(verified, cases[3], provider('reply'))).diagnostics[0]?.code, 'runtime-limit-exceeded');
+});
+
+test('runtime zero limits reject and maxSteps preserves the exact JS-lowering boundary', async () => {
+  const simpleSource = [
+    'fn name=compose export=true returns=string',
+    '  param name=text type=string',
+    '  handler lang=kern',
+    '    return value="text"',
+    '',
+  ].join('\n');
+  const { verified, result } = await compiled(simpleSource);
+  const base = {
+    ...runtimeRequest('step-boundary', 'value', []),
+    arguments: { text: { tag: 'text', value: 'value' } },
+  };
+  for (const key of Object.keys(LIMITS)) {
+    const request = { ...base, limits: { ...LIMITS, [key]: 0 } };
+    const expected = await executeKernKir(verified, request);
+    const actual = (await nativeOne(result.artifact.bytes, { request })).result;
+    assert.deepEqual(actual, expected, key);
+    assert.equal(actual.diagnostics[0]?.code, 'invalid-handler-arguments', key);
+  }
+
+  const javascript = await compileJavaScript(verified, javascriptCompilerRequest());
+  assert.equal(javascript.outcome, 'success');
+  const javascriptModule = await emittedJavaScriptModule(javascript.artifact.bytes);
+  const atBoundary = { ...base, limits: { ...LIMITS, maxSteps: 3 } };
+  const belowBoundary = { ...base, limits: { ...LIMITS, maxSteps: 2 } };
+  const javascriptAt = await javascriptModule.execute(atBoundary);
+  const javascriptBelow = await javascriptModule.execute(belowBoundary);
+  assert.equal(javascriptAt.outcome, 'success');
+  assert.equal(javascriptBelow.diagnostics[0]?.code, 'runtime-limit-exceeded');
+  assert.deepEqual((await nativeOne(result.artifact.bytes, { request: atBoundary })).result, javascriptAt);
+  assert.deepEqual((await nativeOne(result.artifact.bytes, { request: belowBoundary })).result, javascriptBelow);
+});
+
+test('astral and BMP private-use record keys follow the direct and JS KERN code-point order', async () => {
+  const { verified, result } = await compiled();
+  const request = runtimeRequest('key-order', '{"😀":1,"\uE000":2}', []);
+  const expected = await executeKernKir(verified, request, provider('reply'));
+  const python = (await nativeOne(result.artifact.bytes, { request, reply: 'reply' })).result;
+  const javascript = await compileJavaScript(verified, javascriptCompilerRequest());
+  assert.equal(javascript.outcome, 'success');
+  const javascriptModule = await emittedJavaScriptModule(javascript.artifact.bytes);
+  const javascriptResult = await javascriptModule.execute(request, provider('reply'));
+  assert.deepEqual(python, expected);
+  assert.deepEqual(javascriptResult, expected);
+  const text = expected.result.value.value;
+  assert.ok(text.indexOf('\uE000') < text.indexOf('😀'), text);
 });

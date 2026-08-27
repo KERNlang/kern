@@ -134,3 +134,15 @@ test('timeout at an awaitable-provider checkpoint matches RT-1 and wins over a l
   assert.deepEqual(nativeRace.result, expectedRace);
   assert.equal(code(nativeRace.result), 'execution-timeout');
 });
+
+test('provider-owned CancelledError becomes capability-error while outer task cancellation still propagates', async () => {
+  const { bytes } = await fixture();
+  const request = runtimeRequest('provider-cancelled', '{"x":1}', []);
+  const providerCancelled = await nativeOne(bytes, { request, scenario: 'provider-cancelled' });
+  assert.equal(code(providerCancelled.result), 'capability-error');
+  assert.equal(providerCancelled.metadata.calls.length, 1);
+
+  const outerCancelled = await nativeOne(bytes, { request, scenario: 'outer-task-cancel' });
+  assert.deepEqual(outerCancelled.result, { outerCancellationPropagated: true });
+  assert.equal(outerCancelled.metadata.calls.length, 1);
+});
