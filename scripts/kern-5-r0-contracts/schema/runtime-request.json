@@ -1,0 +1,103 @@
+{
+  "$id": "kern.runtime.request.r0",
+  "additionalProperties": false,
+  "properties": {
+    "arguments": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {"type": "string"},
+        "textList": {"items": {"type": "string"}, "type": "array"}
+      },
+      "required": ["text", "textList"],
+      "type": "object"
+    },
+    "artifactManifestSha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "capabilityTranscript": {
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delayTicks": {"maximum": 9007199254740991, "minimum": 0, "portableInteger": true, "type": "integer"},
+              "input": {"const": {"presence": "absent"}, "type": "object"},
+              "namespace": {"minLength": 1, "type": "string"},
+              "operation": {"minLength": 1, "type": "string"},
+              "result": {
+                "additionalProperties": false,
+                "properties": {
+                  "presence": {"const": "value", "type": "string"},
+                  "value": {"oneOf": [
+                    {"additionalProperties": false, "properties": {"tag": {"const": "null", "type": "string"}}, "required": ["tag"], "type": "object"},
+                    {"additionalProperties": false, "properties": {"tag": {"const": "text", "type": "string"}, "value": {"type": "string"}}, "required": ["tag", "value"], "type": "object"},
+                    {"additionalProperties": false, "properties": {"tag": {"const": "boolean", "type": "string"}, "value": {"type": "boolean"}}, "required": ["tag", "value"], "type": "object"},
+                    {"additionalProperties": false, "properties": {"tag": {"const": "integer", "type": "string"}, "value": {"pattern": "^-?(?:0|[1-9][0-9]*)$", "portableInteger": true, "type": "string"}}, "required": ["tag", "value"], "type": "object"}
+                  ]}
+                },
+                "required": ["presence", "value"],
+                "type": "object"
+              }
+            },
+            "required": ["delayTicks", "input", "namespace", "operation", "result"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "delayTicks": {"maximum": 9007199254740991, "minimum": 0, "portableInteger": true, "type": "integer"},
+              "error": {"additionalProperties": false, "properties": {"code": {"minLength": 1, "type": "string"}}, "required": ["code"], "type": "object"},
+              "input": {"const": {"presence": "absent"}, "type": "object"},
+              "namespace": {"minLength": 1, "type": "string"},
+              "operation": {"minLength": 1, "type": "string"}
+            },
+            "required": ["delayTicks", "error", "input", "namespace", "operation"],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "control": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cancelAtTick": {"const": null, "type": "null"},
+            "preCancelled": {"type": "boolean"},
+            "timeoutTicks": {"oneOf": [{"const": null, "type": "null"}, {"maximum": 9007199254740991, "minimum": 0, "portableInteger": true, "type": "integer"}]}
+          },
+          "required": ["cancelAtTick", "preCancelled", "timeoutTicks"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cancelAtTick": {"maximum": 9007199254740991, "minimum": 0, "portableInteger": true, "type": "integer"},
+            "preCancelled": {"type": "boolean"},
+            "timeoutTicks": {"const": null, "type": "null"}
+          },
+          "required": ["cancelAtTick", "preCancelled", "timeoutTicks"],
+          "type": "object"
+        }
+      ]
+    },
+    "entry": {"additionalProperties": false, "properties": {"handlerName": {"minLength": 1, "type": "string"}, "moduleId": {"minLength": 1, "type": "string"}}, "required": ["handlerName", "moduleId"], "type": "object"},
+    "format": {"const": "kern.runtime.kir.r0", "type": "string"},
+    "kirSha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "maxBytes": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxCollectionLength": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxDepth": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxDiagnostics": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxEvents": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxStringBytes": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"}
+      },
+      "required": ["maxBytes", "maxCollectionLength", "maxDepth", "maxDiagnostics", "maxEvents", "maxStringBytes"],
+      "type": "object"
+    },
+    "requestId": {"minLength": 1, "type": "string"}
+  },
+  "required": ["arguments", "artifactManifestSha256", "capabilityTranscript", "control", "entry", "format", "kirSha256", "limits", "requestId"],
+  "type": "object"
+}

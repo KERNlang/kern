@@ -1,0 +1,207 @@
+{
+  "format": "kern.r0.abi-topology-fixtures.1",
+  "cases": [
+    {
+      "id": "nested-record-list-no-capability",
+      "topology": "nested-record-list",
+      "capabilitySteps": 0,
+      "arguments": {
+        "text": "{\"items\":[1,2],\"meta\":{\"mode\":\"none\"}}",
+        "textList": ["none"]
+      },
+      "capabilityTranscript": [],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": null },
+      "eventOps": ["stdout"],
+      "outcome": "success",
+      "expectedJsonText": "{\"labels\":[\"none\"],\"payload\":{\"items\":[1,2],\"meta\":{\"mode\":\"none\"}}}"
+    },
+    {
+      "id": "nested-record-list-one-capability-success",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 1
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": null },
+      "eventOps": ["capability", "stdout"],
+      "outcome": "success",
+      "expectedJsonText": "{\"labels\":[\"one\",\"two\"],\"payload\":{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}},\"reply\":\"capability-one\"}"
+    },
+    {
+      "id": "nested-record-list-two-capabilities-success",
+      "topology": "nested-record-list-two-capabilities",
+      "capabilitySteps": 2,
+      "arguments": {
+        "text": "{\"items\":[1,[2,3]],\"meta\":{\"mode\":\"two\"}}",
+        "textList": ["one", "two", "three"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 1
+        },
+        {
+          "namespace": "r0fixture",
+          "operation": "resolveNext",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-two" } },
+          "delayTicks": 1
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": null },
+      "eventOps": ["capability", "capability", "stdout"],
+      "outcome": "success",
+      "expectedJsonText": "{\"labels\":[\"one\",\"two\",\"three\"],\"payload\":{\"items\":[1,[2,3]],\"meta\":{\"mode\":\"two\"}},\"replies\":[\"capability-one\",\"capability-two\"]}"
+    },
+    {
+      "id": "nested-record-list-capability-error",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "error": { "code": "capability-error" },
+          "delayTicks": 1
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": null },
+      "eventOps": [],
+      "outcome": "failure",
+      "expectedJsonText": null,
+      "errorCode": "capability-error"
+    },
+    {
+      "id": "pre-cancelled",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 1
+        }
+      ],
+      "control": { "preCancelled": true, "cancelAtTick": null, "timeoutTicks": null },
+      "eventOps": [],
+      "outcome": "failure",
+      "expectedJsonText": null,
+      "errorCode": "execution-cancelled"
+    },
+    {
+      "id": "cancel-before-settle",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 2
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": 1, "timeoutTicks": null },
+      "eventOps": [],
+      "outcome": "failure",
+      "expectedJsonText": null,
+      "errorCode": "execution-cancelled"
+    },
+    {
+      "id": "timeout-before-settle",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 2
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": 1 },
+      "eventOps": [],
+      "outcome": "failure",
+      "expectedJsonText": null,
+      "errorCode": "execution-timeout"
+    },
+    {
+      "id": "timeout-tie-settle",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 2
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": null, "timeoutTicks": 2 },
+      "eventOps": [],
+      "outcome": "failure",
+      "expectedJsonText": null,
+      "errorCode": "execution-timeout"
+    },
+    {
+      "id": "success-after-settle",
+      "topology": "nested-record-list",
+      "capabilitySteps": 1,
+      "arguments": {
+        "text": "{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}}",
+        "textList": ["one", "two"]
+      },
+      "capabilityTranscript": [
+        {
+          "namespace": "r0fixture",
+          "operation": "resolve",
+          "input": { "presence": "absent" },
+          "result": { "presence": "value", "value": { "tag": "text", "value": "capability-one" } },
+          "delayTicks": 1
+        }
+      ],
+      "control": { "preCancelled": false, "cancelAtTick": 2, "timeoutTicks": null },
+      "eventOps": ["capability", "stdout"],
+      "outcome": "success",
+      "expectedJsonText": "{\"labels\":[\"one\",\"two\"],\"payload\":{\"items\":[1,[2]],\"meta\":{\"mode\":\"one\"}},\"reply\":\"capability-one\"}"
+    }
+  ]
+}
