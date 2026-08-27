@@ -46,6 +46,10 @@
       "types": "./dist/runtime-kir.d.ts",
       "default": "./dist/runtime-kir.js"
     },
+    "./compiler/kir-js-esm": {
+      "types": "./dist/compiler-kir-js-esm.d.ts",
+      "default": "./dist/compiler-kir-js-esm.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
