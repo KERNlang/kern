@@ -41,6 +41,7 @@ import {
   validateExecutionMetadataHardeningHistoricalTransition,
 } from './execution-metadata-hardening-historical-transition.mjs';
 import { reconstructFrontendProjectionCompiledCoreJavaScriptPaths } from './frontend-projection-historical-transition.mjs';
+import { reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths } from './r1-runtime-owner-historical-transition.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
 import {
   LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION,
@@ -228,10 +229,14 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
   return historicalPaths;
 }
 
-export { reconstructFrontendProjectionCompiledCoreJavaScriptPaths };
+export {
+  reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
+  reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
+};
 
 export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths) {
-  const successorPaths = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(paths);
+  const r1RuntimeOwnerPaths = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
+  const successorPaths = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(r1RuntimeOwnerPaths);
   const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;
   if (
     successorPaths.length !== transition.compiledInventory.successor.count ||

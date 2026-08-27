@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
+  reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
   FRONTEND_PROJECTION_COMPILED_SUCCESSOR_TRANSITION,
@@ -37,8 +38,12 @@ test('frontend projection authenticates its exact 322-to-318 compiled inventory 
   assert.equal(transition.predecessorCommit, '80f22655fa4cca12ba752f899564c9427f191508');
   assert.equal(transition.successorCommit, 'c33c3f530ccde0e43f12a176e05fd7c4b5a6d75c');
   const paths = compiledPaths();
-  assert.deepEqual({ count: paths.length, digest: pathDigest(paths) }, transition.currentInventory);
-  const predecessor = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(paths);
+  const r1RuntimeOwnerPredecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
+  assert.deepEqual(
+    { count: r1RuntimeOwnerPredecessor.length, digest: pathDigest(r1RuntimeOwnerPredecessor) },
+    transition.currentInventory,
+  );
+  const predecessor = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(r1RuntimeOwnerPredecessor);
   assert.deepEqual(
     { count: predecessor.length, digest: pathDigest(predecessor) },
     transition.predecessorInventory,
@@ -64,14 +69,15 @@ test('frontend projection transition evidence is recursively frozen and immutabl
 
 test('frontend projection inventory rejects additions, removals, renames, duplicates, and escapes', () => {
   const paths = compiledPaths();
+  const r1RuntimeOwnerPredecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
   const projectionPath = FRONTEND_PROJECTION_COMPILED_SUCCESSOR_TRANSITION.addedPaths[0];
   const cases = [
-    [...paths, 'unexpected.js'],
-    paths.slice(1),
-    paths.filter((path) => path !== projectionPath),
-    paths.map((path) => (path === projectionPath ? 'frontend-projection-renamed.js' : path)),
-    [...paths, paths[0]],
-    [...paths.slice(1), '../escape.js'],
+    [...r1RuntimeOwnerPredecessor, 'unexpected.js'],
+    r1RuntimeOwnerPredecessor.slice(1),
+    r1RuntimeOwnerPredecessor.filter((path) => path !== projectionPath),
+    r1RuntimeOwnerPredecessor.map((path) => (path === projectionPath ? 'frontend-projection-renamed.js' : path)),
+    [...r1RuntimeOwnerPredecessor, r1RuntimeOwnerPredecessor[0]],
+    [...r1RuntimeOwnerPredecessor.slice(1), '../escape.js'],
   ];
   for (const candidate of cases) {
     assert.throws(
