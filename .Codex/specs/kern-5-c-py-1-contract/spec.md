@@ -1,6 +1,6 @@
 # C-PY-1 Package-Owned KIR-to-Python Lowering
 
-**Status:** READY TO BUILD — OWNER RED AT BASE
+**Status:** READY TO BUILD — SEMANTIC RED AT BASE
 **Date:** 2026-08-27
 **Confidence:** 0.92
 
@@ -140,7 +140,7 @@ Implement only after the linked-KIR/JS-v1 predecessor stack is available:
   missing-owner error, requires the unique export and source facade, and fails
   current main with
   `KIR_PYTHON_OWNER_MISSING: @kernlang/core does not export ./compiler/kir-python`.
-- [ ] Before production code, stacked semantic oracles fail for the intended
+- [x] Before production code, stacked semantic oracles fail for the intended
   missing Python owner/behavior and cannot pass from an export-map/source stub.
 - [ ] Core exports exactly one Python KIR owner after build, with matching source
   and built facades.

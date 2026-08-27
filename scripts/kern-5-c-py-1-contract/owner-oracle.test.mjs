@@ -1,28 +1,31 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-const MISSING_OWNER = 'KIR_PYTHON_OWNER_MISSING: @kernlang/core does not export ./compiler/kir-python';
+import {
+  AMBIGUOUS_OWNER_CODE,
+  MISSING_OWNER,
+  MISSING_OWNER_CODE,
+  OWNER_SUBPATH,
+  assertExactlyOnePythonOwner,
+  assertOwnerManifest,
+  discoverPythonOwners,
+  sourceFacadeExists,
+} from './owner.mjs';
 
-function corePythonOwnerExport(manifest) {
-  const target = manifest.exports?.['./compiler/kir-python'];
-  if (target === undefined) throw new Error(MISSING_OWNER);
-  return target;
-}
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 test('C-PY-1 keeps the missing-owner failure exact after the owner lands', () => {
   assert.throws(
-    () => corePythonOwnerExport({ exports: {} }),
-    (error) => error instanceof Error && error.message === MISSING_OWNER,
+    () => assertExactlyOnePythonOwner([]),
+    (error) => error instanceof Error && error.code === MISSING_OWNER_CODE && error.message === MISSING_OWNER,
   );
 });
 
 test('C-PY-1 exposes the package-owned Python KIR compiler without requiring a build', () => {
-  const manifest = JSON.parse(readFileSync(resolve(ROOT, 'packages/core/package.json'), 'utf8'));
-  const target = corePythonOwnerExport(manifest);
+  const { manifest, target } = assertOwnerManifest(ROOT);
   assert.deepEqual(target, {
     types: './dist/compiler-kir-python.d.ts',
     default: './dist/compiler-kir-python.js',
@@ -30,6 +33,15 @@ test('C-PY-1 exposes the package-owned Python KIR compiler without requiring a b
   const aliases = Object.entries(manifest.exports).filter(
     ([_key, value]) => value?.types === target.types || value?.default === target.default,
   );
-  assert.deepEqual(aliases.map(([key]) => key), ['./compiler/kir-python']);
-  assert.equal(existsSync(resolve(ROOT, 'packages/core/src/compiler-kir-python.ts')), true);
+  assert.deepEqual(aliases.map(([key]) => key), [OWNER_SUBPATH]);
+  assert.equal(sourceFacadeExists(ROOT), true);
+});
+
+test('C-PY-1 has exactly one built package owner and stable ambiguity errors', async () => {
+  const owner = assertExactlyOnePythonOwner(await discoverPythonOwners(ROOT));
+  assert.equal(owner.packageName, '@kernlang/core');
+  assert.equal(owner.subpath, OWNER_SUBPATH);
+  assert.equal(existsSync(owner.sourcePath), true);
+  assert.equal(existsSync(owner.builtPath), true);
+  assert.throws(() => assertExactlyOnePythonOwner([owner, owner]), { code: AMBIGUOUS_OWNER_CODE });
 });
