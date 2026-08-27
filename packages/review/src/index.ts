@@ -1011,7 +1011,11 @@ function reviewSourceInternal(
   // host tsconfig, so TS6059/TS6307 are our noise, not the user's bug.
   const normalizedCurrentPath = sourceFile.getFilePath();
   allFindings.push(
-    ...safePhase('tsc', () => runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }), []).filter(
+    ...safePhase(
+      'tsc',
+      () => runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true, canonicalFilePaths: [filePath] }),
+      [],
+    ).filter(
       (f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath,
     ),
   );

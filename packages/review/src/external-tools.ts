@@ -156,6 +156,7 @@ export interface RunTSCDiagnosticsOptions {
    * The name is kept for backward compatibility; scope broadened deliberately.
    */
   downgradeProjectLoadingErrors?: boolean;
+  canonicalFilePaths?: string[];
 }
 
 // TS diagnostic codes in the "type erosion" family — the downstream cascade
@@ -404,7 +405,9 @@ export function runTSCDiagnostics(
     if (process.env.KERN_DEBUG) console.error('tsc diagnostics error:', (err as Error).message);
   }
 
-  return findings;
+  return options.canonicalFilePaths
+    ? filterToCanonicalBuildDiagnostics(findings, options.canonicalFilePaths, health)
+    : findings;
 }
 
 function collectReviewModeSuppressedModuleMisses(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): {
@@ -947,8 +950,7 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[], health?: ReviewH
       }
     }
     const findings = runTSCDiagnostics(project);
-    if (!canonical.attempted) return findings;
-    return findings.filter((finding) => canonical.keys.has(tscFindingKey(finding)));
+    return filterToCanonicalBuildDiagnostics(findings, filePaths, health, canonical);
   } catch (err) {
     health?.noteKind('tsc', 'error', 'tsc diagnostics could not build a ts-morph Project', debugDetail(err));
     if (process.env.KERN_DEBUG) console.error('tsc project build error:', (err as Error).message);
@@ -959,6 +961,16 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[], health?: ReviewH
 interface CanonicalBuildDiagnosticKeys {
   attempted: boolean;
   keys: Set<string>;
+}
+
+function filterToCanonicalBuildDiagnostics(
+  findings: ReviewFinding[],
+  filePaths: string[],
+  health?: ReviewHealthBuilder,
+  canonical = collectCanonicalBuildDiagnosticKeys(filePaths, health),
+): ReviewFinding[] {
+  if (!canonical.attempted) return findings;
+  return findings.filter((finding) => canonical.keys.has(tscFindingKey(finding)));
 }
 
 const canonicalBuildDiagnosticsCache = new Map<string, Set<string> | undefined>();
