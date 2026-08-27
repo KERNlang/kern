@@ -246,6 +246,21 @@ export function run(req: Request): void {
     expect(mixedMessages).toContain("Variable 'mixedEnv'");
     expect(mixedMessages).not.toContain("Variable 'input'");
   });
+
+  it('ignores options.input across command overloads and does not scan callback captures', () => {
+    const source = `
+export function run(req: Request): void {
+  const input = req.body.input;
+  const callbackOnly = req.body.callbackOnly;
+  spawn('node', { input });
+  spawnSync('node', { input });
+  execFile('node', { input }, () => console.log(callbackOnly));
+  exec('node', () => console.log(callbackOnly));
+}
+`;
+    const report = reviewSource(source, 'handler.ts');
+    expect(report.findings.filter((finding) => finding.ruleId === 'taint-command')).toEqual([]);
+  });
 });
 
 // ── taintToFindings conversion ────────────────────────────────────────

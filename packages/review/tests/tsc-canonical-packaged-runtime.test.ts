@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runTSCDiagnosticsFromPaths } from '../src/external-tools.js';
-import { reviewFile, reviewSource } from '../src/index.js';
+import { ModuleKind, Project } from 'ts-morph';
+import { runTSCDiagnostics, runTSCDiagnosticsFromPaths } from '../src/external-tools.js';
+import { reviewDirectory, reviewFile, reviewSource } from '../src/index.js';
 
 describe('canonical tsc lookup in packaged review runtimes', () => {
   test('filters ts-morph-only diagnostics when the reviewed repo and cwd have no TypeScript install', () => {
@@ -71,6 +72,46 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
     }
   });
 
+  test('does not let an unrelated TS1470 filter a reviewed on-disk diagnostic', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-unrelated-ts1470-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            strict: true,
+            target: 'ES2022',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      writeFileSync(join(srcDir, 'unrelated.cts'), 'export const here = import.meta.url;\n');
+      const looseFile = join(dir, 'loose.ts');
+      writeFileSync(looseFile, 'export const value: number = "wrong";\n');
+
+      const project = new Project({
+        compilerOptions: { module: ModuleKind.NodeNext, target: 9 },
+        skipAddingFilesFromTsConfig: true,
+      });
+      project.addSourceFileAtPath(join(srcDir, 'unrelated.cts'));
+      project.addSourceFileAtPath(looseFile);
+      expect(
+        runTSCDiagnostics(project, { canonicalFilePaths: [looseFile] }).find((finding) => finding.ruleId === 'ts2322'),
+      ).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('preserves diagnostics from unsaved reviewSource input instead of comparing against disk', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-review-unsaved-tsc-'));
     try {
@@ -118,6 +159,84 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
 
       writeFileSync(file, 'export const value: number = "changed";\n');
       expect(runTSCDiagnosticsFromPaths([file]).find((finding) => finding.ruleId === 'ts2322')).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('batches canonical builds for a directory review', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-batched-tsc-'));
+    try {
+      const srcDir = join(dir, 'src');
+      const tscDir = join(dir, 'node_modules', 'typescript', 'bin');
+      const callsFile = join(dir, 'canonical-build-calls.txt');
+      mkdirSync(srcDir);
+      mkdirSync(tscDir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            strict: true,
+            target: 'ES2022',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      writeFileSync(
+        join(tscDir, 'tsc'),
+        `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(callsFile)}, 'build\\n');\n`,
+      );
+      writeFileSync(join(srcDir, 'one.ts'), 'export const one = import.meta.url;\n');
+      writeFileSync(join(srcDir, 'two.ts'), 'export const two = import.meta.url;\n');
+
+      reviewDirectory(srcDir, false, { noCache: true });
+      expect(readFileSync(callsFile, 'utf8').trim().split('\n')).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('suppresses ad-hoc composite project loading diagnostics', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-project-membership-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            rootDir: 'src',
+            strict: true,
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      const indexFile = join(srcDir, 'index.ts');
+      writeFileSync(indexFile, "export { value } from './dep.js';\n");
+      writeFileSync(join(srcDir, 'dep.ts'), 'export const value = 1;\n');
+      const project = new Project({
+        skipAddingFilesFromTsConfig: true,
+        tsConfigFilePath: join(dir, 'tsconfig.json'),
+      });
+      project.addSourceFileAtPath(indexFile);
+
+      expect(runTSCDiagnostics(project).some((finding) => finding.ruleId === 'ts6307')).toBe(true);
+      expect(
+        runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some(
+          (finding) => finding.ruleId === 'ts6307',
+        ),
+      ).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

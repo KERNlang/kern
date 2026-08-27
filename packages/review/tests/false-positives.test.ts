@@ -215,6 +215,21 @@ result.then(
     }
   });
 
+  it('still fires when a .then observer returns a value', () => {
+    const report = reviewSource(
+      `
+declare const result: Promise<string>;
+result.then(
+  (value) => { console.log(value); return value; },
+  (error) => { console.error(error.message); process.exitCode = 1; },
+);
+`,
+      'cli.ts',
+      { target: 'cli' },
+    );
+    expect(report.findings.find((finding) => finding.ruleId === 'floating-promise')).toBeDefined();
+  });
+
   it('still fires on an ordinary ignored promise chain', () => {
     const source = `
 declare const result: Promise<string>;

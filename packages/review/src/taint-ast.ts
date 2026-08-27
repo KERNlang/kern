@@ -87,7 +87,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         // For NoSQL sinks, only scan the method's query positions
         // (filter / update doc) — `find(query, projection)` must not mark
         // `projection` as flowing to a sink.
-        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx, allArgs[argIdx])) continue;
 
         const arg = allArgs[argIdx];
         for (let i = 0; i < params.length; i++) {
@@ -105,7 +105,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
 
       // Also check template literal arguments
       for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
-        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx, allArgs[argIdx])) continue;
         const arg = allArgs[argIdx];
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
@@ -362,7 +362,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // For NoSQL sinks, only scan the method's query positions
         // (filter / update doc) — `find(query, projection)` must not flag
         // the projection argument as injection.
-        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(sinkDef, calleeName, argIdx, allArgs[argIdx])) continue;
         const arg = allArgs[argIdx];
         const taintedArg = findTaintedIdentifier(arg, taintedNames, (reference) =>
           isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),

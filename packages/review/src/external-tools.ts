@@ -158,6 +158,8 @@ export interface RunTSCDiagnosticsOptions {
   downgradeProjectLoadingErrors?: boolean;
   /** Compare suspected ts-morph-only diagnostics against canonical on-disk tsc output. */
   canonicalFilePaths?: string[];
+  /** Request-scoped canonical build results shared by multi-file review callers. */
+  canonicalBuildDiagnosticsCache?: Map<string, Set<string>>;
 }
 
 // TS diagnostic codes in the "type erosion" family — the downstream cascade
@@ -406,13 +408,28 @@ export function runTSCDiagnostics(
     if (process.env.KERN_DEBUG) console.error('tsc diagnostics error:', (err as Error).message);
   }
 
-  return options.canonicalFilePaths && findings.some(isSuspectedTsMorphOnlyDiagnostic)
-    ? filterToCanonicalBuildDiagnostics(findings, options.canonicalFilePaths, health)
+  return options.canonicalFilePaths && hasSuspectedCanonicalDiagnostic(findings, options.canonicalFilePaths)
+    ? filterToCanonicalBuildDiagnostics(
+        findings,
+        options.canonicalFilePaths,
+        health,
+        undefined,
+        options.canonicalBuildDiagnosticsCache,
+      )
     : findings;
 }
 
 function isSuspectedTsMorphOnlyDiagnostic(finding: ReviewFinding): boolean {
   return finding.ruleId === 'ts1470';
+}
+
+function hasSuspectedCanonicalDiagnostic(findings: ReviewFinding[], canonicalFilePaths: string[]): boolean {
+  const canonicalPaths = new Set(canonicalFilePaths.map(normalizeDiagnosticPath));
+  return findings.some(
+    (finding) =>
+      canonicalPaths.has(normalizeDiagnosticPath(finding.primarySpan.file)) &&
+      isSuspectedTsMorphOnlyDiagnostic(finding),
+  );
 }
 
 function collectReviewModeSuppressedModuleMisses(diagnostics: ReturnType<Project['getPreEmitDiagnostics']>): {
@@ -972,15 +989,18 @@ function filterToCanonicalBuildDiagnostics(
   findings: ReviewFinding[],
   filePaths: string[],
   health?: ReviewHealthBuilder,
-  canonical = collectCanonicalBuildDiagnosticKeys(filePaths, health),
+  canonical?: CanonicalBuildDiagnosticKeys,
+  cache?: Map<string, Set<string>>,
 ): ReviewFinding[] {
-  if (!canonical.attempted) return findings;
-  return findings.filter((finding) => canonical.keys.has(tscFindingKey(finding)));
+  const resolvedCanonical = canonical ?? collectCanonicalBuildDiagnosticKeys(filePaths, health, cache);
+  if (!resolvedCanonical.attempted) return findings;
+  return findings.filter((finding) => resolvedCanonical.keys.has(tscFindingKey(finding)));
 }
 
 function collectCanonicalBuildDiagnosticKeys(
   filePaths: string[],
   health?: ReviewHealthBuilder,
+  cache?: Map<string, Set<string>>,
 ): CanonicalBuildDiagnosticKeys {
   const tsconfigPaths = new Set<string>();
   for (const filePath of filePaths) {
@@ -993,8 +1013,9 @@ function collectCanonicalBuildDiagnosticKeys(
 
   const keys = new Set<string>();
   for (const tsconfigPath of tsconfigPaths) {
-    const configKeys = collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
+    const configKeys = cache?.get(tsconfigPath) ?? collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
     if (!configKeys) return { attempted: false, keys: new Set() };
+    cache?.set(tsconfigPath, configKeys);
     for (const key of configKeys) keys.add(key);
   }
 
