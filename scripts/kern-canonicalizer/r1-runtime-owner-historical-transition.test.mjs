@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   digestM4145CompiledCoreJavaScript,
+  reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
@@ -34,6 +35,10 @@ function compiledPaths(directory = DIST, output = []) {
   return output.sort();
 }
 
+function r1SuccessorPaths() {
+  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(compiledPaths());
+}
+
 function cloneOwnDataTree(value) {
   if (value === null || typeof value !== 'object') return value;
   const copy = Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value));
@@ -52,7 +57,7 @@ function assertTypeErrorMessage(callback, message) {
 test('R1 runtime owner authenticates the exact 332-to-322 inventory edge', () => {
   assert.equal(validateR1RuntimeOwnerHistoricalTransition(), true);
   const transition = R1_RUNTIME_OWNER_COMPILED_SUCCESSOR_TRANSITION;
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   assert.deepEqual({ count: paths.length, digest: pathDigest(paths) }, transition.currentInventory);
   const predecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual({ count: predecessor.length, digest: pathDigest(predecessor) }, transition.predecessorInventory);
@@ -61,7 +66,7 @@ test('R1 runtime owner authenticates the exact 332-to-322 inventory edge', () =>
 
 test('R1 runtime owner rejects inventory and transition tampering', () => {
   const transition = R1_RUNTIME_OWNER_COMPILED_SUCCESSOR_TRANSITION;
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   for (const candidate of [
     [...paths, 'unexpected.js'],
     paths.slice(1),
@@ -79,7 +84,7 @@ test('R1 runtime owner rejects inventory and transition tampering', () => {
 });
 
 test('R1 runtime owner requires normalized parent-free paths before membership', () => {
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   for (const path of ['../escape.js', 'directory/../escape.js']) {
     assertTypeErrorMessage(
       () => reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths([...paths.slice(1), path]),
@@ -90,7 +95,7 @@ test('R1 runtime owner requires normalized parent-free paths before membership',
 
 test('R1 runtime owner preserves caller and predecessor path order', () => {
   const transition = R1_RUNTIME_OWNER_COMPILED_SUCCESSOR_TRANSITION;
-  const reversed = compiledPaths().reverse();
+  const reversed = r1SuccessorPaths().reverse();
   const before = [...reversed];
   const predecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(reversed);
   assert.deepEqual(reversed, before);
@@ -98,7 +103,7 @@ test('R1 runtime owner preserves caller and predecessor path order', () => {
 });
 
 test('R1 runtime owner treats case-only paths as distinct until membership authentication', () => {
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   const candidate = paths.map((path) => path === 'runtime-kir.js' ? 'Runtime-kir.js' : path);
   assertTypeErrorMessage(() => reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(candidate), MEMBERSHIP_ERROR);
 });

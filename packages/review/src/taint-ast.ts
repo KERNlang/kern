@@ -14,6 +14,7 @@ import {
   type SourceFile,
   SyntaxKind,
 } from 'ts-morph';
+import { commandAcceptsArgIndex } from './taint-command-args.js';
 import type { InternalSinkFunction, TaintPath, TaintResult, TaintSink, TaintSource } from './taint-types.js';
 import {
   HTTP_PARAM_NAMES,
@@ -87,6 +88,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         // (filter / update doc) — `find(query, projection)` must not mark
         // `projection` as flowing to a sink.
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
 
         const arg = allArgs[argIdx];
         const argText = arg.getText();
@@ -103,6 +105,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
       // Also check template literal arguments
       for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
@@ -358,6 +361,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // (filter / update doc) — `find(query, projection)` must not flag
         // the projection argument as injection.
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
         const taintedArg = findTaintedIdentifier(arg, taintedNames);
         if (!taintedArg) continue;
@@ -384,11 +388,9 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
       }
 
       // Also check template literal arguments
-      const templateArgs = call.getArguments().filter((a) => {
-        const k = a.getKindName();
-        return k === 'TemplateExpression' || k === 'NoSubstitutionTemplateLiteral';
-      });
-      for (const tpl of templateArgs) {
+      for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        const tpl = allArgs[argIdx];
         if (tpl.getKindName() === 'TemplateExpression') {
           for (const span of (tpl as any).getTemplateSpans()) {
             const expr = span.getExpression();

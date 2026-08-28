@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
+  reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
@@ -32,12 +33,16 @@ function pathDigest(paths) {
   return hash.digest('hex');
 }
 
+function r1SuccessorPaths() {
+  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(compiledPaths());
+}
+
 test('frontend projection authenticates its exact 322-to-318 compiled inventory edge', () => {
   assert.equal(validateFrontendProjectionHistoricalTransition(), true);
   const transition = FRONTEND_PROJECTION_COMPILED_SUCCESSOR_TRANSITION;
   assert.equal(transition.predecessorCommit, '80f22655fa4cca12ba752f899564c9427f191508');
   assert.equal(transition.successorCommit, 'c33c3f530ccde0e43f12a176e05fd7c4b5a6d75c');
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   const r1RuntimeOwnerPredecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual(
     { count: r1RuntimeOwnerPredecessor.length, digest: pathDigest(r1RuntimeOwnerPredecessor) },
@@ -68,7 +73,7 @@ test('frontend projection transition evidence is recursively frozen and immutabl
 });
 
 test('frontend projection inventory rejects additions, removals, renames, duplicates, and escapes', () => {
-  const paths = compiledPaths();
+  const paths = r1SuccessorPaths();
   const r1RuntimeOwnerPredecessor = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(paths);
   const projectionPath = FRONTEND_PROJECTION_COMPILED_SUCCESSOR_TRANSITION.addedPaths[0];
   const cases = [

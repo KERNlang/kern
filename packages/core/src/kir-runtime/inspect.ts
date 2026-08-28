@@ -8,6 +8,7 @@ import {
   type KernKirSlot,
   type KernKirValue,
 } from './contracts.js';
+import { canonicalJson } from './digest.js';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -253,7 +254,7 @@ export function inspectRequest(
     control: Object.freeze({ preCancelled: control.preCancelled, timeoutMs: control.timeoutMs as number | null }),
     limits,
   });
-  if (utf8Bytes(JSON.stringify(request)) > limits.maxBytes) {
+  if (utf8Bytes(canonicalJson(request)) > limits.maxBytes) {
     throw new KernKirFault('runtime-limit-exceeded', 'execution', 'request exceeds byte limit');
   }
   return { request, meter };
