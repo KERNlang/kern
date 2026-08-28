@@ -87,6 +87,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         // (filter / update doc) — `find(query, projection)` must not mark
         // `projection` as flowing to a sink.
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
 
         const arg = allArgs[argIdx];
         const argText = arg.getText();
@@ -103,6 +104,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
       // Also check template literal arguments
       for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
@@ -358,6 +360,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // (filter / update doc) — `find(query, projection)` must not flag
         // the projection argument as injection.
         if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
         const taintedArg = findTaintedIdentifier(arg, taintedNames);
         if (!taintedArg) continue;
@@ -384,11 +387,9 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
       }
 
       // Also check template literal arguments
-      const templateArgs = call.getArguments().filter((a) => {
-        const k = a.getKindName();
-        return k === 'TemplateExpression' || k === 'NoSubstitutionTemplateLiteral';
-      });
-      for (const tpl of templateArgs) {
+      for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
+        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        const tpl = allArgs[argIdx];
         if (tpl.getKindName() === 'TemplateExpression') {
           for (const span of (tpl as any).getTemplateSpans()) {
             const expr = span.getExpression();
@@ -927,6 +928,32 @@ function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | 
 // ── Command-sink receiver scoping ───────────────────────────────────────
 
 const COMMAND_AMBIGUOUS_BASE_NAMES = new Set(['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync']);
+const SPAWN_ARGV_SINK_NAMES = new Set(['spawn', 'spawnSync']);
+
+/**
+ * `spawn`/`spawnSync` execute argv directly when `shell` is absent or false,
+ * so only a tainted executable (argument 0) is command injection. Once a
+ * shell is enabled, argv is composed into a shell command and remains taint-
+ * sensitive. Opaque or spread options are treated conservatively because
+ * they can enable `shell` outside the visible call expression.
+ */
+function commandAcceptsArgIndex(call: import('ts-morph').CallExpression, sinkName: string, argIndex: number): boolean {
+  if (!SPAWN_ARGV_SINK_NAMES.has(sinkName) || argIndex === 0) return true;
+  const args = call.getArguments();
+  const options =
+    args.length > 2 ? args[2] : args[1]?.getKindName() === 'ObjectLiteralExpression' ? args[1] : undefined;
+  if (!options) return false;
+  if (options.getKindName() !== 'ObjectLiteralExpression') return true;
+  for (const property of (options as import('ts-morph').ObjectLiteralExpression).getProperties()) {
+    if (property.getKindName() === 'SpreadAssignment') return true;
+    if (property.getKindName() === 'ShorthandPropertyAssignment' && property.getText() === 'shell') return true;
+    if (property.getKindName() !== 'PropertyAssignment') continue;
+    const assignment = property as import('ts-morph').PropertyAssignment;
+    if (assignment.getName() !== 'shell') continue;
+    return assignment.getInitializer()?.getKindName() !== 'FalseKeyword';
+  }
+  return false;
+}
 
 /**
  * True only when the call site is plausibly a command-execution sink

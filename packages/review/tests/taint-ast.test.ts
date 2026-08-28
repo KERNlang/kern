@@ -184,4 +184,43 @@ app.post('/run', (req: any, _res: any) => {
     const f = report.findings.find((f) => f.ruleId.startsWith('taint-'));
     expect(f).toBeDefined();
   });
+
+  it('distinguishes spawnSync argv data from executable and shell command injection', () => {
+    const safeArgv = reviewSource(
+      `
+import { spawnSync } from 'node:child_process';
+export function isolatedExecute(bytes, request, reply) {
+  const node22 = process.execPath;
+  const driver = './driver.mjs';
+  spawnSync(node22, [driver, './entry.mjs', JSON.stringify(request), JSON.stringify(reply)], {
+    encoding: 'utf8', timeout: 5_000,
+  });
+}
+`,
+      'safe-spawn.ts',
+    );
+    expect(safeArgv.findings.filter((f) => f.ruleId === 'taint-command')).toHaveLength(0);
+
+    const taintedExecutable = reviewSource(
+      `
+import { spawn } from 'node:child_process';
+export function isolatedExecute(request: Request) {
+  spawn(request.headers.get('x-runtime')!, ['--version']);
+}
+`,
+      'tainted-executable.ts',
+    );
+    expect(taintedExecutable.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+
+    const shellEnabled = reviewSource(
+      `
+import { spawnSync } from 'node:child_process';
+export function isolatedExecute(request: Request) {
+  spawnSync('/usr/bin/printf', [request.headers.get('x-value')!], { shell: true });
+}
+`,
+      'shell-enabled.ts',
+    );
+    expect(shellEnabled.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+  });
 });
