@@ -46,6 +46,17 @@ const exhaustiveTiers = [
   'test:pr-frontend-tooling',
 ];
 
+const shardedFrontendJobs = new Map([
+  ['frontend-properties-extended', 'test:pr-frontend-properties-extended'],
+  ['frontend-composition', 'test:pr-frontend-composition'],
+  ['frontend-language', 'test:pr-frontend-language'],
+  ['frontend-tooling', 'test:pr-frontend-tooling'],
+]);
+
+function matrixScripts(job) {
+  return [...job.matchAll(/^\s+script: (test:[^\s]+)$/gmu)].map((match) => match[1]);
+}
+
 function currentFrontendScripts(policy) {
   return policy.gates
     .filter(
@@ -110,6 +121,7 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
     'quality',
     'infrastructure-contracts',
     'package-tests',
+    'package-tests-review',
     'semantics',
     'frontend-foundation',
     'frontend-properties-core',
@@ -136,7 +148,7 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
   const contracts = workflowJob(workflow, 'infrastructure-contracts');
   assert.match(contracts, /timeout-minutes: 75/u);
   assert.match(contracts, /pnpm test:infra:contracts/u);
-  for (const id of ['package-tests', 'product-smoke']) {
+  for (const id of ['package-tests', 'package-tests-review', 'product-smoke']) {
     const job = workflowJob(workflow, id);
     assert.match(job, /uses: actions\/setup-python@v6/u);
     assert.match(job, /python-version: '3\.12'/u);
@@ -144,7 +156,9 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
   }
 
   const packageTests = workflowJob(workflow, 'package-tests');
-  assert.match(packageTests, /name: Package tests excluding IR semantics/u);
+  const packageReviewTests = workflowJob(workflow, 'package-tests-review');
+  assert.match(packageTests, /name: Package tests excluding review and IR semantics/u);
+  assert.match(packageReviewTests, /name: Review package tests excluding IR semantics/u);
   assert.equal(
     packageJson.scripts['build:packages'],
     'tsc -b && node ./scripts/build-kern-canonicalizer-cli-assets.mjs && node ./scripts/build-kern-checker-cli-assets.mjs && node ./scripts/build-kern-formatter-cli-assets.mjs',
@@ -155,21 +169,23 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
     'pnpm build:packages && pnpm --filter @kernlang/playground build',
     'root build must compose the package train with the playground production build',
   );
-  const packageTestsTrainBuildIndex = commandIndex(packageTests, 'pnpm build:packages');
-  const packageTestIndex = commandIndex(
-    packageTests,
-    "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics",
-  );
-  assert.ok(packageTestsTrainBuildIndex >= 0, 'package tests must build the package-only train');
-  assert.ok(
-    packageTestsTrainBuildIndex < packageTestIndex,
-    'package tests must build the package-only train before recursive package tests',
-  );
-  assert.doesNotMatch(
-    packageTests,
-    /pnpm --filter @kernlang\/cli build/u,
-    'package tests must not rely on the insufficient standalone CLI prebuild',
-  );
+  const packageCommands = [
+    [
+      packageTests,
+      'node scripts/ci/run-prebuilt-package-tests.mjs --exclude @kernlang/review --exclude @kernlang/review-python -- --testPathIgnorePatterns=ir-semantics',
+    ],
+    [
+      packageReviewTests,
+      'node scripts/ci/run-prebuilt-package-tests.mjs --only @kernlang/review -- --testPathIgnorePatterns=ir-semantics',
+    ],
+  ];
+  for (const [job, testCommand] of packageCommands) {
+    const buildIndex = commandIndex(job, 'pnpm build:packages');
+    const testIndex = commandIndex(job, testCommand);
+    assert.ok(buildIndex >= 0 && buildIndex < testIndex, 'package shard must build the package train once before tests');
+    assert.equal([...job.matchAll(/run: pnpm build:packages/gmu)].length, 1);
+    assert.doesNotMatch(job, /run: pnpm .* test /u, 'package shard must not invoke rebuilding package test scripts');
+  }
 
   const productSmoke = workflowJob(workflow, 'product-smoke');
   const packageTrainBuildIndex = commandIndex(productSmoke, 'pnpm build');
@@ -227,7 +243,33 @@ test('pull-request frontend tiers cover every current fitness gate with only the
 
   const workflow = await text('.github/workflows/ci.yml');
   for (const tier of prFrontendTiers) {
-    assert.match(workflow, new RegExp(`pnpm ${tier}`, 'u'), `${tier} must run in PR CI`);
+    const shardedJob = [...shardedFrontendJobs].find(([, aggregate]) => aggregate === tier);
+    if (!shardedJob) {
+      assert.match(workflow, new RegExp(`pnpm ${tier}`, 'u'), `${tier} must run in PR CI`);
+      continue;
+    }
+    const [jobId] = shardedJob;
+    const job = workflowJob(workflow, jobId);
+    const expectedScripts = segments(packageJson.scripts[tier]).map((segment) => segment.slice('pnpm '.length));
+    assert.deepEqual(
+      matrixScripts(job),
+      expectedScripts,
+      `${jobId} matrix must retain each ${tier} leaf exactly once and in order`,
+    );
+    assert.match(job, /fail-fast: false/u, `${jobId} must report every shard failure`);
+    assert.equal(
+      [...job.matchAll(/run: pnpm --filter @kernlang\/core build/gmu)].length,
+      1,
+      `${jobId} must build core exactly once per shard`,
+    );
+    const expectedCliBuilds = jobId === 'frontend-tooling' ? 1 : 0;
+    assert.equal(
+      [...job.matchAll(/run: pnpm --filter @kernlang\/cli build/gmu)].length,
+      expectedCliBuilds,
+      `${jobId} must build CLI exactly ${expectedCliBuilds} times per shard`,
+    );
+    assert.match(job, /run: node scripts\/ci\/run-prebuilt-test\.mjs \$\{\{ matrix\.script \}\}/u);
+    assert.doesNotMatch(job, new RegExp(`pnpm ${tier}`, 'u'), `${jobId} must not serialize its aggregate`);
   }
 });
 
