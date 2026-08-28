@@ -188,13 +188,12 @@ app.post('/run', (req: any, _res: any) => {
   it('distinguishes spawnSync argv data from executable and shell command injection', () => {
     const safeArgv = reviewSource(
       `
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 export function isolatedExecute(bytes, request, reply) {
-  const node22 = process.execPath;
+  const node22 = process.env.KERN_NODE22 ?? process.execPath;
   const driver = './driver.mjs';
-  spawnSync(node22, [driver, './entry.mjs', JSON.stringify(request), JSON.stringify(reply)], {
-    encoding: 'utf8', timeout: 5_000,
-  });
+  const run = spawn(node22, [driver], { stdio: ['pipe', 'pipe', 'pipe'] });
+  run.stdin.end(JSON.stringify({ request, reply }));
 }
 `,
       'safe-spawn.ts',
@@ -222,5 +221,186 @@ export function isolatedExecute(request: Request) {
       'shell-enabled.ts',
     );
     expect(shellEnabled.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+  });
+
+  it('keeps interpreter code and ambiguous shell options command-tainted', () => {
+    const dangerousSources = [
+      `spawn('/bin/sh', ['-c', request.body.command])`,
+      `spawnSync(process.execPath, ['--eval', request.body.code], { shell: false })`,
+      `spawnSync('node', ['-e', request.body.code])`,
+      `spawn('/usr/bin/printf', [request.body.value], { shell: false, shell: true })`,
+      `spawn('/usr/bin/printf', [request.body.value], { ['shell']: true })`,
+      `spawn('/usr/bin/printf', [request.body.value], { [request.query.option]: true })`,
+      `spawn('/usr/bin/printf', [request.body.value], { get shell() { return true } })`,
+      `spawn('/usr/bin/printf', [request.body.value], { shell: Boolean(request.query.shell) })`,
+    ];
+
+    for (const [index, call] of dangerousSources.entries()) {
+      const report = reviewSource(
+        `
+import { spawn, spawnSync } from 'node:child_process';
+export function handler(request: Request) {
+  ${call};
+}
+`,
+        `dangerous-command-${index}.ts`,
+      );
+      expect(report.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+    }
+  });
+
+  it('keeps ambiguous executables, forwarders, and execFile argv command-tainted', () => {
+    const dangerousCalls = [
+      `spawn(process.env.RUNTIME, ['./driver.mjs', request.body.value], { shell: false })`,
+      `spawn('/usr/bin/env', ['node', './driver.mjs', request.body.value], { shell: false })`,
+      `spawn('npx', ['tool', request.body.value], { shell: false })`,
+      `spawn('ssh', ['host', request.body.value], { shell: false })`,
+      `spawn('git', ['status', request.body.value], { shell: false })`,
+      `execFile('/usr/bin/printf', [request.body.value], { shell: false })`,
+      `execFileSync('/usr/bin/printf', [request.body.value])`,
+      `execFile('/bin/sh', ['-c', request.body.command])`,
+      `execFileSync(process.execPath, ['-e', request.body.code], { shell: false })`,
+    ];
+    for (const [index, call] of dangerousCalls.entries()) {
+      const dangerous = reviewSource(
+        `
+import { execFile, execFileSync, spawn } from 'node:child_process';
+export function handler(request: Request) {
+  ${call};
+}
+`,
+        `conservative-command-${index}.ts`,
+      );
+      expect(dangerous.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+    }
+  });
+
+  it('suppresses only direct Node data after a literal local JavaScript module', () => {
+    const safeSources = [
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.argv[0], ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+import { execPath as nodeExecPath } from 'node:process';
+export function handler(request: Request) {
+  spawn(nodeExecPath, ['./driver.js', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+import process from 'node:process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+import * as process from 'node:process';
+export function handler(request: Request) {
+  spawn(process.argv[0], ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn('/usr/bin/node', ['./driver.cjs', '-e', request.body.value], { shell: false });
+}
+`,
+    ];
+    for (const [index, source] of safeSources.entries()) {
+      const report = reviewSource(source, `proven-node-data-${index}.ts`);
+      expect(report.findings.filter((f) => f.ruleId === 'taint-command')).toHaveLength(0);
+    }
+
+    const dangerousSources = [
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.argv[0], ['-e', request.body.code], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+import { execPath as nodeExecPath } from 'node:process';
+export function handler(request: Request) {
+  spawn(nodeExecPath, ['--eval', request.body.code], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['--require', './hook.mjs', request.body.script], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['-r', './hook.mjs', request.body.script], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['--import', './hook.mjs', request.body.script], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  let script = './driver.mjs';
+  script = './replacement.mjs';
+  spawn(process.execPath, [script, request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  const runtime = process.execPath;
+  spawn(runtime, ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  let runtime = process.execPath;
+  runtime = process.argv[0];
+  spawn(runtime, ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  let optionName = 'encoding';
+  optionName = 'shell';
+  spawn(process.execPath, ['./driver.mjs', request.body.value], { [optionName]: true });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['../driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request) {
+  spawn(process.execPath, ['/tmp/driver.mjs', request.body.value], { shell: false });
+}
+`,
+      `
+import { spawn } from 'node:child_process';
+export function handler(request: Request, process: { execPath: string }) {
+  spawn(process.execPath, ['./driver.mjs', request.body.value], { shell: false });
+}
+`,
+    ];
+    for (const [index, source] of dangerousSources.entries()) {
+      const report = reviewSource(source, `proven-node-code-${index}.ts`);
+      expect(report.findings.some((f) => f.ruleId === 'taint-command')).toBe(true);
+    }
   });
 });
