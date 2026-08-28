@@ -6,10 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const allowedBuildSegments = new Set([
-  'pnpm --filter @kernlang/core build',
-  'pnpm --filter @kernlang/cli build',
+const allowedBuildSegments = new Map([
+  ['pnpm --filter @kernlang/core build', '@kernlang/core'],
+  ['pnpm --filter @kernlang/cli build', '@kernlang/cli'],
 ]);
+const allowedPrebuiltPackages = new Set(allowedBuildSegments.values());
 
 const nodeSegmentPattern = /^node(?: (?:[A-Za-z0-9_@./:,*=+-]+|"[A-Za-z0-9_@./:,*=+-]+"|'[A-Za-z0-9_@./:,*=+-]+'))+$/u;
 
@@ -54,7 +55,7 @@ export function nodeInvocation(segment, cwd = repoRoot) {
   };
 }
 
-export function prebuiltSegments(packageJson, scriptName) {
+export function prebuiltSegments(packageJson, scriptName, options = {}) {
   if (!scriptName.startsWith('test:kern-')) {
     throw new Error(`prebuilt runner only accepts a concrete test:kern-* script, got ${scriptName}`);
   }
@@ -62,10 +63,23 @@ export function prebuiltSegments(packageJson, scriptName) {
   if (typeof script !== 'string') throw new Error(`unknown package script ${scriptName}`);
 
   const segments = script.split(' && ').map((segment) => segment.trim());
+  const declaredBuilt = new Set(options.built ?? []);
+  for (const packageName of declaredBuilt) {
+    if (!allowedPrebuiltPackages.has(packageName)) throw new Error(`unsupported prebuilt package ${packageName}`);
+  }
   let firstTestSegment = 0;
-  while (allowedBuildSegments.has(segments[firstTestSegment])) firstTestSegment += 1;
+  const requiredBuilt = [];
+  while (allowedBuildSegments.has(segments[firstTestSegment])) {
+    requiredBuilt.push(allowedBuildSegments.get(segments[firstTestSegment]));
+    firstTestSegment += 1;
+  }
   if (firstTestSegment === 0) {
     throw new Error(`${scriptName} does not start with an approved build preamble`);
+  }
+  for (const packageName of requiredBuilt) {
+    if (!declaredBuilt.has(packageName)) {
+      throw new Error(`${scriptName} requires ${packageName}, but it was not declared prebuilt`);
+    }
   }
 
   const runnable = segments.slice(firstTestSegment);
@@ -85,7 +99,7 @@ export function prebuiltSegments(packageJson, scriptName) {
 export function runPrebuiltScript(packageJson, scriptName, options = {}) {
   const cwd = options.cwd ?? repoRoot;
   const spawn = options.spawn ?? spawnSync;
-  for (const segment of prebuiltSegments(packageJson, scriptName)) {
+  for (const segment of prebuiltSegments(packageJson, scriptName, options)) {
     const invocation = nodeInvocation(segment, cwd);
     const result = spawn(invocation.command, invocation.args, {
       cwd,
@@ -98,15 +112,31 @@ export function runPrebuiltScript(packageJson, scriptName, options = {}) {
   return 0;
 }
 
+export function parseCliArgs(args) {
+  const built = [];
+  let index = 0;
+  while (args[index] === '--built') {
+    const packageName = args[index + 1];
+    if (!packageName) break;
+    built.push(packageName);
+    index += 2;
+  }
+  const remaining = args.slice(index);
+  const scriptName = remaining[0];
+  if (!scriptName || remaining.length !== 1) return undefined;
+  return { built, scriptName };
+}
+
 function main() {
-  const [scriptName, ...extra] = process.argv.slice(2);
-  if (!scriptName || extra.length > 0) {
-    console.error('usage: node scripts/ci/run-prebuilt-test.mjs <test:kern-...>');
+  const parsed = parseCliArgs(process.argv.slice(2));
+  if (!parsed) {
+    console.error('usage: node scripts/ci/run-prebuilt-test.mjs --built <package> [...] <test:kern-...>');
     return 2;
   }
+  const { built, scriptName } = parsed;
   const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   try {
-    return runPrebuiltScript(packageJson, scriptName);
+    return runPrebuiltScript(packageJson, scriptName, { built });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;

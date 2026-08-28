@@ -5,7 +5,7 @@
 
 ## Executive Summary
 
-PR CI currently serializes several independent frontend test scripts inside four long-running jobs and runs every package test, including the dominant review package, in one package job. The change will preserve every semantic test while partitioning those independent scripts into fail-fast-disabled matrix shards and separating review-package tests from the remaining package train. Each shard will build its required artifacts once, then execute the selected package script with only its leading build preamble removed.
+PR CI currently serializes several independent frontend test scripts inside four long-running jobs and runs every package test, including the dominant review package, in one package job. The change will preserve every semantic test while partitioning those independent scripts into fail-fast-disabled matrix shards and separating review-package tests from the remaining package train. Each shard will declare and build its required artifacts once, then execute the selected package script with only its verified leading build preamble removed.
 
 ## Current State / Root Cause
 
@@ -24,9 +24,9 @@ PR CI currently serializes several independent frontend test scripts inside four
 
 ## Implementation Plan
 
-1. Add a narrowly scoped prebuilt-script runner that accepts one root package script, validates and removes only its leading core/CLI build preamble, rejects aggregate or later build commands, and executes strict Node-only segments without a shell. The runner expands only a single basename wildcard in-process; shell control syntax, interpolation, traversal, and non-Node commands are rejected.
+1. Add a narrowly scoped prebuilt-script runner that accepts one root package script, validates and removes only its leading core/CLI build preamble when every package is explicitly declared prebuilt, rejects aggregate or later build commands, and executes strict Node-only segments without a shell. The runner expands only a single basename wildcard in-process; shell control syntax, interpolation, traversal, and non-Node commands are rejected.
 2. Convert the four measured long frontend jobs to `fail-fast: false` matrices containing exactly the leaf scripts already present in their aggregates. Build core once per shard; tooling shards also build CLI once.
-3. Split package tests into review and non-review jobs. Each job builds the complete package train once, preserving cross-package prerequisites, then a manifest-validated runner executes the same test glob without the packages' redundant build preambles.
+3. Split package tests into review and non-review shards of one matrix job. Each shard runs `build:packages`, which subsumes every selected package build side effect, then a manifest-validated runner executes the same test glob without redundant package build preambles. Runtime coverage fails closed if a selected package is absent from the root TypeScript references or introduces an unrepresented build segment.
 4. Update the structural CI oracle to require exact matrix membership, build-before-test ordering, no aggregate invocation in matrix jobs, direct no-build package execution, and unchanged scheduled/release coverage.
 
 ## Blast Radius
@@ -47,7 +47,7 @@ PR CI currently serializes several independent frontend test scripts inside four
 - [ ] Every leaf script from the four existing frontend aggregates appears exactly once in its replacement matrix.
 - [ ] Every frontend matrix shard builds core once before the semantic command; tooling also builds CLI once; the semantic runner cannot silently skip a non-build command or accept nested aggregates.
 - [ ] `@kernlang/review` tests and all other previously included package tests execute in separate required jobs, with `@kernlang/review-python` and IR semantics still excluded.
-- [ ] Both package jobs use `build:packages` once and invoke the test runner directly, preserving clean cross-package prerequisites while avoiding each package's `pnpm run build` preamble.
+- [ ] Both package matrix shards use `build:packages` once and invoke the test runner directly, preserving clean cross-package prerequisites while avoiding each package's `pnpm run build` preamble.
 - [ ] `.github/workflows/exhaustive-tests.yml`, `.github/workflows/release-pipeline.yml`, package leaf scripts, and `scripts/kern-5-fitness-policy.json` remain unchanged.
 - [ ] Focused runner tests, `pnpm test:ci-contract`, applicable build/type checks, and `git diff --check` pass.
 
@@ -62,8 +62,12 @@ PR CI currently serializes several independent frontend test scripts inside four
 
 None blocking. The realized wall-clock depends on hosted-runner availability and the distribution of the three-to-six leaf runtimes, so the estimate must be verified by the next live PR run.
 
+The two package matrix shards intentionally repeat checkout, toolchain setup, and install rather than sharing artifacts. Live PR evidence put setup/install at approximately 3–5 seconds versus approximately 17 minutes for review tests and more than 31 minutes for the former combined package lane: duplicated setup is under 0.5% of the expected package critical path and runs concurrently. An artifact producer would add a serial dependency plus upload/download complexity without evidence of a material wall-clock gain.
+
 ## Corrections Log
 
 | Original Claim | Reality | Impact |
 |---|---|---|
 | The initial runner implementation executed remaining commands "without a shell rewrite." | The first implementation passed repository-controlled segments to `spawnSync` with `shell: true`; the 15 selected leaves require only Node commands and single-basename glob expansion. | Replaced shell execution with strict token validation, in-process basename-glob expansion, and direct `process.execPath` spawning. |
+| The first prebuilt runner stripped every recognized build preamble without checking what its job built. | Core-only jobs could have selected a CLI-dependent leaf and skipped its required CLI build. | The CLI now requires explicit `--built` declarations and fails when any stripped prerequisite is undeclared; the workflow contract binds declarations to build steps. |
+| The first package runner treated root `build:packages` as equivalent to all selected package builds. | `@kernlang/core` also generates frontend projection assets and `@kernlang/review-mcp` also compiles rules; neither side effect was in the root train. | Added both side effects to `build:packages` and runtime fail-closed coverage against manifests plus root TypeScript references. |

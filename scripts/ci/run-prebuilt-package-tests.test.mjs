@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  assertSelectedBuildCoverage,
   loadPackageManifests,
   pnpmTestArgs,
   selectTestPackages,
@@ -41,4 +43,36 @@ test('the current workspace package tests retain the supported semantic shape', 
   const selected = selectTestPackages(manifests, { exclude: ['@kernlang/review-python'] });
   assert.ok(selected.includes('@kernlang/review'));
   assert.ok(selected.length > 1);
+});
+
+test('build:packages subsumes every selected package build side effect', () => {
+  const manifests = loadPackageManifests();
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+  const tsconfig = JSON.parse(readFileSync('tsconfig.json', 'utf8'));
+  const selected = selectTestPackages(manifests, { exclude: ['@kernlang/review-python'] });
+  assert.doesNotThrow(() =>
+    assertSelectedBuildCoverage(manifests, selected, packageJson.scripts['build:packages'], tsconfig.references),
+  );
+});
+
+test('build coverage fails closed on an unreferenced package or new build side effect', () => {
+  const base = {
+    name: '@kernlang/a',
+    workspaceDirectory: 'a',
+    scripts: { build: 'tsc -b', test: standardTest },
+  };
+  assert.throws(
+    () => assertSelectedBuildCoverage([base], ['@kernlang/a'], 'tsc -b', []),
+    /does not cover/u,
+  );
+  assert.throws(
+    () =>
+      assertSelectedBuildCoverage(
+        [{ ...base, scripts: { ...base.scripts, build: 'tsc -b && node scripts/generate.mjs' } }],
+        ['@kernlang/a'],
+        'tsc -b',
+        [{ path: 'packages/a' }],
+      ),
+    /generate\.mjs/u,
+  );
 });

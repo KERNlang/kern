@@ -73,9 +73,17 @@ jobs:
         run: pnpm test:infra:contracts
 
   package-tests:
-    name: Package tests excluding review and IR semantics
+    name: Package tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: packages excluding review
+            selectorArgs: --exclude @kernlang/review --exclude @kernlang/review-python
+          - name: review package
+            selectorArgs: --only @kernlang/review
     steps:
       - uses: actions/checkout@v7
         with:
@@ -97,36 +105,8 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build package train
         run: pnpm build:packages
-      - name: Package tests excluding review and IR semantics
-        run: node scripts/ci/run-prebuilt-package-tests.mjs --exclude @kernlang/review --exclude @kernlang/review-python -- --testPathIgnorePatterns=ir-semantics
-
-  package-tests-review:
-    name: Review package tests excluding IR semantics
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Install Python MCP SDK
-        run: pip install mcp
-      - name: Activate pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.32.1 --activate
-          pnpm --version
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Build package train
-        run: pnpm build:packages
-      - name: Review package tests excluding IR semantics
-        run: node scripts/ci/run-prebuilt-package-tests.mjs --only @kernlang/review -- --testPathIgnorePatterns=ir-semantics
+      - name: Package tests excluding IR semantics
+        run: node scripts/ci/run-prebuilt-package-tests.mjs ${{ matrix.selectorArgs }} -- --testPathIgnorePatterns=ir-semantics
 
   semantics:
     name: IR semantics contracts
@@ -246,7 +226,7 @@ jobs:
       - name: Build core
         run: pnpm --filter @kernlang/core build
       - name: Frontend generic properties extended shard
-        run: node scripts/ci/run-prebuilt-test.mjs ${{ matrix.script }}
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-composition:
     name: Frontend composition (${{ matrix.name }})
@@ -279,7 +259,7 @@ jobs:
       - name: Build core
         run: pnpm --filter @kernlang/core build
       - name: Focused frontend composition shard
-        run: node scripts/ci/run-prebuilt-test.mjs ${{ matrix.script }}
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-language:
     name: Frontend F1 through F4 (${{ matrix.name }})
@@ -318,7 +298,7 @@ jobs:
       - name: Build core
         run: pnpm --filter @kernlang/core build
       - name: Frontend language layer shard
-        run: node scripts/ci/run-prebuilt-test.mjs ${{ matrix.script }}
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-tooling:
     name: Frontend tooling (${{ matrix.name }})
@@ -353,7 +333,7 @@ jobs:
       - name: Build CLI
         run: pnpm --filter @kernlang/cli build
       - name: Frontend tooling shard
-        run: node scripts/ci/run-prebuilt-test.mjs ${{ matrix.script }}
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core --built @kernlang/cli ${{ matrix.script }}
 
   product-smoke:
     name: Native, runner, and preview gates
@@ -390,13 +370,13 @@ jobs:
   build-and-test:
     name: Build & Test
     if: ${{ always() }}
-    needs: [quality, infrastructure-contracts, package-tests, package-tests-review, semantics, frontend-foundation, frontend-properties-core, frontend-properties-extended, frontend-composition, frontend-language, frontend-tooling, product-smoke]
+    needs: [quality, infrastructure-contracts, package-tests, semantics, frontend-foundation, frontend-properties-core, frontend-properties-extended, frontend-composition, frontend-language, frontend-tooling, product-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every CI lane to succeed
         run: |
-          for result in "${{ needs.quality.result }}" "${{ needs.infrastructure-contracts.result }}" "${{ needs.package-tests.result }}" "${{ needs.package-tests-review.result }}" "${{ needs.semantics.result }}" "${{ needs.frontend-foundation.result }}" "${{ needs.frontend-properties-core.result }}" "${{ needs.frontend-properties-extended.result }}" "${{ needs.frontend-composition.result }}" "${{ needs.frontend-language.result }}" "${{ needs.frontend-tooling.result }}" "${{ needs.product-smoke.result }}"; do
+          for result in "${{ needs.quality.result }}" "${{ needs.infrastructure-contracts.result }}" "${{ needs.package-tests.result }}" "${{ needs.semantics.result }}" "${{ needs.frontend-foundation.result }}" "${{ needs.frontend-properties-core.result }}" "${{ needs.frontend-properties-extended.result }}" "${{ needs.frontend-composition.result }}" "${{ needs.frontend-language.result }}" "${{ needs.frontend-tooling.result }}" "${{ needs.product-smoke.result }}"; do
             if [ "$result" != success ]; then
               echo "A required CI lane did not succeed: $result"
               exit 1
