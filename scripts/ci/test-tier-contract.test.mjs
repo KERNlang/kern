@@ -164,7 +164,7 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
   assert.match(contracts, /pnpm test:infra:contracts/u);
   for (const id of ['package-tests', 'product-smoke']) {
     const job = workflowJob(workflow, id);
-    assert.match(job, /uses: actions\/setup-python@v6/u);
+    assert.match(job, /uses: actions\/setup-python@v7/u);
     assert.match(job, /python-version: '3\.12'/u);
     assert.match(job, /pip install mcp/u);
   }
