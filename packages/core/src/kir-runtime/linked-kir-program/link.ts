@@ -123,6 +123,12 @@ function branchScope(scope: LinkScope): LinkScope {
   return { bindings: new Set(scope.bindings), types: new Map(scope.types) };
 }
 
+function bindName(scope: LinkScope, name: string, type: LinkedKernKirStaticType | undefined): void {
+  scope.bindings.add(name);
+  if (type === undefined) scope.types.delete(name);
+  else scope.types.set(name, type);
+}
+
 function compileStatement(
   node: StructuralKirNode,
   scope: LinkScope,
@@ -144,9 +150,7 @@ function compileStatement(
       name,
       value: compileLinkedExpression(value, scope, meter, `${label}.value`),
     });
-    const valueType = staticExpressionType(compiled.value, scope);
-    if (valueType !== undefined) scope.types.set(name, valueType);
-    scope.bindings.add(name);
+    bindName(scope, name, staticExpressionType(compiled.value, scope));
     return compiled;
   }
   if (kind === 'capability') {
@@ -161,7 +165,7 @@ function compileStatement(
       operation: propertyText(properties, 'operation', label, meter),
       input: input === undefined ? undefined : compileLinkedExpression(input, scope, meter, `${label}.input`),
     });
-    scope.bindings.add(name);
+    bindName(scope, name, undefined);
     return compiled;
   }
   if (kind === 'print' || kind === 'return') {
@@ -253,9 +257,8 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
       assertLeaf(child, childLabel);
       const name = propertyText(props, 'name', childLabel, meter);
       if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
-      scope.bindings.add(name);
       const type = parameterType(props.get('type'), `${childLabel}.type`, meter);
-      if (type.kind === 'boolean') scope.types.set(name, 'boolean');
+      bindName(scope, name, type.kind === 'boolean' ? 'boolean' : undefined);
       parameters.push(Object.freeze({ name, type }));
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;
