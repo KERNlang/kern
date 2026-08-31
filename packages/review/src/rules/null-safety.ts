@@ -71,6 +71,27 @@ function isGuardingIfStatement(stmt: import('ts-morph').Statement, varName: stri
   return isEarlyExit(stmt.getThenStatement());
 }
 
+function isAssertOkNarrowing(stmt: import('ts-morph').Statement, varName: string): boolean {
+  if (!Node.isExpressionStatement(stmt)) return false;
+  const expression = stmt.getExpression();
+  if (
+    !Node.isCallExpression(expression) ||
+    expression.getArguments().length < 1 ||
+    expression.getArguments().length > 2
+  ) {
+    return false;
+  }
+  const callee = expression.getExpression();
+  const argument = expression.getArguments()[0];
+  return (
+    Node.isPropertyAccessExpression(callee) &&
+    callee.getExpression().getText() === 'assert' &&
+    callee.getName() === 'ok' &&
+    Node.isIdentifier(argument) &&
+    argument.getText() === varName
+  );
+}
+
 function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const sf = ctx.sourceFile;
@@ -96,6 +117,10 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
 
       let _guarded = false;
       for (const stmt of statementsAfter) {
+        if (isAssertOkNarrowing(stmt, varName)) {
+          _guarded = true;
+          break;
+        }
         // Structural guard: `if (...null-check on varName...) { return | throw | continue | break }`
         // narrows the variable to non-nullable for everything after this statement.
         if (isGuardingIfStatement(stmt, varName)) {

@@ -233,6 +233,57 @@ describe('Dead Logic Rules', () => {
       const f = report.findings.filter((f) => f.ruleId === 'unused-collection');
       expect(f.length).toBe(0);
     });
+
+    it('treats populated arrays returned through sort() and reverse() as read', () => {
+      for (const operation of ['sort', 'reverse']) {
+        const source = `
+          function collect(): string[] {
+            const items: string[] = [];
+            items.push('a');
+            return items.${operation}();
+          }
+        `;
+        const report = reviewSource(source, 'test.ts');
+        const findings = report.findings.filter((f) => f.ruleId === 'unused-collection');
+        expect(findings).toHaveLength(0);
+      }
+    });
+
+    it('treats ordering results as read through assignment, arguments, chains, parentheses, and object returns', () => {
+      const consumedExpressions = [
+        'const ordered = items.sort(); return ordered;',
+        'return consume(items.reverse());',
+        'return items.sort().map((item) => item.toUpperCase());',
+        'return (items.reverse());',
+        'return { data: items.sort() };',
+      ];
+      for (const consumed of consumedExpressions) {
+        const source = `
+          declare function consume(value: string[]): string[];
+          function collect(): unknown {
+            const items: string[] = [];
+            items.push('a');
+            ${consumed}
+          }
+        `;
+        const report = reviewSource(source, 'test.ts');
+        const findings = report.findings.filter((finding) => finding.ruleId === 'unused-collection');
+        expect(findings).toHaveLength(0);
+      }
+    });
+
+    it('still flags a populated collection when sort/reverse are genuinely discarded', () => {
+      for (const expression of ['items.sort();', 'items.reverse();', '(items.sort());', 'void items.reverse();']) {
+        const source = `
+          const items: string[] = [];
+          items.push('a');
+          ${expression}
+        `;
+        const report = reviewSource(source, 'test.ts');
+        const findings = report.findings.filter((f) => f.ruleId === 'unused-collection');
+        expect(findings).toHaveLength(1);
+      }
+    });
   });
 
   // ── empty-collection-access ────────────────────────────────────────────

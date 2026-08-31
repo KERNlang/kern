@@ -114,6 +114,9 @@ import type {
 import { createFingerprint } from './types.js';
 
 type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
+type ReviewExecutionConfig = ReviewConfig & {
+  canonicalBuildDiagnosticsCache?: Map<string, Set<string> | undefined>;
+};
 
 const TYPESCRIPT_CONCEPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
@@ -747,10 +750,14 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
   // Resolve the effective tsconfig up-front so both the cache key and the ts-morph Project see the
   // same path. If we only discovered it later inside reviewSourceWithProject, adding or changing the
   // nearest tsconfig without editing the source would serve stale cached findings.
-  const effectiveConfig: ReviewConfig | undefined =
-    config?.tsConfigFilePath || filePath.endsWith('.kern') || filePath.endsWith('.py') || isConfigFile(filePath)
-      ? config
-      : { ...(config ?? {}), tsConfigFilePath: findTsConfig(dirname(filePath)) };
+  const executionConfig = config as ReviewExecutionConfig | undefined;
+  const effectiveConfig: ReviewExecutionConfig | undefined =
+    executionConfig?.tsConfigFilePath ||
+    filePath.endsWith('.kern') ||
+    filePath.endsWith('.py') ||
+    isConfigFile(filePath)
+      ? executionConfig
+      : { ...(executionConfig ?? {}), tsConfigFilePath: findTsConfig(dirname(filePath)) };
 
   let key: string | undefined;
   if (effectiveConfig?.noCache !== true) {
@@ -803,7 +810,7 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
  * Review TypeScript source with a filesystem-backed project.
  * The fs project enables .getReturnType() to resolve types from node_modules.
  */
-function reviewSourceWithProject(source: string, filePath: string, config?: ReviewConfig): ReviewReport {
+function reviewSourceWithProject(source: string, filePath: string, config?: ReviewExecutionConfig): ReviewReport {
   try {
     // Prefer explicit override from caller; otherwise discover the nearest tsconfig from this file's directory.
     // Discovering per-file (not cwd) lets monorepo reviews pick up the per-package tsconfig with real paths/jsx,
@@ -825,7 +832,14 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
     } catch {
       // File may have been deleted between read and stat; leave mtime unrecorded.
     }
-    return reviewSourceInternal(source, filePath, config, fsProject, sf);
+    return reviewSourceInternal(
+      source,
+      filePath,
+      config,
+      fsProject,
+      sf,
+      existsSync(filePath) ? sf.getFilePath() : undefined,
+    );
   } catch (err) {
     // Fs project failed — fall back to in-memory project, but record the degradation on the
     // report so callers can tell this file was reviewed without full type resolution.
@@ -861,9 +875,10 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
 function reviewSourceInternal(
   source: string,
   filePath: string,
-  config: ReviewConfig | undefined,
+  config: ReviewExecutionConfig | undefined,
   project: import('ts-morph').Project,
   sourceFile: import('ts-morph').SourceFile,
+  canonicalFilePath?: string,
 ): ReviewReport {
   const totalLines = source.split('\n').length;
   const fileRole = classifyFileRole(sourceFile, filePath);
@@ -1011,9 +1026,16 @@ function reviewSourceInternal(
   // host tsconfig, so TS6059/TS6307 are our noise, not the user's bug.
   const normalizedCurrentPath = sourceFile.getFilePath();
   allFindings.push(
-    ...safePhase('tsc', () => runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }), []).filter(
-      (f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath,
-    ),
+    ...safePhase(
+      'tsc',
+      () =>
+        runTSCDiagnostics(project, {
+          downgradeProjectLoadingErrors: true,
+          canonicalFilePaths: canonicalFilePath ? [canonicalFilePath] : undefined,
+          canonicalBuildDiagnosticsCache: config?.canonicalBuildDiagnosticsCache,
+        }),
+      [],
+    ).filter((f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath),
   );
 
   // Build confidence graph if any nodes have confidence props
@@ -1358,10 +1380,14 @@ export function reviewDirectory(dirPath: string, recursive = false, config?: Rev
   const reports: ReviewReport[] = [];
   const ctx = getProjectContext(dirPath);
   const files = collectReviewableFiles(dirPath, recursive, ctx);
+  const batchConfig: ReviewExecutionConfig = {
+    ...(config ?? {}),
+    canonicalBuildDiagnosticsCache: new Map<string, Set<string> | undefined>(),
+  };
 
   for (const file of files) {
     try {
-      reports.push(reviewFile(file, config));
+      reports.push(reviewFile(file, batchConfig));
     } catch (err) {
       console.error(`  Skipping ${relative(process.cwd(), file)}: ${(err as Error).message}`);
     }

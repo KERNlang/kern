@@ -29,6 +29,55 @@ describe('Null Safety Rules', () => {
     expect(findings.length).toBe(0);
   });
 
+  it('should not flag .find() after an exact assert.ok(identifier) narrowing assertion', () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      const users = [{ id: 1, name: 'Alice' }];
+      function nameOf(id: number): string {
+        const identifier = users.find((user) => user.id === id);
+        assert.ok(identifier, 'expected user');
+        return identifier.name;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings).toHaveLength(0);
+  });
+
+  it('still flags unrelated and post-dereference assertions', () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      const users = [{ id: 1, name: 'Alice' }];
+      function unrelated(id: number): string {
+        const identifier = users.find((user) => user.id === id);
+        const other = users.find((user) => user.id === id + 1);
+        assert.ok(other);
+        return identifier.name;
+      }
+      function tooLate(id: number): string {
+        const identifier = users.find((user) => user.id === id);
+        const name = identifier.name;
+        assert.ok(identifier);
+        return name;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not treat a different assertion method as assert.ok narrowing', () => {
+    const source = `
+      import assert from 'node:assert/strict';
+      const users = [{ id: 1, name: 'Alice' }];
+      const identifier = users.find((user) => user.id === 1);
+      assert.equal(identifier, true);
+      console.log(identifier.name);
+    `;
+    const report = reviewSource(source, 'test.ts');
+    expect(report.findings.find((finding) => finding.ruleId === 'unchecked-find')).toBeDefined();
+  });
+
   // Regression: kern-sight review-panel.ts:6264 — `if (!a || !b) continue;`
   // narrows `b` for all later uses, but the old regex required the var to
   // appear immediately after `if (`. Now we check structurally for any

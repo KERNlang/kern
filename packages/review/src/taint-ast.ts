@@ -10,11 +10,11 @@ import {
   type FunctionDeclaration,
   type FunctionExpression,
   type MethodDeclaration,
-  type Node,
+  Node,
   type SourceFile,
   SyntaxKind,
 } from 'ts-morph';
-import { commandAcceptsArgIndex } from './taint-command-args.js';
+import { acceptsTaintedSinkArgument, isBenignCommandInputReference } from './taint-sink-arguments.js';
 import type { InternalSinkFunction, TaintPath, TaintResult, TaintSink, TaintSource } from './taint-types.js';
 import {
   HTTP_PARAM_NAMES,
@@ -87,14 +87,15 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         // For NoSQL sinks, only scan the method's query positions
         // (filter / update doc) — `find(query, projection)` must not mark
         // `projection` as flowing to a sink.
-        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
-        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(call, sinkDef, calleeName, argIdx)) continue;
 
         const arg = allArgs[argIdx];
-        const argText = arg.getText();
         for (let i = 0; i < params.length; i++) {
           const paramName = params[i].getName();
-          if (argText === paramName || argText.startsWith(`${paramName}.`) || argText.startsWith(`${paramName}[`)) {
+          const taintedParam = findTaintedIdentifier(arg, new Set([paramName]), (reference) =>
+            isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+          );
+          if (taintedParam) {
             taintedParamIndices.add(i);
             if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
             sinkCategories.get(i)!.add(sinkDef);
@@ -104,16 +105,17 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
 
       // Also check template literal arguments
       for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
-        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
-        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(call, sinkDef, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
         if (arg.getKindName() === 'TemplateExpression') {
           for (const tplSpan of (arg as any).getTemplateSpans()) {
             const expr = tplSpan.getExpression();
-            const exprText = expr.getText();
             for (let i = 0; i < params.length; i++) {
               const paramName = params[i].getName();
-              if (exprText === paramName || exprText.startsWith(`${paramName}.`)) {
+              const taintedParam = findTaintedIdentifier(expr, new Set([paramName]), (reference) =>
+                isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+              );
+              if (taintedParam) {
                 taintedParamIndices.add(i);
                 if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
                 sinkCategories.get(i)!.add(sinkDef);
@@ -360,10 +362,11 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         // For NoSQL sinks, only scan the method's query positions
         // (filter / update doc) — `find(query, projection)` must not flag
         // the projection argument as injection.
-        if (sinkDef === 'nosql' && !nosqlAcceptsArgIndex(calleeName, argIdx)) continue;
-        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(call, sinkDef, calleeName, argIdx)) continue;
         const arg = allArgs[argIdx];
-        const taintedArg = findTaintedIdentifier(arg, taintedNames);
+        const taintedArg = findTaintedIdentifier(arg, taintedNames, (reference) =>
+          isBenignCommandInputReference(sinkDef, calleeName, argIdx, reference, arg),
+        );
         if (!taintedArg) continue;
         if (isTaintedNameShadowedAt(call, taintedArg, body)) continue;
         // findById-style methods: scalar `req.params.*` is not classic
@@ -389,7 +392,7 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
 
       // Also check template literal arguments
       for (let argIdx = 0; argIdx < allArgs.length; argIdx++) {
-        if (sinkDef === 'command' && !commandAcceptsArgIndex(call, calleeName, argIdx)) continue;
+        if (!acceptsTaintedSinkArgument(call, sinkDef, calleeName, argIdx)) continue;
         const tpl = allArgs[argIdx];
         if (tpl.getKindName() === 'TemplateExpression') {
           for (const span of (tpl as any).getTemplateSpans()) {
@@ -809,17 +812,6 @@ function isLikelyNoSQLReceiver(node: Node, visited: Set<Node>, sawSqlVerb: boole
 }
 
 /**
- * For NoSQL sinks, restrict tainted-arg detection to the method's query
- * positions and (for findById-style methods) reject scalar `req.params.*`
- * tainted sources. Returns the set of arg indexes worth scanning, or
- * `undefined` when the sink isn't NoSQL.
- */
-function nosqlAcceptsArgIndex(methodName: string, argIndex: number): boolean {
-  const allowed = NOSQL_QUERY_ARG_INDEXES[methodName];
-  return allowed ? allowed.has(argIndex) : false;
-}
-
-/**
  * `findById(req.params.id)` with a string is not classic operator injection.
  * Reject when the call is a *ById method AND the arg traces back to a static
  * property chain rooted at `req.params` / `request.params` — those are
@@ -906,24 +898,34 @@ function getStaticAccessPath(expr: Node): string | undefined {
 }
 
 /** Find the first tainted identifier in an expression tree */
-function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | undefined {
+function findTaintedIdentifier(
+  expr: Node,
+  taintedNames: Set<string>,
+  shouldIgnore: (node: Node) => boolean = () => false,
+): string | undefined {
+  if (shouldIgnore(expr)) return undefined;
   const k = expr.getKindName();
-  if (k === 'Identifier' && taintedNames.has(expr.getText())) return expr.getText();
+  if (k === 'Identifier' && taintedNames.has(expr.getText()) && !isPropertyAssignmentName(expr)) return expr.getText();
   if (k === 'PropertyAccessExpression') {
-    return findTaintedIdentifier((expr as any).getExpression(), taintedNames);
+    return findTaintedIdentifier((expr as any).getExpression(), taintedNames, shouldIgnore);
   }
   // Check binary expressions (string concatenation: 'cmd ' + userInput)
   if (k === 'BinaryExpression') {
     return (
-      findTaintedIdentifier((expr as any).getLeft(), taintedNames) ||
-      findTaintedIdentifier((expr as any).getRight(), taintedNames)
+      findTaintedIdentifier((expr as any).getLeft(), taintedNames, shouldIgnore) ||
+      findTaintedIdentifier((expr as any).getRight(), taintedNames, shouldIgnore)
     );
   }
   for (const child of expr.getChildren()) {
-    const found = findTaintedIdentifier(child, taintedNames);
+    const found = findTaintedIdentifier(child, taintedNames, shouldIgnore);
     if (found) return found;
   }
   return undefined;
+}
+
+function isPropertyAssignmentName(node: Node): boolean {
+  const parent = node.getParent();
+  return Node.isPropertyAssignment(parent) && parent.getNameNode() === node;
 }
 
 // ── Command-sink receiver scoping ───────────────────────────────────────

@@ -1,6 +1,27 @@
+import { Project } from 'ts-morph';
 import { reviewSource } from '../src/index.js';
+import { buildInternalSinkMap } from '../src/taint-ast.js';
 
 describe('AST-based Taint Analysis', () => {
+  it('does not treat an object property name as an internal command sink value', () => {
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile(
+      '/helper.ts',
+      `
+function propertyName(env: string) { spawn('node', ['script'], { env: process.env }); }
+function computedName(env: string) { spawn('node', ['script'], { [env]: process.env }); }
+function shorthandValue(env: string) { spawn('node', ['script'], { env }); }
+function propertyValue(env: string) { spawn('node', ['script'], { key: env }); }
+`,
+    );
+
+    const sinks = buildInternalSinkMap(sourceFile);
+    expect(sinks.has('propertyName')).toBe(false);
+    for (const name of ['computedName', 'shorthandValue', 'propertyValue']) {
+      expect(sinks.get(name)?.taintedParamIndices.has(0)).toBe(true);
+    }
+  });
+
   it('should detect simple taint flow from param to sink', () => {
     const source = `
       export function handler(req: any) {

@@ -187,6 +187,58 @@ export function doWork(p: Promise<string>): void {
     expect(fp).toBeDefined();
   });
 
+  it('does NOT fire on a top-level CLI two-arm .then that logs and sets exitCode synchronously', () => {
+    const source = `
+declare const result: Promise<string>;
+
+result.then(
+  (value) => { console.log(value); },
+  (error) => { console.error(error.message); process.exitCode = 1; },
+);
+`;
+    const report = reviewSource(source, 'cli.ts', { target: 'cli' });
+    expect(report.findings.find((f) => f.ruleId === 'floating-promise')).toBeUndefined();
+  });
+
+  it('still rejects arbitrary error properties and calls in synchronous two-arm observers', () => {
+    for (const failureBody of ['console.error(error.stack);', 'report(error.message);']) {
+      const source = `
+declare const result: Promise<string>;
+declare function report(value: string): void;
+result.then(
+  (value) => { console.log(value); },
+  (error) => { ${failureBody} process.exitCode = 1; },
+);
+`;
+      const report = reviewSource(source, 'cli.ts', { target: 'cli' });
+      expect(report.findings.find((f) => f.ruleId === 'floating-promise')).toBeDefined();
+    }
+  });
+
+  it('still fires when a .then observer returns a value', () => {
+    const report = reviewSource(
+      `
+declare const result: Promise<string>;
+result.then(
+  (value) => { console.log(value); return value; },
+  (error) => { console.error(error.message); process.exitCode = 1; },
+);
+`,
+      'cli.ts',
+      { target: 'cli' },
+    );
+    expect(report.findings.find((finding) => finding.ruleId === 'floating-promise')).toBeDefined();
+  });
+
+  it('still fires on an ordinary ignored promise chain', () => {
+    const source = `
+declare const result: Promise<string>;
+result.then((value) => { void value; });
+`;
+    const report = reviewSource(source, 'cli.ts', { target: 'cli' });
+    expect(report.findings.find((f) => f.ruleId === 'floating-promise')).toBeDefined();
+  });
+
   // Regression: kern-sight extension.ts ×8 — VS Code's registerCommand awaits
   // the callback internally; any promise the body starts is handled by the
   // host, so flagging them is noise. Same applies to other disposable APIs.
