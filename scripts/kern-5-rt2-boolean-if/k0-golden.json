@@ -1,0 +1,42 @@
+{
+  "admission": {
+    "assign": "projection-rejected",
+    "capability": "admitted",
+    "else": "handler-entry-unsupported",
+    "if": "handler-entry-unsupported",
+    "if-else": "handler-entry-unsupported",
+    "let": "admitted",
+    "print": "admitted",
+    "return": "admitted",
+    "while": "projection-rejected"
+  },
+  "linkedStatementKinds": [
+    "capability",
+    "let",
+    "print",
+    "return"
+  ],
+  "structuralSchema": {
+    "else": {
+      "allowedChildren": null,
+      "disposition": "structural-candidate",
+      "kind": "else",
+      "properties": {},
+      "schemaStatus": "bound"
+    },
+    "if": {
+      "allowedChildren": null,
+      "disposition": "structural-candidate",
+      "kind": "if",
+      "properties": {
+        "cond": {
+          "disposition": "lowered-expression",
+          "required": true,
+          "schemaKind": "expression",
+          "values": null
+        }
+      },
+      "schemaStatus": "bound"
+    }
+  }
+}
