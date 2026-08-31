@@ -94,15 +94,19 @@ async def _invoke_capability(invoke, call, internal_signal, deadline, reason, sy
             interrupted.cancel()
 
 
+def _operand_fault():
+    raise _Fault("unsupported-runtime-input", "execution", "KIR_BINARY_OPERAND_TYPE")
+
+
 def _bool_operand(operand):
     if operand["tag"] != "boolean":
-        raise _Fault("unsupported-runtime-input", "execution")
+        _operand_fault()
     return operand
 
 
 def _int_operand(operand):
     if operand["tag"] != "integer":
-        raise _Fault("unsupported-runtime-input", "execution")
+        _operand_fault()
     return int(operand["value"])
 
 
@@ -124,12 +128,12 @@ def _or(left, right):
 
 def _same_operands(left, right):
     if left["tag"] != right["tag"]:
-        raise _Fault("unsupported-runtime-input", "execution")
+        _operand_fault()
     if left["tag"] == "boolean":
         return left["value"] is right["value"]
     if left["tag"] == "integer":
         return int(left["value"]) == int(right["value"])
-    raise _Fault("unsupported-runtime-input", "execution")
+    _operand_fault()
 
 
 def _eq(left, right):
