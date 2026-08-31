@@ -136,7 +136,7 @@ function linkedShape(program) {
 test('the helpers field is name-sorted and the linked shape does not depend on source order', async () => {
   const first = { body: ['return value="flag"'], name: 'alpha', parameters: BOOLEAN_FLAG, returns: 'boolean' };
   const second = { body: ['return value="flag"'], name: 'omega', parameters: BOOLEAN_FLAG, returns: 'boolean' };
-  const entry = entryFn(['return value="alpha(flag) && omega(flag)"']);
+  const entry = entryFn(['return value="omega(flag) && alpha(flag)"']);
   const forward = await linkedProgram(moduleSource([first, second, entry]));
   const reversed = await linkedProgram(moduleSource([second, first, entry]));
   for (const program of [forward, reversed]) {
@@ -154,6 +154,11 @@ test('the helpers field is name-sorted and the linked shape does not depend on s
     forward.projectionArtifactSha256,
     reversed.projectionArtifactSha256,
     'the two fixtures really are different source texts, so the invariance above is not vacuous',
+  );
+  assert.equal(
+    forward.helpers[0].name,
+    'alpha',
+    'the entry reaches omega first, so name sorting - not resolution order - decides the serialized order',
   );
 });
 

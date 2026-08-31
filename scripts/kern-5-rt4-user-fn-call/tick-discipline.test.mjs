@@ -126,6 +126,16 @@ test('every callee statement carries a cancellation checkpoint on both emitted l
   assert.ok(!definition.includes('async def'), 'the Python helper is a synchronous def');
 });
 
+test('the emitted JavaScript helper guards its return tag', async () => {
+  const { bytes } = await emitted(callProgram(['return value="helper(flag)"']));
+  const helper = helperRegion(specializedBody(bytes));
+  assert.ok(helper.includes('__matches(__f0r,'), 'the helper return value is tag-checked before it leaves the callee');
+  assert.ok(
+    helper.includes("__Fault('unsupported-runtime-input','execution')"),
+    'the return tag guard raises the closed wire code',
+  );
+});
+
 test('the emitted helper meters its dispatch before it guards its arguments', async () => {
   const { bytes } = await emitted(callProgram(['return value="helper(flag)"']));
   const body = specializedBody(bytes);

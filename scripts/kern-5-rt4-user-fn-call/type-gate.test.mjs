@@ -104,6 +104,10 @@ test('direct and mutual recursion are rejected at link on all three legs', async
 
 test('only a bare same-module identifier callee is admitted', async () => {
   await assertLinkRejected(callProgram(['return value="obj.helper(flag)"']), 'member callee');
+  await assertLinkRejected(
+    callProgram(['let name=obj value="flag"', 'return value="obj.helper(flag)"']),
+    'member callee whose object is a live binding',
+  );
   await assertLinkRejected(callProgram(['return value="helper?.(flag)"']), 'optional call');
   await assertLinkRejected(callProgram(['return value="nope(flag)"'], { helpers: [] }), 'unknown callee');
   await assertLinkRejected(
