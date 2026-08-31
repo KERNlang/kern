@@ -66,9 +66,7 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
       break;
     }
     case 'list':
-      source = `{"tag":"list","value":[${expression.items
-        .map((item) => expressionSource(item, bindings))
-        .join(',')}]}`;
+      source = `{"tag":"list","value":[${expression.items.map((item) => expressionSource(item, bindings)).join(',')}]}`;
       break;
     case 'record':
       source = `{"tag":"record","value":[${expression.entries
