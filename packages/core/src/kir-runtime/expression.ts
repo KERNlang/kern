@@ -1,7 +1,45 @@
 import { KernKirFault, type KernKirValue } from './contracts.js';
 import type { RuntimeMeter } from './inspect.js';
 import { parseKernJson, stringifyKernJson } from './json.js';
-import type { LinkedKernKirExpression } from './linked-kir-program/index.js';
+import type { LinkedKernKirBinaryOperator, LinkedKernKirExpression } from './linked-kir-program/index.js';
+
+type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue) => KernKirValue;
+
+function operandFault(): never {
+  throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_BINARY_OPERAND_TYPE');
+}
+
+function booleanOperand(value: KernKirValue): Extract<KernKirValue, { tag: 'boolean' }> {
+  if (value.tag !== 'boolean') operandFault();
+  return value;
+}
+
+function integerOperand(value: KernKirValue): bigint {
+  if (value.tag !== 'integer') operandFault();
+  return BigInt(value.value);
+}
+
+function operandsEqual(left: KernKirValue, right: KernKirValue): boolean {
+  if (left.tag !== right.tag) operandFault();
+  if (left.tag === 'boolean' && right.tag === 'boolean') return left.value === right.value;
+  if (left.tag === 'integer' && right.tag === 'integer') return BigInt(left.value) === BigInt(right.value);
+  operandFault();
+}
+
+function booleanValue(flag: boolean): KernKirValue {
+  return Object.freeze({ tag: 'boolean', value: flag });
+}
+
+const BINARY_EVALUATORS = Object.freeze({
+  '&&': (left, right) => (booleanOperand(left).value === false ? left : booleanOperand(right())),
+  '||': (left, right) => (booleanOperand(left).value === true ? left : booleanOperand(right())),
+  '==': (left, right) => booleanValue(operandsEqual(left, right())),
+  '!=': (left, right) => booleanValue(!operandsEqual(left, right())),
+  '<': (left, right) => booleanValue(integerOperand(left) < integerOperand(right())),
+  '<=': (left, right) => booleanValue(integerOperand(left) <= integerOperand(right())),
+  '>': (left, right) => booleanValue(integerOperand(left) > integerOperand(right())),
+  '>=': (left, right) => booleanValue(integerOperand(left) >= integerOperand(right())),
+}) satisfies Record<LinkedKernKirBinaryOperator, BinaryEvaluator>;
 
 export function evaluateExpression(
   expression: LinkedKernKirExpression,
@@ -12,6 +50,10 @@ export function evaluateExpression(
   switch (expression.kind) {
     case 'literal':
       return expression.value;
+    case 'binary':
+      return BINARY_EVALUATORS[expression.op](evaluateExpression(expression.left, bindings, meter), () =>
+        evaluateExpression(expression.right, bindings, meter),
+      );
     case 'identifier': {
       const value = bindings.get(expression.name);
       if (value === undefined) {

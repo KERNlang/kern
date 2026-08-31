@@ -2,8 +2,45 @@ import type { KernKirLimits, KernKirValue } from '../contracts.js';
 
 export const KERN_LINKED_KIR_PROGRAM_FORMAT = 'kern.linked-kir-program.v1' as const;
 
+export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=';
+
+export type LinkedKernKirStaticType = 'boolean' | 'integer';
+
+export interface LinkedKernKirBinaryOperatorContract {
+  readonly family: 'logical' | 'equality' | 'ordering';
+  readonly javascriptHelper: string;
+  readonly operandType: LinkedKernKirStaticType | 'either';
+  readonly pythonHelper: string;
+}
+
+export const LINKED_KIR_BINARY_OPERATORS = Object.freeze({
+  '&&': { family: 'logical', javascriptHelper: '__and', operandType: 'boolean', pythonHelper: '_and' },
+  '||': { family: 'logical', javascriptHelper: '__or', operandType: 'boolean', pythonHelper: '_or' },
+  '==': { family: 'equality', javascriptHelper: '__eq', operandType: 'either', pythonHelper: '_eq' },
+  '!=': { family: 'equality', javascriptHelper: '__ne', operandType: 'either', pythonHelper: '_ne' },
+  '<': { family: 'ordering', javascriptHelper: '__lt', operandType: 'integer', pythonHelper: '_lt' },
+  '<=': { family: 'ordering', javascriptHelper: '__le', operandType: 'integer', pythonHelper: '_le' },
+  '>': { family: 'ordering', javascriptHelper: '__gt', operandType: 'integer', pythonHelper: '_gt' },
+  '>=': { family: 'ordering', javascriptHelper: '__ge', operandType: 'integer', pythonHelper: '_ge' },
+}) satisfies Record<LinkedKernKirBinaryOperator, LinkedKernKirBinaryOperatorContract>;
+
+export function linkedKirBinaryOperator(op: string): LinkedKernKirBinaryOperator | undefined {
+  return Object.hasOwn(LINKED_KIR_BINARY_OPERATORS, op) ? (op as LinkedKernKirBinaryOperator) : undefined;
+}
+
+export interface LinkedKernKirTypeScope {
+  readonly bindings: ReadonlySet<string>;
+  readonly types: ReadonlyMap<string, LinkedKernKirStaticType>;
+}
+
 export type LinkedKernKirExpression =
   | { readonly kind: 'identifier'; readonly name: string }
+  | {
+      readonly kind: 'binary';
+      readonly left: LinkedKernKirExpression;
+      readonly op: LinkedKernKirBinaryOperator;
+      readonly right: LinkedKernKirExpression;
+    }
   | { readonly kind: 'literal'; readonly value: KernKirValue }
   | { readonly kind: 'list'; readonly items: readonly LinkedKernKirExpression[] }
   | {

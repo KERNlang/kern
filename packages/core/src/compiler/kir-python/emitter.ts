@@ -7,7 +7,10 @@ import type {
   LinkedKernKirProgram,
   LinkedKernKirStatement,
 } from '../../kir-runtime/linked-kir-program/index.js';
-import { linkedStatementsInvokeCapability } from '../../kir-runtime/linked-kir-program/index.js';
+import {
+  LINKED_KIR_BINARY_OPERATORS,
+  linkedStatementsInvokeCapability,
+} from '../../kir-runtime/linked-kir-program/index.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_JSON_SOURCE } from './target-json.js';
@@ -74,6 +77,16 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
         .map((entry) => `{"key":${encodedText(entry.key)},"value":${expressionSource(entry.value, bindings)}}`)
         .join(',')}]}`;
       break;
+    case 'binary': {
+      const operator = LINKED_KIR_BINARY_OPERATORS[expression.op];
+      const left = expressionSource(expression.left, bindings);
+      const right = expressionSource(expression.right, bindings);
+      source =
+        operator.family === 'logical'
+          ? `${operator.pythonHelper}(${left},lambda:${right})`
+          : `${operator.pythonHelper}(${left},${right})`;
+      break;
+    }
     case 'member':
       source = `_member(${expressionSource(expression.object, bindings)},${expression.optional ? 'True' : 'False'},${encodedText(expression.property)})`;
       break;

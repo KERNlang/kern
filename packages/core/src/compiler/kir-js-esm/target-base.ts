@@ -1,8 +1,8 @@
 export const TARGET_BASE_SOURCE = String.raw`
   const __runtimeFormat = 'kern.runtime.kir.v1';
   class __Fault extends Error {
-    constructor(code, phase) {
-      super(code);
+    constructor(code, phase, label) {
+      super(label === undefined ? code : label);
       this.code = code;
       this.phase = phase;
     }

@@ -1,0 +1,62 @@
+{
+  "expressionAdmission": {
+    "!=": {
+      "booleanOperands": "admitted",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    "&&": {
+      "booleanOperands": "admitted",
+      "integerOperands": "handler-entry-unsupported",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    "<": {
+      "booleanOperands": "handler-entry-unsupported",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    "<=": {
+      "booleanOperands": "handler-entry-unsupported",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    "==": {
+      "booleanOperands": "admitted",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    ">": {
+      "booleanOperands": "handler-entry-unsupported",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    ">=": {
+      "booleanOperands": "handler-entry-unsupported",
+      "integerOperands": "admitted",
+      "mixedOperands": "handler-entry-unsupported"
+    },
+    "||": {
+      "booleanOperands": "admitted",
+      "integerOperands": "handler-entry-unsupported",
+      "mixedOperands": "handler-entry-unsupported"
+    }
+  },
+  "forProjectionStatus": {
+    "bareAttributes": [
+      "UNEXPECTED_TOKEN"
+    ],
+    "quotedAttributes": [
+      "projection-rejected"
+    ]
+  },
+  "linkedExpressionKinds": [
+    "binary",
+    "identifier",
+    "json-call",
+    "list",
+    "literal",
+    "member",
+    "record"
+  ],
+  "rt2GoldenSha256": "aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0"
+}

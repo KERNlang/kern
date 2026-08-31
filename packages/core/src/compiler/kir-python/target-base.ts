@@ -15,8 +15,8 @@ _LIMIT_KEYS = {
 
 
 class _Fault(Exception):
-    def __init__(self, code, phase):
-        super().__init__(code)
+    def __init__(self, code, phase, label=None):
+        super().__init__(code if label is None else label)
         self.code = code
         self.phase = phase
 
