@@ -30,8 +30,7 @@ Build uses `tsc -b` from root with project references. Do not use `pnpm -r build
 
 ## Branch conventions
 
-- `dev` — daily development. Push here.
-- `main` — releases only. Merge via PR. CI must pass.
+- `main` — trunk branch. Merge via PR. CI must pass.
 
 ## Release conventions
 
@@ -39,7 +38,7 @@ Build uses `tsc -b` from root with project references. Do not use `pnpm -r build
 - Run `Release Preflight` from `main` before tagging a release.
 - Use plain semver like `3.2.4` for preflight input.
 - Publish GitHub Releases with lowercase tags like `v3.2.4`.
-- Do not release from `dev` or from a commit that has not already passed CI on `main`.
+- Do not release from a commit that has not already passed CI on `main`.
 
 ## Before submitting a PR
 

@@ -16,7 +16,6 @@ const plan = {
   channel: 'canary',
   version,
   distTag: 'canary',
-  syncsDev: false,
   packages: [
     { name: '@kernlang/core', path: 'packages/core', dependencies: [] },
     {

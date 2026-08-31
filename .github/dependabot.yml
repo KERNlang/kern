@@ -4,7 +4,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 10
     groups:
       minor-and-patch:
@@ -18,7 +17,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 5
     labels:
       - ci

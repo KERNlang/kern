@@ -53,6 +53,26 @@ test('emitted self-contained ESM has the exact public shape and matches RT-1 env
   assert.deepEqual(isolated.result, directIsolated);
 });
 
+test('isolated transport carries payloads larger than OS argument limits', async () => {
+  const { result, module } = await compiled();
+  const input = {
+    ...runtimeRequest('stdin-transport', '{"ok":true}', []),
+    padding: 'x'.repeat(3_000_000),
+  };
+  const expected = await module.execute(input, provider('reply'));
+  const isolated = await isolatedExecute(result.artifact.bytes, input, 'reply');
+  assert.deepEqual(isolated.result, expected);
+});
+
+test('isolated transport terminates a child that exceeds its process timeout', async () => {
+  const bytes = new TextEncoder().encode([
+    'export const format = "fixture";',
+    'export const manifest = Object.freeze({});',
+    'export async function execute() { return new Promise(() => { setInterval(() => {}, 1000); }); }',
+  ].join('\n'));
+  await assert.rejects(isolatedExecute(bytes, Object.create(null), null), /isolated execution exceeded 5000ms/u);
+});
+
 test('JSON hostile values, cancellation, timeout, every limit and abort stay differential', async () => {
   const { verified, module } = await compiled();
   const cases = [

@@ -73,9 +73,17 @@ jobs:
         run: pnpm test:infra:contracts
 
   package-tests:
-    name: Package tests
+    name: Package tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: packages excluding review
+            selectorArgs: --exclude @kernlang/review --exclude @kernlang/review-python
+          - name: review package
+            selectorArgs: --only @kernlang/review
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,7 +106,7 @@ jobs:
       - name: Build package train
         run: pnpm build:packages
       - name: Package tests excluding IR semantics
-        run: pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics
+        run: node scripts/ci/run-prebuilt-package-tests.mjs ${{ matrix.selectorArgs }} -- --testPathIgnorePatterns=ir-semantics
 
   semantics:
     name: IR semantics contracts
@@ -188,9 +196,19 @@ jobs:
         run: pnpm test:pr-frontend-properties-core
 
   frontend-properties-extended:
-    name: Frontend generic properties extended
+    name: Frontend generic properties extended (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: style theme diagnostics
+            script: test:kern-frontend-generic-property-style-theme-diagnostics
+          - name: evolved hints
+            script: test:kern-frontend-evolved-hints
+          - name: keyword handlers
+            script: test:kern-frontend-keyword-handlers
     steps:
       - uses: actions/checkout@v7
         with:
@@ -205,13 +223,25 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Frontend generic properties extended
-        run: pnpm test:pr-frontend-properties-extended
+      - name: Build core
+        run: pnpm --filter @kernlang/core build
+      - name: Frontend generic properties extended shard
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-composition:
-    name: Frontend composition
+    name: Frontend composition (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: successful line composition
+            script: test:kern-frontend-successful-line-composition:focused
+          - name: closure
+            script: test:kern-frontend-closure
+          - name: runtime text cache
+            script: test:kern-frontend-runtime-text-cache
     steps:
       - uses: actions/checkout@v7
         with:
@@ -226,13 +256,31 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Focused frontend composition
-        run: pnpm test:pr-frontend-composition
+      - name: Build core
+        run: pnpm --filter @kernlang/core build
+      - name: Focused frontend composition shard
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-language:
-    name: Frontend F1 through F4
+    name: Frontend F1 through F4 (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: F1
+            script: test:kern-frontend-f1
+          - name: F1 scan
+            script: test:kern-frontend-f1-scan
+          - name: F2 expression
+            script: test:kern-frontend-f2-expression
+          - name: F2 batch
+            script: test:kern-frontend-f2-batch
+          - name: F3 line tree
+            script: test:kern-frontend-f3-line-tree
+          - name: F4 declarations
+            script: test:kern-frontend-f4-declarations
     steps:
       - uses: actions/checkout@v7
         with:
@@ -247,13 +295,25 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Frontend language layers
-        run: pnpm test:pr-frontend-language
+      - name: Build core
+        run: pnpm --filter @kernlang/core build
+      - name: Frontend language layer shard
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core ${{ matrix.script }}
 
   frontend-tooling:
-    name: Frontend canonicalizer, checker, and formatter
+    name: Frontend tooling (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: canonicalizer
+            script: test:kern-canonicalizer
+          - name: checker
+            script: test:kern-checker
+          - name: formatter
+            script: test:kern-formatter
     steps:
       - uses: actions/checkout@v7
         with:
@@ -268,8 +328,12 @@ jobs:
           pnpm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Frontend tooling
-        run: pnpm test:pr-frontend-tooling
+      - name: Build core
+        run: pnpm --filter @kernlang/core build
+      - name: Build CLI
+        run: pnpm --filter @kernlang/cli build
+      - name: Frontend tooling shard
+        run: node scripts/ci/run-prebuilt-test.mjs --built @kernlang/core --built @kernlang/cli ${{ matrix.script }}
 
   product-smoke:
     name: Native, runner, and preview gates

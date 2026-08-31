@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       publish:
-        description: Publish packages and sync versions back to dev
+        description: Publish packages
         required: true
         type: boolean
 
@@ -205,31 +205,17 @@ jobs:
           if-no-files-found: ignore
           include-hidden-files: true
 
-      - name: Sync versions back to dev
-        if: ${{ success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}
+      - name: Push release version sync branch
+        if: ${{ success() && inputs.publish && steps.release-plan.outputs.dist_tag == 'latest' }}
         env:
           RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # The publish/preflight checkout has local version edits from the
-          # earlier "Set package versions" step. Discard those CI-only edits
-          # before switching to dev; the same version bump is applied below
-          # and committed on dev intentionally.
           git reset --hard HEAD
           git clean -fd
-          git fetch origin dev
-          # Apply the version bump on top of the ACTUAL origin/dev tip, not
-          # main's. dev intentionally carries independent commits (canary
-          # triggers, dev-only fixes that haven't shipped via main yet) — the
-          # previous `checkout -B dev HEAD` quietly tried to overwrite them
-          # with `main + bump` and the push was correctly rejected as
-          # non-fast-forward on the v3.5.6 release (PR #344, 2026-05-29).
-          # The bump loop below iterates EXISTING package.json files only, so
-          # a deleted-on-main / present-on-dev package is updated in place,
-          # not resurrected; a true dev↔main divergence is resolved by the
-          # next dev→main PR, not by this sync step.
-          git checkout -B dev origin/dev
+
+          git checkout -B "release/sync-v${RELEASE_VERSION}" HEAD
 
           tmp=$(mktemp)
           jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
@@ -258,22 +244,13 @@ jobs:
             exit 0
           fi
           git commit -m "chore: sync versions to v${RELEASE_VERSION} [skip ci]"
-          # Retry to absorb a concurrent push to dev (e.g. canary-publish
-          # writing a tag while we're mid-step). Rebase the version-bump
-          # commit onto the new tip and re-push, up to 3 attempts. Plain
-          # push, never --force: a truly incompatible history should still
-          # fail loudly rather than silently overwrite dev-only work.
-          push_ok=false
-          for attempt in 1 2 3; do
-            if git push --no-verify origin dev; then
-              push_ok=true
-              break
-            fi
-            echo "Push attempt $attempt rejected; refetching origin/dev and rebasing..."
-            git fetch origin dev
-            git rebase origin/dev || { git rebase --abort; exit 1; }
-          done
+
+          push_output=$(git push --no-verify origin "release/sync-v${RELEASE_VERSION}" 2>&1) && push_ok=true || push_ok=false
+          echo "$push_output"
           if ! $push_ok; then
-            echo "Failed to push to origin/dev after 3 attempts." >&2
             exit 1
+          fi
+          pr_url=$(echo "$push_output" | grep -oE 'https://\S+/pull/new/\S+' || true)
+          if [ -n "$pr_url" ]; then
+            echo "Open a PR to merge the version sync: $pr_url"
           fi

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { projectKernModules, verifyKernProjection } from '../../packages/core/dist/frontend-projection.js';
@@ -125,10 +125,13 @@ export async function isolatedExecute(bytes, request, reply) {
   const driver = join(directory, 'driver.mjs');
   await writeFile(entry, bytes);
   await writeFile(driver, [
-    'const [entry, requestText, replyText] = process.argv.slice(2);',
-    'const module = await import(new URL(entry, import.meta.url));',
-    'const result = await module.execute(JSON.parse(requestText), {',
-    '  invoke: async () => ({ presence: "value", value: { tag: "text", value: JSON.parse(replyText) } }),',
+    'let inputText = "";',
+    'process.stdin.setEncoding("utf8");',
+    'for await (const chunk of process.stdin) inputText += chunk;',
+    'const { request, reply } = JSON.parse(inputText);',
+    'const module = await import(new URL("./entry.mjs", import.meta.url));',
+    'const result = await module.execute(request, {',
+    '  invoke: async () => ({ presence: "value", value: { tag: "text", value: reply } }),',
     '});',
     'process.stdout.write(JSON.stringify({ format: module.format, manifest: module.manifest, result }));',
   ].join('\n'));
@@ -136,11 +139,45 @@ export async function isolatedExecute(bytes, request, reply) {
   const version = spawnSync(node22, ['--version'], { encoding: 'utf8' });
   assert.equal(version.status, 0, version.stderr);
   assert.match(version.stdout, /^v22\./u, `KERN_NODE22 must select Node 22, received ${version.stdout.trim()}`);
-  const run = spawnSync(node22, [driver, './entry.mjs', JSON.stringify(request), JSON.stringify(reply)], {
-    encoding: 'utf8', timeout: 5_000,
-  });
+  const run = await spawnWithInput(node22, [driver], JSON.stringify({ request, reply }), 5_000);
   assert.equal(run.status, 0, run.stderr);
   return JSON.parse(run.stdout);
+}
+
+function spawnWithInput(command, args, input, timeoutMs) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let settled = false;
+    let timedOut = false;
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, timeoutMs);
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+    child.once('error', (error) => finish(() => rejectRun(error)));
+    child.once('close', (status, signal) => finish(() => {
+      if (timedOut) {
+        rejectRun(new Error(`isolated execution exceeded ${timeoutMs}ms`));
+        return;
+      }
+      resolveRun({ status, signal, stdout, stderr });
+    }));
+    child.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE') finish(() => rejectRun(error));
+    });
+    child.stdin.end(input);
+  });
 }
 
 export { executeKernKir };
