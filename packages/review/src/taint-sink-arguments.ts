@@ -86,12 +86,21 @@ function readsProgramFromStdin(optionsArgument: import('ts-morph').Node): boolea
   if (!Node.isCallExpression(call)) return false;
   const [executable, argv] = call.getArguments();
   if (!executable || !Node.isStringLiteral(executable)) return false;
-  const name = (executable.getLiteralText().split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.exe$/, '');
+  const [program = '', ...inlineArguments] = executable.getLiteralText().trim().split(/\s+/);
+  const name = (program.split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.exe$/, '');
   const interpreter = STDIN_PROGRAM_INTERPRETERS.has(name) || /^python(?:\d+(?:\.\d+)?)?$/.test(name);
-  if (!interpreter) return false;
-  if (!argv || argv === optionsArgument) return true;
+  if (!interpreter || !inlineArguments.every(readsStdinArgument)) return false;
+  if (!argv || argv === optionsArgument || isAbsentLiteral(argv)) return true;
   if (!Node.isArrayLiteralExpression(argv)) return false;
   return argv
     .getElements()
-    .every((element) => Node.isStringLiteral(element) && element.getLiteralText().startsWith('-'));
+    .every((element) => Node.isStringLiteral(element) && readsStdinArgument(element.getLiteralText()));
+}
+
+function readsStdinArgument(argument: string): boolean {
+  return argument === '-' || (argument.startsWith('-') && argument !== '-c' && argument !== '-e');
+}
+
+function isAbsentLiteral(node: import('ts-morph').Node): boolean {
+  return Node.isNullLiteral(node) || (Node.isIdentifier(node) && node.getText() === 'undefined');
 }

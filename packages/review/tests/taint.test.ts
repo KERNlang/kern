@@ -256,20 +256,28 @@ export function run(req: Request): void {
   const scriptInput = req.body.scriptInput;
   const fileInput = req.body.fileInput;
   const dataInput = req.body.dataInput;
+  const undefinedArgvInput = req.body.undefinedArgvInput;
+  const shellStringInput = req.body.shellStringInput;
+  const shellCommandInput = req.body.shellCommandInput;
   spawn('sh', [], { input: shellInput });
   spawnSync('/usr/bin/python3', ['-'], { input: pythonInput });
   execFile('node', { input: nodeInput });
   spawn('bash', ['-c', 'cat'], { input: scriptInput });
   spawn('python3', ['script.py'], { input: fileInput });
   spawn('gzip', [], { input: dataInput });
+  execFile('node', undefined, { input: undefinedArgvInput });
+  execSync('node -', { input: shellStringInput });
+  execSync('bash -c "cat"', { input: shellCommandInput });
 }
 `;
     const report = reviewSource(source, 'stdin-handler.ts');
     const findings = report.findings.filter((f) => f.ruleId === 'taint-command');
     const messages = findings.map((f) => f.message).join('\n');
-    expect(findings).toHaveLength(3);
-    for (const name of ['shellInput', 'pythonInput', 'nodeInput']) expect(messages).toContain(`Variable '${name}'`);
-    for (const name of ['scriptInput', 'fileInput', 'dataInput']) expect(messages).not.toContain(`Variable '${name}'`);
+    expect(findings).toHaveLength(5);
+    for (const name of ['shellInput', 'pythonInput', 'nodeInput', 'undefinedArgvInput', 'shellStringInput'])
+      expect(messages).toContain(`Variable '${name}'`);
+    for (const name of ['scriptInput', 'fileInput', 'dataInput', 'shellCommandInput'])
+      expect(messages).not.toContain(`Variable '${name}'`);
   });
 
   it('ignores options.input across command overloads and does not scan callback captures', () => {
