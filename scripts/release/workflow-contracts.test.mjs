@@ -144,7 +144,7 @@ test('canary has no free-form dist-tag input and uses policy outputs', async () 
   assert.match(canary, /--tag\s+"\$NPM_TAG"/);
   assert.match(canary, /CANARY_VERSION: \$\{\{ steps\.release-plan\.outputs\.version \}\}/);
   assert.match(canary, /NPM_TAG: \$\{\{ steps\.release-plan\.outputs\.dist_tag \}\}/);
-  assert.match(canary, /uses: actions\/setup-python@v6/);
+  assert.match(canary, /uses: actions\/setup-python@v7/);
   assert.match(canary, /run: pip install mcp/);
   assert.equal((canary.match(/include-hidden-files: true/g) ?? []).length, 3);
   const bundleIndex = canary.indexOf('      - name: Recover bundle or pack new bundle');
