@@ -13,24 +13,20 @@ import {
 } from './contracts.js';
 import { createExecutionDeadline, type ExecutionDeadline } from './deadline.js';
 import { failureEnvelope, successEnvelopeBytes } from './envelope.js';
-import { evaluateExpression } from './expression.js';
+import { type ExpressionRuntime, evaluateExpression, matchesType } from './expression.js';
 import { inspectRequest, inspectSlot, plainRecord, type RuntimeMeter } from './inspect.js';
 import {
   authenticateLinkedKernKirProjectionOrThrow,
   type LinkedKernKirHandler,
-  type LinkedKernKirParameterType,
+  type LinkedKernKirHelper,
   type LinkedKernKirStatement,
+  linkedProgramHelpers,
   linkedStatementsInvokeCapability,
   linkVerifiedKernKirProgramOrThrow,
 } from './linked-kir-program/index.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
-}
-
-function matchesType(value: KernKirValue, type: LinkedKernKirParameterType): boolean {
-  if (type.kind !== 'list') return value.tag === type.kind;
-  return value.tag === 'list' && value.value.every((item) => item.tag === type.element);
 }
 
 function inspectOptions(value: KernKirExecutionOptions | undefined): KernKirExecutionOptions {
@@ -59,6 +55,7 @@ function requestIdFrom(value: unknown): string | null {
 
 async function run(
   handler: LinkedKernKirHandler,
+  helpers: readonly LinkedKernKirHelper[] | undefined,
   request: KernKirRequest,
   options: KernKirExecutionOptions,
   meter: RuntimeMeter,
@@ -77,7 +74,8 @@ async function run(
       fault('invalid-handler-arguments', `argument ${parameter.name} has wrong type`);
     bindings.set(parameter.name, value);
   }
-  if (linkedStatementsInvokeCapability(handler.statements) && options.invoke === undefined) {
+  const linkedHelpers = linkedProgramHelpers(helpers);
+  if (linkedStatementsInvokeCapability(handler.statements, linkedHelpers) && options.invoke === undefined) {
     throw new KernKirFault('capability-error', 'execution', 'capability provider is missing');
   }
   if (request.control.preCancelled || options.signal?.aborted) {
@@ -107,6 +105,12 @@ async function run(
       'execution interrupted',
     );
   };
+  const runtime: ExpressionRuntime = {
+    checkAbort,
+    events,
+    helpers: linkedHelpers,
+    maxEvents: request.limits.maxEvents,
+  };
   const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [];
   const runFrames = async (): Promise<KernKirEnvelope | undefined> => {
     while (frames.length > 0) {
@@ -120,12 +124,15 @@ async function run(
       meter.step();
       checkAbort();
       if (statement.kind === 'let') {
-        bindings.set(statement.name, evaluateExpression(statement.value, bindings, meter));
+        bindings.set(statement.name, evaluateExpression(statement.value, bindings, meter, runtime));
       } else if (statement.kind === 'capability') {
         const input: KernKirSlot =
           statement.input === undefined
             ? Object.freeze({ presence: 'absent' })
-            : Object.freeze({ presence: 'value', value: evaluateExpression(statement.input, bindings, meter) });
+            : Object.freeze({
+                presence: 'value',
+                value: evaluateExpression(statement.input, bindings, meter, runtime),
+              });
         if (events.length + 1 > request.limits.maxEvents) {
           throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
         }
@@ -171,20 +178,20 @@ async function run(
         );
         bindings.set(statement.name, result.value);
       } else if (statement.kind === 'print') {
-        const value = evaluateExpression(statement.value, bindings, meter);
+        const value = evaluateExpression(statement.value, bindings, meter, runtime);
         if (value.tag !== 'text')
           throw new KernKirFault('unsupported-runtime-input', 'execution', 'print expects text');
         if (events.length + 1 > request.limits.maxEvents)
           throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
         events.push(Object.freeze({ op: 'stdout', text: value.value }));
       } else if (statement.kind === 'if') {
-        const condition = evaluateExpression(statement.condition, bindings, meter);
+        const condition = evaluateExpression(statement.condition, bindings, meter, runtime);
         if (condition.tag !== 'boolean')
           throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
         const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
         if (branch !== undefined) frames.push({ statements: branch, index: 0 });
       } else {
-        const value = evaluateExpression(statement.value, bindings, meter);
+        const value = evaluateExpression(statement.value, bindings, meter, runtime);
         if (!matchesType(value, handler.returnType))
           throw new KernKirFault('invalid-handler-result', 'execution', 'return type mismatch');
         const result: KernKirSlot = Object.freeze({ presence: 'value', value });
@@ -233,7 +240,7 @@ export async function executeKernKir(
     const options = inspectOptions(executionOptions);
     const linked = linkVerifiedKernKirProgramOrThrow(projection, request.entry, meter);
     deadline.check();
-    return await run(linked.program, request, options, meter, deadline, committedEvents);
+    return await run(linked.program, linked.helpers, request, options, meter, deadline, committedEvents);
   } catch (error) {
     return failureEnvelope(requestId, error, committedEvents);
   }

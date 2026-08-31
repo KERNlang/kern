@@ -28,13 +28,51 @@ export function linkedKirBinaryOperator(op: string): LinkedKernKirBinaryOperator
   return Object.hasOwn(LINKED_KIR_BINARY_OPERATORS, op) ? (op as LinkedKernKirBinaryOperator) : undefined;
 }
 
+export type LinkedKernKirCrossCallType = 'boolean' | 'list<boolean>' | 'list<text>' | 'text';
+
+export interface LinkedKernKirCrossCallTypeContract {
+  readonly element: 'boolean' | 'text' | undefined;
+  readonly kind: 'boolean' | 'list' | 'text';
+}
+
+export const LINKED_KIR_CROSS_CALL_TYPES = Object.freeze({
+  boolean: { element: undefined, kind: 'boolean' },
+  'list<boolean>': { element: 'boolean', kind: 'list' },
+  'list<text>': { element: 'text', kind: 'list' },
+  text: { element: undefined, kind: 'text' },
+}) satisfies Record<LinkedKernKirCrossCallType, LinkedKernKirCrossCallTypeContract>;
+
+export const LINKED_KIR_CROSS_CALL_TYPE_NAMES = Object.freeze(
+  Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort(),
+) as readonly LinkedKernKirCrossCallType[];
+
+export function linkedKirCrossCallType(type: LinkedKernKirParameterType): LinkedKernKirCrossCallType | undefined {
+  const element = type.kind === 'list' ? type.element : undefined;
+  return LINKED_KIR_CROSS_CALL_TYPE_NAMES.find((name) => {
+    const contract = LINKED_KIR_CROSS_CALL_TYPES[name];
+    return contract.kind === type.kind && contract.element === element;
+  });
+}
+
+export interface LinkedKernKirCallScope {
+  readonly linked: ReadonlyMap<string, LinkedKernKirHandler>;
+  readonly resolve: (name: string, label: string) => LinkedKernKirHandler;
+}
+
 export interface LinkedKernKirTypeScope {
   readonly bindings: ReadonlySet<string>;
+  readonly calls: LinkedKernKirCallScope | undefined;
+  readonly crossCallTypes: ReadonlyMap<string, LinkedKernKirCrossCallType>;
   readonly types: ReadonlyMap<string, LinkedKernKirStaticType>;
 }
 
 export type LinkedKernKirExpression =
   | { readonly kind: 'identifier'; readonly name: string }
+  | {
+      readonly kind: 'user-call';
+      readonly arguments: readonly LinkedKernKirExpression[];
+      readonly handlerName: string;
+    }
   | {
       readonly kind: 'binary';
       readonly left: LinkedKernKirExpression;
@@ -81,15 +119,65 @@ export type LinkedKernKirStatement =
       readonly elseBranch: readonly LinkedKernKirStatement[] | undefined;
     };
 
-export function linkedStatementsInvokeCapability(statements: readonly LinkedKernKirStatement[]): boolean {
+type CapabilityClosure = ReadonlyMap<string, LinkedKernKirHandler> | undefined;
+
+function expressionInvokesCapability(
+  expression: LinkedKernKirExpression,
+  helpers: CapabilityClosure,
+  visiting: Set<string>,
+): boolean {
+  switch (expression.kind) {
+    case 'user-call': {
+      if (expression.arguments.some((argument) => expressionInvokesCapability(argument, helpers, visiting)))
+        return true;
+      const callee = helpers?.get(expression.handlerName);
+      if (callee === undefined || visiting.has(expression.handlerName)) return false;
+      visiting.add(expression.handlerName);
+      const invokes = statementsInvokeCapability(callee.statements, helpers, visiting);
+      visiting.delete(expression.handlerName);
+      return invokes;
+    }
+    case 'binary':
+      return (
+        expressionInvokesCapability(expression.left, helpers, visiting) ||
+        expressionInvokesCapability(expression.right, helpers, visiting)
+      );
+    case 'list':
+      return expression.items.some((item) => expressionInvokesCapability(item, helpers, visiting));
+    case 'record':
+      return expression.entries.some((entry) => expressionInvokesCapability(entry.value, helpers, visiting));
+    case 'member':
+      return expressionInvokesCapability(expression.object, helpers, visiting);
+    case 'json-call':
+      return expressionInvokesCapability(expression.argument, helpers, visiting);
+    default:
+      return false;
+  }
+}
+
+function statementsInvokeCapability(
+  statements: readonly LinkedKernKirStatement[],
+  helpers: CapabilityClosure,
+  visiting: Set<string>,
+): boolean {
   return statements.some((statement) => {
     if (statement.kind === 'capability') return true;
-    if (statement.kind !== 'if') return false;
-    return (
-      linkedStatementsInvokeCapability(statement.thenBranch) ||
-      (statement.elseBranch !== undefined && linkedStatementsInvokeCapability(statement.elseBranch))
-    );
+    if (statement.kind === 'if') {
+      return (
+        expressionInvokesCapability(statement.condition, helpers, visiting) ||
+        statementsInvokeCapability(statement.thenBranch, helpers, visiting) ||
+        (statement.elseBranch !== undefined && statementsInvokeCapability(statement.elseBranch, helpers, visiting))
+      );
+    }
+    return expressionInvokesCapability(statement.value, helpers, visiting);
   });
+}
+
+export function linkedStatementsInvokeCapability(
+  statements: readonly LinkedKernKirStatement[],
+  helpers?: CapabilityClosure,
+): boolean {
+  return statementsInvokeCapability(statements, helpers, new Set<string>());
 }
 
 export interface LinkedKernKirHandler {
@@ -98,12 +186,25 @@ export interface LinkedKernKirHandler {
   readonly statements: readonly LinkedKernKirStatement[];
 }
 
+export interface LinkedKernKirHelper {
+  readonly handler: LinkedKernKirHandler;
+  readonly name: string;
+}
+
 export interface LinkedKernKirProgram {
   readonly format: typeof KERN_LINKED_KIR_PROGRAM_FORMAT;
   readonly entry: { readonly moduleId: string; readonly handlerName: string };
+  readonly helpers?: readonly LinkedKernKirHelper[];
   readonly program: LinkedKernKirHandler;
   readonly projectionArtifactSha256: string;
   readonly sha256: string;
+}
+
+export function linkedProgramHelpers(
+  helpers: readonly LinkedKernKirHelper[] | undefined,
+): ReadonlyMap<string, LinkedKernKirHandler> | undefined {
+  if (helpers === undefined) return undefined;
+  return new Map(helpers.map((helper) => [helper.name, helper.handler]));
 }
 
 export type KernKirLinkCode =

@@ -17,15 +17,20 @@ import {
 import {
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
+  type LinkedKernKirCallScope,
+  type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
   type LinkedKernKirHandler,
+  type LinkedKernKirHelper,
   type LinkedKernKirParameterType,
   type LinkedKernKirProgram,
   type LinkedKernKirStatement,
   type LinkedKernKirStaticType,
   type LinkKernKirProgramResult,
+  linkedKirCrossCallType,
+  linkedStatementsInvokeCapability,
 } from './contracts.js';
-import { compileLinkedExpression, staticExpressionType } from './expression.js';
+import { compileLinkedExpression, crossCallExpressionType, staticExpressionType } from './expression.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
@@ -116,17 +121,75 @@ function assertLeaf(node: StructuralKirNode, label: string): void {
 
 interface LinkScope {
   readonly bindings: Set<string>;
+  readonly calls: LinkedKernKirCallScope | undefined;
+  readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
   readonly types: Map<string, LinkedKernKirStaticType>;
 }
 
-function branchScope(scope: LinkScope): LinkScope {
-  return { bindings: new Set(scope.bindings), types: new Map(scope.types) };
+interface ModuleContext {
+  readonly linked: Map<string, LinkedKernKirHandler>;
+  readonly linking: Set<string>;
+  readonly meter: RuntimeMeter;
+  readonly rootNodes: readonly StructuralKirNode[];
+  functions: ReadonlyMap<string, StructuralKirNode> | undefined;
 }
 
-function bindName(scope: LinkScope, name: string, type: LinkedKernKirStaticType | undefined): void {
+function branchScope(scope: LinkScope): LinkScope {
+  return {
+    bindings: new Set(scope.bindings),
+    calls: scope.calls,
+    crossCallTypes: new Map(scope.crossCallTypes),
+    types: new Map(scope.types),
+  };
+}
+
+function bindName(
+  scope: LinkScope,
+  name: string,
+  type: LinkedKernKirStaticType | undefined,
+  crossCall: LinkedKernKirCrossCallType | undefined,
+): void {
   scope.bindings.add(name);
   if (type === undefined) scope.types.delete(name);
   else scope.types.set(name, type);
+  if (crossCall === undefined) scope.crossCallTypes.delete(name);
+  else scope.crossCallTypes.set(name, crossCall);
+}
+
+function moduleFunctions(context: ModuleContext): ReadonlyMap<string, StructuralKirNode> {
+  if (context.functions !== undefined) return context.functions;
+  const functions = new Map<string, StructuralKirNode>();
+  for (let index = 0; index < context.rootNodes.length; index += 1) {
+    const node = context.rootNodes[index];
+    const label = `entry.module.roots[${index}]`;
+    context.meter.step();
+    if (nodeKind(node, label) !== 'fn') continue;
+    const name = propertyText(nodeProperties(node, label), 'name', label, context.meter);
+    if (functions.has(name)) fault('handler-entry-ambiguous', `${label}: duplicate function ${name}`);
+    functions.set(name, node);
+  }
+  context.functions = functions;
+  return functions;
+}
+
+function resolveHelper(context: ModuleContext, name: string, label: string): LinkedKernKirHandler {
+  const linked = context.linked.get(name);
+  if (linked !== undefined) return linked;
+  if (context.linking.has(name)) fault('handler-entry-unsupported', `${label}: KIR_CALL_RECURSION`);
+  const node = moduleFunctions(context).get(name);
+  if (node === undefined) fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_UNRESOLVED`);
+  context.linking.add(name);
+  const handler = compileHandler(node, context, `helper.${name}`, false);
+  context.linking.delete(name);
+  if (linkedStatementsInvokeCapability(handler.statements, context.linked)) {
+    fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_CAPABILITY`);
+  }
+  context.linked.set(name, handler);
+  return handler;
+}
+
+function callScope(context: ModuleContext): LinkedKernKirCallScope {
+  return { linked: context.linked, resolve: (name, label) => resolveHelper(context, name, label) };
 }
 
 function compileStatement(
@@ -150,7 +213,7 @@ function compileStatement(
       name,
       value: compileLinkedExpression(value, scope, meter, `${label}.value`),
     });
-    bindName(scope, name, staticExpressionType(compiled.value, scope));
+    bindName(scope, name, staticExpressionType(compiled.value, scope), crossCallExpressionType(compiled.value, scope));
     return compiled;
   }
   if (kind === 'capability') {
@@ -165,7 +228,7 @@ function compileStatement(
       operation: propertyText(properties, 'operation', label, meter),
       input: input === undefined ? undefined : compileLinkedExpression(input, scope, meter, `${label}.input`),
     });
-    bindName(scope, name, undefined);
+    bindName(scope, name, undefined, undefined);
     return compiled;
   }
   if (kind === 'print' || kind === 'return') {
@@ -237,16 +300,27 @@ function compileBlock(
   return Object.freeze(statements);
 }
 
-function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: string): LinkedKernKirHandler {
+function compileHandler(
+  fn: StructuralKirNode,
+  context: ModuleContext,
+  label: string,
+  requireExport: boolean,
+): LinkedKernKirHandler {
+  const { meter } = context;
   const properties = nodeProperties(fn, label);
   propertySet(properties, ['export', 'name', 'returns'], [], label);
-  if (!propertyBool(properties, 'export', label))
+  if (requireExport && !propertyBool(properties, 'export', label))
     fault('handler-entry-unsupported', `${label}: function is not exported`);
   const returnType = parameterType(properties.get('returns'), `${label}.returns`, meter);
   const children = nodeChildren(fn, label);
   const parameters: { readonly name: string; readonly type: LinkedKernKirParameterType }[] = [];
   let handler: StructuralKirNode | undefined;
-  const scope: LinkScope = { bindings: new Set<string>(), types: new Map<string, LinkedKernKirStaticType>() };
+  const scope: LinkScope = {
+    bindings: new Set<string>(),
+    calls: callScope(context),
+    crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
+    types: new Map<string, LinkedKernKirStaticType>(),
+  };
   for (let index = 0; index < children.length; index += 1) {
     const child = children[index];
     const childLabel = `${label}.children[${index}]`;
@@ -258,7 +332,7 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
       const name = propertyText(props, 'name', childLabel, meter);
       if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
       const type = parameterType(props.get('type'), `${childLabel}.type`, meter);
-      bindName(scope, name, type.kind === 'boolean' ? 'boolean' : undefined);
+      bindName(scope, name, type.kind === 'boolean' ? 'boolean' : undefined, linkedKirCrossCallType(type));
       parameters.push(Object.freeze({ name, type }));
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;
@@ -285,7 +359,7 @@ function selectHandler(
   projection: VerifiedKernProjection,
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
-): LinkedKernKirHandler {
+): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirHandler } {
   const projected = plainRecord(projection, 'projection');
   exact(projected, ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'], 'projection');
   const artifact = plainRecord(projected.artifact, 'projection.artifact');
@@ -327,7 +401,18 @@ function selectHandler(
   });
   if (candidates.length === 0) fault('handler-entry-not-found', 'entry function was not found');
   if (candidates.length !== 1) fault('handler-entry-ambiguous', 'entry function is ambiguous');
-  return compileHandler(candidates[0], meter, 'entry.function');
+  const context: ModuleContext = {
+    functions: undefined,
+    linked: new Map<string, LinkedKernKirHandler>(),
+    linking: new Set<string>([entry.handlerName]),
+    meter,
+    rootNodes: roots,
+  };
+  const program = compileHandler(candidates[0], context, 'entry.function', true);
+  const helpers = [...context.linked.keys()]
+    .sort()
+    .map((name) => Object.freeze({ handler: context.linked.get(name) as LinkedKernKirHandler, name }));
+  return { helpers: Object.freeze(helpers), program };
 }
 
 export function linkVerifiedKernKirProgramOrThrow(
@@ -336,11 +421,12 @@ export function linkVerifiedKernKirProgramOrThrow(
   meter: RuntimeMeter,
 ): LinkedKernKirProgram {
   authenticateLinkedKernKirProjectionOrThrow(projection);
-  const program = selectHandler(projection, entry, meter);
+  const { helpers, program } = selectHandler(projection, entry, meter);
   const projectionArtifactSha256 = sha256(projection.bytes);
   const base = Object.freeze({
     format: KERN_LINKED_KIR_PROGRAM_FORMAT,
     entry: Object.freeze({ moduleId: entry.moduleId, handlerName: entry.handlerName }),
+    helpers: helpers.length === 0 ? undefined : helpers,
     program,
     projectionArtifactSha256,
   });
