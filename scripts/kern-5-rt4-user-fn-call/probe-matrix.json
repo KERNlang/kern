@@ -1,0 +1,144 @@
+{
+  "linkedExpressionKinds": [
+    "binary",
+    "identifier",
+    "json-call",
+    "list",
+    "literal",
+    "member",
+    "record",
+    "user-call"
+  ],
+  "notProjected": {
+    "capability-input": {
+      "diagnostics": [
+        "FRONTEND_EXCLUDED_HOST_EXPRESSION"
+      ],
+      "status": "rejected"
+    },
+    "integer-signature": {
+      "diagnostics": [
+        "F5_AUTHORITY_DRIFT"
+      ],
+      "status": "fatal"
+    }
+  },
+  "positions": {
+    "binary-operand": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "callee-capability": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "exported-callee": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "if-condition": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "json-intrinsic-control": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "let-initializer": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "list-literal-argument": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "list-signature": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "member-callee": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "nested-call": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "non-exported-callee": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "optional-call": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "print-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "recursion": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "return-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "two-arguments": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "unknown-callee": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "zero-arguments": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "cross-module": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    }
+  },
+  "rt2GoldenSha256": "aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0",
+  "rt3GoldenSha256": "ac690563c41feb50dc889c580de6cb763390484183c3795a513ec63a674a12cf"
+}
