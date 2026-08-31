@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
+  reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
@@ -34,7 +35,8 @@ function pathDigest(paths) {
 }
 
 function r1SuccessorPaths() {
-  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  const cPy1Predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1Predecessor);
 }
 
 test('frontend projection authenticates its exact 322-to-318 compiled inventory edge', () => {

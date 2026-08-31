@@ -50,6 +50,10 @@
       "types": "./dist/compiler-kir-js-esm.d.ts",
       "default": "./dist/compiler-kir-js-esm.js"
     },
+    "./compiler/kir-python": {
+      "types": "./dist/compiler-kir-python.d.ts",
+      "default": "./dist/compiler-kir-python.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"

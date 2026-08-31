@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   digestM4145CompiledCoreJavaScript,
+  reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
@@ -36,7 +37,8 @@ function compiledPaths(directory = DIST, output = []) {
 }
 
 function r1SuccessorPaths() {
-  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  const cPy1Predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1Predecessor);
 }
 
 function cloneOwnDataTree(value) {

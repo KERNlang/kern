@@ -23,6 +23,7 @@ import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'path';
+import { runKirShadowIfRequested } from '../kir-shadow/owner.js';
 import {
   buildCrossModuleRegistry,
   buildProjectTypeNodeIndex,
@@ -527,6 +528,7 @@ function writeFastApiModuleManifest(plan: FastApiModulePlan | null, outDir: stri
 // ── Main compile command ────────────────────────────────────────────────
 
 export async function runCompile(args: string[]): Promise<void> {
+  if (await runKirShadowIfRequested('compile', args)) return;
   const compileInput = args[1];
   const outDirArg = parseFlag(args, '--outdir');
 

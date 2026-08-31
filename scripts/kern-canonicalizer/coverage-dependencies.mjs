@@ -41,6 +41,7 @@ import {
   validateExecutionMetadataHardeningHistoricalTransition,
 } from './execution-metadata-hardening-historical-transition.mjs';
 import { reconstructFrontendProjectionCompiledCoreJavaScriptPaths } from './frontend-projection-historical-transition.mjs';
+import { reconstructCPy1LoweringCompiledCoreJavaScriptPaths } from './c-py-1-lowering-historical-transition.mjs';
 import { reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths } from './r2-js-lowering-historical-transition.mjs';
 import { reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths } from './r1-runtime-owner-historical-transition.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
@@ -232,12 +233,14 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
 
 export {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
+  reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 };
 
 export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths) {
-  const r2JavaScriptLoweringPaths = reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(paths);
+  const cPy1LoweringPaths = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(paths);
+  const r2JavaScriptLoweringPaths = reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1LoweringPaths);
   const r1RuntimeOwnerPaths = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(r2JavaScriptLoweringPaths);
   const successorPaths = reconstructFrontendProjectionCompiledCoreJavaScriptPaths(r1RuntimeOwnerPaths);
   const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;

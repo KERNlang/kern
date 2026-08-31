@@ -7,18 +7,17 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
-  reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
-  R2_JS_LOWERING_COMPILED_SUCCESSOR_TRANSITION,
-  validateR2JavaScriptLoweringHistoricalTransition,
-} from './r2-js-lowering-historical-transition.mjs';
+  C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION,
+  validateCPy1LoweringHistoricalTransition,
+} from './c-py-1-lowering-historical-transition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
-const IDENTITY_ERROR = 'R2 JavaScript lowering historical transition immutable identity changed';
-const NORMALIZED_PATH_ERROR = 'coverage dependency rejection: R2 JavaScript lowering successor inventory must contain unique normalized JavaScript paths';
-const MEMBERSHIP_ERROR = 'coverage dependency rejection: R2 JavaScript lowering historical membership requires the authenticated current inventory';
+const IDENTITY_ERROR = 'C-PY-1 lowering historical transition immutable identity changed';
+const NORMALIZED_PATH_ERROR = 'coverage dependency rejection: C-PY-1 lowering successor inventory must contain unique normalized JavaScript paths';
+const MEMBERSHIP_ERROR = 'coverage dependency rejection: C-PY-1 lowering historical membership requires the authenticated current inventory';
 
 function digest(paths) {
   const hash = createHash('sha256');
@@ -50,51 +49,47 @@ function assertTypeError(callback, message) {
   assert.throws(callback, (error) => error instanceof TypeError && error.message === message);
 }
 
-function cPy1SuccessorPaths() {
-  return reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
-}
-
-test('R2 JavaScript lowering authenticates the exact 346-to-332 inventory edge', () => {
-  assert.equal(validateR2JavaScriptLoweringHistoricalTransition(), true);
-  const transition = R2_JS_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
-  const paths = cPy1SuccessorPaths();
+test('C-PY-1 lowering authenticates the exact 354-to-346 inventory edge', () => {
+  assert.equal(validateCPy1LoweringHistoricalTransition(), true);
+  const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
+  const paths = compiledPaths();
   assert.deepEqual({ count: paths.length, digest: digest(paths) }, transition.currentInventory);
-  const predecessor = reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(paths);
+  const predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual({ count: predecessor.length, digest: digest(predecessor) }, transition.predecessorInventory);
   for (const path of transition.addedPaths) assert.equal(predecessor.includes(path), false, path);
 });
 
-test('R2 JavaScript lowering rejects tampered inventories before rebuilding R1', () => {
-  const paths = cPy1SuccessorPaths();
+test('C-PY-1 lowering rejects tampered inventories before rebuilding R2', () => {
+  const paths = compiledPaths();
   for (const candidate of [
     [...paths, 'unexpected.js'], paths.slice(1), paths.map((path, index) => index === 0 ? 'renamed.js' : path),
     [...paths, paths[0]], [...paths.slice(1), '../escape.js'], [...paths.slice(1), '/absolute.js'],
     [...paths.slice(1), 'dir\\escape.js'], [...paths.slice(1), './dot.js'],
-  ]) assert.throws(() => reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(candidate), /coverage dependency rejection/u);
+  ]) assert.throws(() => reconstructCPy1LoweringCompiledCoreJavaScriptPaths(candidate), /coverage dependency rejection/u);
   for (const path of ['../escape.js', 'directory/../escape.js']) {
-    assertTypeError(() => reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths([...paths.slice(1), path]), NORMALIZED_PATH_ERROR);
+    assertTypeError(() => reconstructCPy1LoweringCompiledCoreJavaScriptPaths([...paths.slice(1), path]), NORMALIZED_PATH_ERROR);
   }
   for (const path of ['file.json', 'file.js.map']) {
-    assertTypeError(() => reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths([...paths.slice(1), path]), NORMALIZED_PATH_ERROR);
+    assertTypeError(() => reconstructCPy1LoweringCompiledCoreJavaScriptPaths([...paths.slice(1), path]), NORMALIZED_PATH_ERROR);
   }
   const duplicateCaseVariant = paths.map((path) => path === 'runtime-kir.js' ? 'Runtime-kir.js' : path);
   duplicateCaseVariant.push('Runtime-kir.js');
-  assertTypeError(() => reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(duplicateCaseVariant), NORMALIZED_PATH_ERROR);
+  assertTypeError(() => reconstructCPy1LoweringCompiledCoreJavaScriptPaths(duplicateCaseVariant), NORMALIZED_PATH_ERROR);
   const caseOnly = paths.map((path) => path === 'runtime-kir.js' ? 'Runtime-kir.js' : path);
-  assertTypeError(() => reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(caseOnly), MEMBERSHIP_ERROR);
+  assertTypeError(() => reconstructCPy1LoweringCompiledCoreJavaScriptPaths(caseOnly), MEMBERSHIP_ERROR);
 });
 
-test('R2 JavaScript lowering preserves input and predecessor order', () => {
-  const transition = R2_JS_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
-  const reversed = cPy1SuccessorPaths().reverse();
+test('C-PY-1 lowering preserves input and predecessor order', () => {
+  const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
+  const reversed = compiledPaths().reverse();
   const before = [...reversed];
-  const predecessor = reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(reversed);
+  const predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(reversed);
   assert.deepEqual(reversed, before);
   assert.deepEqual(predecessor, before.filter((path) => !transition.addedPaths.includes(path)));
 });
 
-test('R2 JavaScript lowering rejects hostile immutable-transition candidates without getters', () => {
-  const transition = R2_JS_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
+test('C-PY-1 lowering rejects hostile immutable-transition candidates without getters', () => {
+  const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
   let getterRead = false;
   const accessor = { ...transition };
   Object.defineProperty(accessor, 'claim', { enumerable: true, configurable: true, get() { getterRead = true; return transition.claim; } });
@@ -119,21 +114,21 @@ test('R2 JavaScript lowering rejects hostile immutable-transition candidates wit
   configurable.claim = { ...configurable.claim, configurable: true };
   const writable = Object.getOwnPropertyDescriptors(transition);
   writable.claim = { ...writable.claim, writable: true };
-  assert.equal(validateR2JavaScriptLoweringHistoricalTransition(clone), true);
+  assert.equal(validateCPy1LoweringHistoricalTransition(clone), true);
   for (const candidate of [
     Object.assign(Object.create({ inherited: true }), transition), { ...transition, toJSON() { return transition; } },
     { ...transition, [Symbol('extra')]: true }, Object.defineProperty({ ...transition }, 'hidden', { value: true }),
     accessor, nestedPrototype, trailingKey, finalAddedPathTransition, reordered, Object.create(Object.getPrototypeOf(transition), configurable),
     Object.create(Object.getPrototypeOf(transition), writable), null, false, 0, '',
-  ]) assertTypeError(() => validateR2JavaScriptLoweringHistoricalTransition(candidate), IDENTITY_ERROR);
+  ]) assertTypeError(() => validateCPy1LoweringHistoricalTransition(candidate), IDENTITY_ERROR);
   assert.equal(getterRead, false);
 });
 
-test('R2 JavaScript lowering independently pins endpoints and frozen boundary', () => {
-  const transition = R2_JS_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
-  assert.equal(transition.predecessorCommit, 'a8f5e9a7c8632faed10dd301056d1260928c9026');
-  assert.equal(transition.successorCommit, '41f6c5ec5479e76b61a7401db04c5c08cc2b4394');
+test('C-PY-1 lowering independently pins endpoints and frozen boundary', () => {
+  const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
+  assert.equal(transition.predecessorCommit, '7ec88843d29ac1df257579d44747c9e81bfebcbd');
+  assert.equal(transition.successorCommit, '7a45f4896158ac162d050293061830dc39185599');
   assert.equal(digestM4145CompiledCoreJavaScript(), '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2');
-  const source = readFileSync(resolve(ROOT, 'scripts/kern-canonicalizer/r2-js-lowering-historical-transition.mjs'), 'utf8');
+  const source = readFileSync(resolve(ROOT, 'scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs'), 'utf8');
   assert.doesNotMatch(source, /node:fs|node:child_process|readFileSync|readdirSync|process\.cwd|git show/u);
 });
