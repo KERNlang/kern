@@ -28,7 +28,9 @@ describe('Concept Extraction (TS)', () => {
         globalState.value = [];
       `;
       const report = reviewSource(source, 'state.ts');
-      const ids = report.findings.filter((finding) => finding.ruleId.startsWith('boundary-mutation')).map((f) => f.ruleId);
+      const ids = report.findings
+        .filter((finding) => finding.ruleId.startsWith('boundary-mutation'))
+        .map((f) => f.ruleId);
       expect(ids).toContain('boundary-mutation-shared');
       expect(ids).toContain('boundary-mutation-global');
     });
