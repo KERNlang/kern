@@ -43,9 +43,44 @@ export function isBenignCommandInputReference(
       parent.getName() === 'input' &&
       parent.getParent() === argument
     ) {
-      return true;
+      return !readsProgramFromStdin(argument);
     }
     current = parent;
   }
   return false;
+}
+
+const STDIN_PROGRAM_INTERPRETERS: ReadonlySet<string> = new Set([
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'ksh',
+  'fish',
+  'cmd',
+  'powershell',
+  'pwsh',
+  'node',
+  'deno',
+  'bun',
+  'perl',
+  'ruby',
+  'php',
+  'lua',
+  'osascript',
+]);
+
+function readsProgramFromStdin(optionsArgument: import('ts-morph').Node): boolean {
+  const call = optionsArgument.getParent();
+  if (!Node.isCallExpression(call)) return false;
+  const [executable, argv] = call.getArguments();
+  if (!executable || !Node.isStringLiteral(executable)) return false;
+  const name = (executable.getLiteralText().split(/[\\/]/).at(-1) ?? '').toLowerCase().replace(/\.exe$/, '');
+  const interpreter = STDIN_PROGRAM_INTERPRETERS.has(name) || /^python(?:\d+(?:\.\d+)?)?$/.test(name);
+  if (!interpreter) return false;
+  if (!argv || argv === optionsArgument) return true;
+  if (!Node.isArrayLiteralExpression(argv)) return false;
+  return argv
+    .getElements()
+    .every((element) => Node.isStringLiteral(element) && element.getLiteralText().startsWith('-'));
 }

@@ -14,7 +14,10 @@ regressions remain as the implementation oracle.
 ## Implemented Behavior
 
 - **[VERIFIED]** Command sink options are structural object-literal arguments;
-  direct `options.input` is exempt while executable, argv, and execution
+  direct `options.input` is exempt — unless the executable literal is a
+  stdin-program interpreter (`sh`, `bash`, `node`, `python*`, …) whose argv is
+  absent, empty, or flags-only, because that process executes stdin — while
+  executable, argv, and execution
   options remain sinks (`packages/review/src/taint-sink-arguments.ts`;
   `packages/review/tests/taint.test.ts`). Callback function bodies are not
   traversed as sink arguments. Object property names do not create internal

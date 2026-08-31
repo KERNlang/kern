@@ -247,14 +247,39 @@ export function run(req: Request): void {
     expect(mixedMessages).not.toContain("Variable 'input'");
   });
 
+  it('keeps options.input tainted when a stdin-program interpreter has no script argument', () => {
+    const source = `
+export function run(req: Request): void {
+  const shellInput = req.body.shellInput;
+  const pythonInput = req.body.pythonInput;
+  const nodeInput = req.body.nodeInput;
+  const scriptInput = req.body.scriptInput;
+  const fileInput = req.body.fileInput;
+  const dataInput = req.body.dataInput;
+  spawn('sh', [], { input: shellInput });
+  spawnSync('/usr/bin/python3', ['-'], { input: pythonInput });
+  execFile('node', { input: nodeInput });
+  spawn('bash', ['-c', 'cat'], { input: scriptInput });
+  spawn('python3', ['script.py'], { input: fileInput });
+  spawn('gzip', [], { input: dataInput });
+}
+`;
+    const report = reviewSource(source, 'stdin-handler.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'taint-command');
+    const messages = findings.map((f) => f.message).join('\n');
+    expect(findings).toHaveLength(3);
+    for (const name of ['shellInput', 'pythonInput', 'nodeInput']) expect(messages).toContain(`Variable '${name}'`);
+    for (const name of ['scriptInput', 'fileInput', 'dataInput']) expect(messages).not.toContain(`Variable '${name}'`);
+  });
+
   it('ignores options.input across command overloads and does not scan callback captures', () => {
     const source = `
 export function run(req: Request): void {
   const input = req.body.input;
   const callbackOnly = req.body.callbackOnly;
-  spawn('node', { input });
-  spawnSync('node', { input });
-  execFile('node', { input }, () => console.log(callbackOnly));
+  spawn('gzip', { input });
+  spawnSync('gzip', { input });
+  execFile('gzip', { input }, () => console.log(callbackOnly));
   exec('node', () => console.log(callbackOnly));
 }
 `;
