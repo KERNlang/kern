@@ -107,8 +107,16 @@ async function run(
       'execution interrupted',
     );
   };
-  const runBlock = async (statements: readonly LinkedKernKirStatement[]): Promise<KernKirEnvelope | undefined> => {
-    for (const statement of statements) {
+  const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [];
+  const runFrames = async (): Promise<KernKirEnvelope | undefined> => {
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      if (frame.index >= frame.statements.length) {
+        frames.pop();
+        continue;
+      }
+      const statement = frame.statements[frame.index];
+      frame.index += 1;
       meter.step();
       checkAbort();
       if (statement.kind === 'let') {
@@ -174,10 +182,7 @@ async function run(
         if (condition.tag !== 'boolean')
           throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
         const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
-        if (branch !== undefined) {
-          const returned = await runBlock(branch);
-          if (returned !== undefined) return returned;
-        }
+        if (branch !== undefined) frames.push({ statements: branch, index: 0 });
       } else {
         const value = evaluateExpression(statement.value, bindings, meter);
         if (!matchesType(value, handler.returnType))
@@ -202,7 +207,8 @@ async function run(
     return undefined;
   };
   try {
-    const returned = await runBlock(handler.statements);
+    frames.push({ statements: handler.statements, index: 0 });
+    const returned = await runFrames();
     if (returned !== undefined) return returned;
     throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
   } finally {
