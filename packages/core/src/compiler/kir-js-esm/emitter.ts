@@ -3,12 +3,14 @@ import { canonicalJson, sha256 } from '../../kir-runtime/digest.js';
 import type {
   LinkedKernKirExpression,
   LinkedKernKirHandler,
+  LinkedKernKirHelper,
   LinkedKernKirParameterType,
   LinkedKernKirProgram,
   LinkedKernKirStatement,
 } from '../../kir-runtime/linked-kir-program/index.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  linkedProgramHelpers,
   linkedStatementsInvokeCapability,
 } from '../../kir-runtime/linked-kir-program/index.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
@@ -62,7 +64,13 @@ function valueSource(value: KernKirValue): string {
   }
 }
 
-function expressionSource(expression: LinkedKernKirExpression, bindings: ReadonlyMap<string, string>): string {
+type CallLocals = ReadonlyMap<string, string>;
+
+function expressionSource(
+  expression: LinkedKernKirExpression,
+  bindings: ReadonlyMap<string, string>,
+  calls: CallLocals,
+): string {
   let source: string;
   switch (expression.kind) {
     case 'literal':
@@ -76,18 +84,27 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
     }
     case 'list':
       source = `Object.freeze({tag:'list',value:Object.freeze([${expression.items
-        .map((item) => expressionSource(item, bindings))
+        .map((item) => expressionSource(item, bindings, calls))
         .join(',')}])})`;
       break;
     case 'record':
       source = `Object.freeze({tag:'record',value:Object.freeze([${expression.entries
-        .map((entry) => `Object.freeze({key:${jsString(entry.key)},value:${expressionSource(entry.value, bindings)}})`)
+        .map(
+          (entry) =>
+            `Object.freeze({key:${jsString(entry.key)},value:${expressionSource(entry.value, bindings, calls)}})`,
+        )
         .join(',')}])})`;
       break;
+    case 'user-call': {
+      const helper = calls.get(expression.handlerName);
+      if (helper === undefined) throw new Error('linked expression references a missing helper');
+      source = `${helper}(${expression.arguments.map((argument) => expressionSource(argument, bindings, calls)).join(',')})`;
+      break;
+    }
     case 'binary': {
       const operator = LINKED_KIR_BINARY_OPERATORS[expression.op];
-      const left = expressionSource(expression.left, bindings);
-      const right = expressionSource(expression.right, bindings);
+      const left = expressionSource(expression.left, bindings, calls);
+      const right = expressionSource(expression.right, bindings, calls);
       source =
         operator.family === 'logical'
           ? `${operator.javascriptHelper}(${left},()=>${right})`
@@ -95,10 +112,10 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
       break;
     }
     case 'member':
-      source = `__member(${expressionSource(expression.object, bindings)},${String(expression.optional)},${encodedText(expression.property)})`;
+      source = `__member(${expressionSource(expression.object, bindings, calls)},${String(expression.optional)},${encodedText(expression.property)})`;
       break;
     case 'json-call': {
-      const argument = expressionSource(expression.argument, bindings);
+      const argument = expressionSource(expression.argument, bindings, calls);
       source =
         expression.operation === 'parse'
           ? `((__value)=>{if(__value.tag!=='text')throw new __Fault('unsupported-runtime-input','execution');return __parseKernText(__value.value,__meter);})(${argument})`
@@ -119,11 +136,12 @@ function capabilitySource(
   statement: Extract<LinkedKernKirStatement, { kind: 'capability' }>,
   local: string,
   bindings: Map<string, string>,
+  calls: CallLocals,
 ): string {
   const input =
     statement.input === undefined
       ? `Object.freeze({presence:'absent'})`
-      : `Object.freeze({presence:'value',value:${expressionSource(statement.input, bindings)}})`;
+      : `Object.freeze({presence:'value',value:${expressionSource(statement.input, bindings, calls)}})`;
   const namespace = encodedText(statement.namespace);
   const operation = encodedText(statement.operation);
   bindings.set(statement.name, local);
@@ -150,17 +168,22 @@ function capabilitySource(
       ${local}=__slot${local.slice(3)}.value;`;
 }
 
-function leafSource(statement: LinkedKernKirStatement, local: string, bindings: Map<string, string>): string {
-  if (statement.kind === 'capability') return capabilitySource(statement, local, bindings);
+function leafSource(
+  statement: LinkedKernKirStatement,
+  local: string,
+  bindings: Map<string, string>,
+  calls: CallLocals,
+): string {
+  if (statement.kind === 'capability') return capabilitySource(statement, local, bindings, calls);
   if (statement.kind === 'let') {
-    const value = expressionSource(statement.value, bindings);
+    const value = expressionSource(statement.value, bindings, calls);
     bindings.set(statement.name, local);
     return `
       __meter.step(); __checkAbort();
       ${local}=${value};`;
   }
   if (statement.kind === 'print') {
-    const value = expressionSource(statement.value, bindings);
+    const value = expressionSource(statement.value, bindings, calls);
     return `
       __meter.step(); __checkAbort();
       {const __printed=${value};
@@ -171,7 +194,80 @@ function leafSource(statement: LinkedKernKirStatement, local: string, bindings: 
   throw new Error('return statements are emitted by the specialized handler');
 }
 
-function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirProgram['entry']): string {
+function blockSource(
+  statements: readonly LinkedKernKirStatement[],
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: () => string,
+  returnSource: (value: string) => string,
+): string {
+  return statements
+    .map((statement) => {
+      if (statement.kind === 'return') return returnSource(expressionSource(statement.value, scope, calls));
+      if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
+      const local = nextLocal();
+      const condition = expressionSource(statement.condition, scope, calls);
+      const thenSource = blockSource(statement.thenBranch, new Map(scope), calls, nextLocal, returnSource);
+      const elseSource =
+        statement.elseBranch === undefined
+          ? undefined
+          : blockSource(statement.elseBranch, new Map(scope), calls, nextLocal, returnSource);
+      return `
+      __meter.step(); __checkAbort();
+      ${local}=${condition};
+      if(${local}.tag!=='boolean')throw new __Fault('unsupported-runtime-input','execution');
+      if(${local}.value===true){${thenSource}
+      }${
+        elseSource === undefined
+          ? ''
+          : `else{${elseSource}
+      }`
+      }`;
+    })
+    .join('');
+}
+
+function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLocals): string {
+  const scope = new Map<string, string>();
+  const parameters = helper.handler.parameters.map((parameter, index) => {
+    const name = `${local}p${index.toString(36)}`;
+    scope.set(parameter.name, name);
+    return name;
+  });
+  const guards = helper.handler.parameters.map(
+    (parameter, index) =>
+      `if(!__matches(${parameters[index]},${typeSource(parameter.type)}))throw new __Fault('unsupported-runtime-input','execution');`,
+  );
+  const locals: string[] = [];
+  const nextLocal = (): string => {
+    const name = `${local}k${locals.length.toString(36)}`;
+    locals.push(name);
+    return name;
+  };
+  const returnSource = (value: string): string => `
+      __checkAbort();
+      {const ${local}r=${value};
+      if(!__matches(${local}r,${typeSource(helper.handler.returnType)}))throw new __Fault('unsupported-runtime-input','execution');
+      return ${local}r;}`;
+  const body = blockSource(helper.handler.statements, scope, calls, nextLocal, returnSource);
+  const declarations = locals.length === 0 ? '' : `let ${locals.join(',')};`;
+  return `const ${local}=(${parameters.join(',')})=>{
+      __meter.step();
+      ${guards.join('')}${declarations}${body}
+      throw new __Fault('handler-entry-unsupported','execution');
+    };
+    `;
+}
+
+function specializedSource(
+  handler: LinkedKernKirHandler,
+  entry: LinkedKernKirProgram['entry'],
+  helpers: readonly LinkedKernKirHelper[] | undefined,
+): string {
+  const calls = new Map<string, string>(
+    (helpers ?? []).map((helper, index) => [helper.name, `__f${index.toString(36)}`]),
+  );
+  const helperSources = (helpers ?? []).map((helper, index) => helperSource(helper, `__f${index.toString(36)}`, calls));
   const bindings = new Map<string, string>();
   const argumentNames = handler.parameters.map((parameter) => encodedText(parameter.name));
   const parameterLines = handler.parameters.map((parameter, index) => {
@@ -194,32 +290,9 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
       if(__successBytes(__request.requestId,__events,__result,__checkAbort)>__request.limits.maxBytes)throw new __Fault('runtime-limit-exceeded','execution');
       __checkAbort();
       return Object.freeze({completion:Object.freeze({kind:'return'}),diagnostics:Object.freeze([]),events:Object.freeze(__events),format:__runtimeFormat,outcome:'success',requestId:__request.requestId,result:__result});}`;
-  const blockSource = (statements: readonly LinkedKernKirStatement[], scope: Map<string, string>): string =>
-    statements
-      .map((statement) => {
-        if (statement.kind === 'return') return returnSource(expressionSource(statement.value, scope));
-        if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope);
-        const local = nextLocal();
-        const condition = expressionSource(statement.condition, scope);
-        const thenSource = blockSource(statement.thenBranch, new Map(scope));
-        const elseSource =
-          statement.elseBranch === undefined ? undefined : blockSource(statement.elseBranch, new Map(scope));
-        return `
-      __meter.step(); __checkAbort();
-      ${local}=${condition};
-      if(${local}.tag!=='boolean')throw new __Fault('unsupported-runtime-input','execution');
-      if(${local}.value===true){${thenSource}
-      }${
-        elseSource === undefined
-          ? ''
-          : `else{${elseSource}
-      }`
-      }`;
-      })
-      .join('');
-  const body = blockSource(handler.statements, bindings);
+  const body = blockSource(handler.statements, bindings, calls, nextLocal, returnSource);
   const declarations = statementLocals.length === 0 ? '' : `let ${statementLocals.join(',')};`;
-  const hasCapability = linkedStatementsInvokeCapability(handler.statements);
+  const hasCapability = linkedStatementsInvokeCapability(handler.statements, linkedProgramHelpers(helpers));
   return `
   const __runSpecialized=async(__request,__options,__meter,__deadline,__events)=>{
     const __argumentNames=Object.freeze([${argumentNames.join(',')}]);
@@ -237,7 +310,7 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
     const __remaining=__deadline.remainingMs();
     const __timer=__remaining===null?undefined:setTimeout(()=>{__reason='timeout';__controller.abort();},__remaining);
     const __checkAbort=()=>{__deadline.check();if(__controller.signal.aborted)throw new __Fault(__reason==='timeout'?'execution-timeout':'execution-cancelled','execution');};
-    try {${body}
+    ${helperSources.join('')}try {${body}
       throw new __Fault('handler-entry-unsupported','execution');
     } finally {
       if(__timer!==undefined)clearTimeout(__timer);
@@ -280,7 +353,7 @@ export const execute=__exports.execute;
 
 export function emitJavaScriptEsm(program: LinkedKernKirProgram, manifestBase: TargetManifestBase): Uint8Array {
   const manifestWithoutArtifact = dataSource(manifestBase);
-  const source = `function __module() {${KERNEL_SOURCE}${specializedSource(program.program, program.entry)}
+  const source = `function __module() {${KERNEL_SOURCE}${specializedSource(program.program, program.entry, program.helpers)}
   const __suffix=${jsString(MODULE_SUFFIX)};
   const __artifactSha256=__sha256(new TextEncoder().encode(__module.toString()+__suffix));
   const __base=${manifestWithoutArtifact};
