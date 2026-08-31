@@ -70,15 +70,13 @@
   "channels": {
     "stable": {
       "versionMode": "stable-input",
-      "distTag": "latest",
-      "syncDev": true
+      "distTag": "latest"
     },
     "canary": {
       "versionMode": "canary-run",
       "baseVersion": "5.0.0",
       "prereleaseId": "canary",
-      "distTag": "canary",
-      "syncDev": false
+      "distTag": "canary"
     }
   }
 }

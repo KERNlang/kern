@@ -33,7 +33,6 @@ export async function createReleasePlan({ rootDir, policy, channel, version, sha
       path: pkg.path,
       dependencies: pkg.dependencies,
     })),
-    syncsDev: intent.syncsDev,
   };
 
   validateReleasePlan(plan, policy);
@@ -64,10 +63,6 @@ export function validateReleasePlan(plan, policy) {
       `Release plan dist-tag ${plan.distTag} does not match policy ${channelConfig.distTag}`,
     );
   }
-  if (plan.syncsDev !== channelConfig.syncDev) {
-    throw new Error('Release plan dev sync does not match policy');
-  }
-
   if (channelConfig.versionMode === 'stable-input') {
     const plainSemver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
     if (!plainSemver.test(plan.version)) {

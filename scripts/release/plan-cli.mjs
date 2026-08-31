@@ -53,7 +53,6 @@ async function main() {
     await appendFile(process.env.GITHUB_OUTPUT, `version=${plan.version}\n`);
     await appendFile(process.env.GITHUB_OUTPUT, `channel=${plan.channel}\n`);
     await appendFile(process.env.GITHUB_OUTPUT, `dist_tag=${plan.distTag}\n`);
-    await appendFile(process.env.GITHUB_OUTPUT, `syncs_dev=${plan.syncsDev}\n`);
     await appendFile(process.env.GITHUB_OUTPUT, `packages=${JSON.stringify(plan.packages)}\n`);
   }
 

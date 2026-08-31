@@ -31,7 +31,6 @@ test('CLI prints one valid stable ReleasePlan', () => {
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.version, '4.5.0');
   assert.equal(plan.distTag, 'latest');
-  assert.equal(plan.syncsDev, true);
   assert.equal(plan.packages.length, 22);
 });
 
@@ -50,7 +49,6 @@ test('CLI writes policy-derived GitHub outputs and environment values', async ()
 
     assert.match(output, /^version=5\.0\.0-canary\.9\.g01234567$/m);
     assert.match(output, /^dist_tag=canary$/m);
-    assert.match(output, /^syncs_dev=false$/m);
     assert.match(environment, /^CANARY_VERSION=5\.0\.0-canary\.9\.g01234567$/m);
     assert.match(environment, /^NPM_TAG=canary$/m);
   } finally {

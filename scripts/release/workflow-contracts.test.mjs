@@ -133,15 +133,6 @@ test('failed-smoke containment is authorized only by successful promotion and fa
   );
 });
 
-test('dev synchronization is guarded by the release plan', async () => {
-  const pipeline = await workflow('release-pipeline.yml');
-
-  assert.match(
-    pipeline,
-    /if:\s*\$\{\{\s*success\(\)\s*&&\s*inputs\.publish\s*&&\s*steps\.release-plan\.outputs\.syncs_dev\s*==\s*'true'/,
-  );
-});
-
 test('canary has no free-form dist-tag input and uses policy outputs', async () => {
   const canary = await workflow('canary-publish.yml');
 

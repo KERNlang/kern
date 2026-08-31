@@ -229,7 +229,6 @@ function checkWorkflowContracts() {
         'Confirm durable bundle',
         'Confirm durable promotion snapshot',
         'node scripts/release/registry-cli.mjs --mode preflight',
-        "success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true'",
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g, /pnpm -r publish/g],
     },
