@@ -163,3 +163,52 @@ test('canary is explicitly manual-only until exact-SHA CI attestation lands', as
   assert.match(canary, /github\.ref_name\s*==\s*'main'/);
   assert.doesNotMatch(canary, /github\.event\.workflow_run/);
 });
+
+test('stable publish persists the version bump on a pushed release branch, not on main', async () => {
+  const pipeline = await workflow('release-pipeline.yml');
+  const journalIndex = pipeline.indexOf('      - name: Upload Journal');
+  const syncIndex = pipeline.indexOf('      - name: Push release version sync branch');
+
+  assert.ok(syncIndex > journalIndex, 'version sync must run after the journal upload');
+  assert.match(
+    pipeline,
+    /      - name: Push release version sync branch\n        if: \$\{\{ success\(\) && inputs\.publish && steps\.release-plan\.outputs\.dist_tag == 'latest' \}\}/,
+  );
+  const sync = pipeline.slice(syncIndex);
+  assert.match(sync, /git checkout -B "release\/sync-v\$\{RELEASE_VERSION\}" HEAD/);
+  assert.match(sync, /git push --no-verify origin "release\/sync-v\$\{RELEASE_VERSION\}"/);
+  assert.doesNotMatch(sync, /git push[^\n]*origin main/);
+  assert.doesNotMatch(sync, /for attempt in|git rebase/);
+});
+
+test('no workflow retains a dev-branch dependency', async () => {
+  for (const name of [
+    'canary-publish.yml',
+    'ci.yml',
+    'exhaustive-tests.yml',
+    'mcp-security.yml',
+    'release-pipeline.yml',
+    'release-preflight.yml',
+    'release.yml',
+    'repo-consistency.yml',
+    'sync-action-repo.yml',
+  ]) {
+    const contents = await workflow(name);
+    assert.doesNotMatch(
+      contents,
+      new RegExp(['origin', 'dev'].join('/')),
+      `${name} still points at the retired remote branch by slash form`,
+    );
+    assert.doesNotMatch(
+      contents,
+      new RegExp(['origin', 'dev'].join(' ')),
+      `${name} still points at the retired remote branch by spaced form`,
+    );
+    assert.doesNotMatch(
+      contents,
+      new RegExp(['syncs', 'dev'].join('_')),
+      `${name} still declares the retired policy flag`,
+    );
+    assert.doesNotMatch(contents, /branches:\s*\[main,\s*dev\]/, `${name} still targets the dev branch`);
+  }
+});

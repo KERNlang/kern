@@ -204,3 +204,53 @@ jobs:
           path: .release/journal.json
           if-no-files-found: ignore
           include-hidden-files: true
+
+      - name: Push release version sync branch
+        if: ${{ success() && inputs.publish && steps.release-plan.outputs.dist_tag == 'latest' }}
+        env:
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git reset --hard HEAD
+          git clean -fd
+
+          git checkout -B "release/sync-v${RELEASE_VERSION}" HEAD
+
+          tmp=$(mktemp)
+          jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "$RELEASE_VERSION" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
+          spec=packages/core/src/spec.ts
+          tmp=$(mktemp)
+          awk -v v="$RELEASE_VERSION" '{
+            if ($0 ~ /^export const KERN_VERSION = /) {
+              print "export const KERN_VERSION = '\''" v "'\'';"
+            } else {
+              print
+            }
+          }' "$spec" > "$tmp"
+          mv "$tmp" "$spec"
+
+          git add package.json packages/*/package.json packages/core/src/spec.ts
+          if git diff --cached --quiet; then
+            echo "Versions already synced to v${RELEASE_VERSION}; nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore: sync versions to v${RELEASE_VERSION} [skip ci]"
+
+          push_output=$(git push --no-verify origin "release/sync-v${RELEASE_VERSION}" 2>&1) && push_ok=true || push_ok=false
+          echo "$push_output"
+          if ! $push_ok; then
+            exit 1
+          fi
+          pr_url=$(echo "$push_output" | grep -oE 'https://\S+/pull/new/\S+' || true)
+          if [ -n "$pr_url" ]; then
+            echo "Open a PR to merge the version sync: $pr_url"
+          fi
