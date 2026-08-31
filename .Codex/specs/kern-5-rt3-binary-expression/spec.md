@@ -1,9 +1,10 @@
 # KERN 5 RT-3: Closed binary expressions
 
-**Status:** RED
+**Status:** IMPLEMENTED
 **Date:** 2026-08-31
 **Base:** `ad91deb3c2be25e9883a1a60cad68e59a96c6b94` (RT-2 implemented)
-**Confidence:** 0.93
+**Implemented at:** `04efecc9` (oracle and spec), `6aa2f2c3` (link, RT-1, both emitters)
+**Confidence:** 0.95
 
 ## Executive Summary
 
@@ -154,26 +155,26 @@ historical-transition gate (commit `506826ee`) does not apply.
 
 ## Acceptance Criteria
 
-- [ ] A real F5 projection containing a `binary` node is admitted by RT-1 and
+- [x] A real F5 projection containing a `binary` node is admitted by RT-1 and
   both package compiler exports, in `if`, `let`, and `return` position.
-- [ ] All four boolean operators agree with their truth tables across the four
+- [x] All four boolean operators agree with their truth tables across the four
   boolean argument combinations in all three positions, byte-identically on all
   three legs.
-- [ ] All four ordering operators and both equality operators agree on tagged
+- [x] All four ordering operators and both equality operators agree on tagged
   integers, including values beyond IEEE-754 exact range.
-- [ ] `false && rhs` and `true || rhs` consume exactly the short-circuit step
+- [x] `false && rhs` and `true || rhs` consume exactly the short-circuit step
   budget on all three legs, and the whole-evaluation budget exceeds it by
   exactly the right operand's node count on all three legs.
-- [ ] Mixed operand types, boolean ordering, text operands, list operands,
+- [x] Mixed operand types, boolean ordering, text operands, list operands,
   decimal operands, capability/member/intrinsic operands, the thirteen
   out-of-profile operators, and the unary operator all fail closed at link with
   `handler-entry-unsupported` and zero committed events.
-- [ ] A queued-microtask abort is observed at the same statement boundary by
+- [x] A queued-microtask abort is observed at the same statement boundary by
   RT-1 and by the emitted JavaScript at binary-condition depths 0-4, and the
   emitted specialized body of a capability-free handler contains no `await`.
-- [ ] The emitted Python contains no infix or chained comparison.
-- [ ] The K0 golden recomputes exactly, and the RT-2 golden stays byte-identical.
-- [ ] `pnpm test:kern-5-rt2-boolean-if` and the RT-1 / JS-lowering / Python /
+- [x] The emitted Python contains no infix or chained comparison.
+- [x] The K0 golden recomputes exactly, and the RT-2 golden stays byte-identical.
+- [x] `pnpm test:kern-5-rt2-boolean-if` and the RT-1 / JS-lowering / Python /
   CLI-shadow neighborhood suites stay green.
 
 ## RED Oracle
@@ -197,6 +198,47 @@ for a missing module, package export, or interpreter. The base probe recorded
 `handler-entry-unsupported` from RT-1, the JavaScript compiler, and the Python
 compiler for a binary in each of the three admitted positions, with zero
 committed events.
+
+## Verified Result
+
+| Gate | Result |
+| --- | --- |
+| `scripts/kern-5-rt3-binary-expression/behavior.test.mjs` | 72/72 |
+| `scripts/kern-5-rt3-binary-expression/type-gate.test.mjs` | 32/32 |
+| `scripts/kern-5-rt3-binary-expression/k0-divergence.test.mjs` | 6/6 |
+| `scripts/kern-5-rt3-binary-expression/tick-discipline.test.mjs` | 16/16 |
+| `scripts/kern-5-rt3-binary-expression/short-circuit-meter.test.mjs` | 3/3 |
+| `scripts/kern-5-rt3-binary-expression/k0-golden.test.mjs` | 3/3 |
+| `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
+| kern-5 r1 / r2 / c-py-1 / cli-shadow neighborhood | 83/83 |
+| `packages/core` KIR unit tests | 183 assertions, exit 0 |
+
+Measured step budgets confirm the metering model exactly. For
+`return value="flag && ((other == other) == (other == other))"` with two
+boolean parameters, the emitted JavaScript and the emitted Python both need 12
+steps when the whole expression is evaluated and 5 when the left operand short
+circuits; subtracting the 2-step request inspection measured from the
+`return value="flag"` control leaves 10 and 3 execution steps. RT-1 needs 25
+and 18 steps against a 13-step link cost and the same 2-step inspection,
+leaving the identical 10 and 3. All three legs therefore save exactly the
+7-node right operand.
+
+## Mutation Discrimination
+
+Ten mutants were applied, rebuilt, run, and reverted. All ten were killed.
+
+| # | Mutant | Site | Killed by |
+| --- | --- | --- | --- |
+| 1 | Operator swap `<` to `<=` | `kir-runtime/expression.ts` | behavior 1 |
+| 2 | Logical swap `&&` to `\|\|` | `kir-js-esm/emitter.ts` | behavior 7 |
+| 3 | Eager right-operand evaluation | `kir-runtime/expression.ts` | short-circuit-meter 2 |
+| 4 | Right operand metered despite short circuit | `kir-js-esm/emitter.ts` | short-circuit-meter 2 |
+| 5 | Mixed-type equality admitted | `linked-kir-program/expression.ts` | type-gate 5, k0-golden 1 |
+| 6 | Host truthiness instead of tagged booleans | `kir-js-esm/target-execution.ts` | behavior 3, short-circuit-meter 1 |
+| 7 | Double operand evaluation | `kir-js-esm/emitter.ts` | short-circuit-meter 2 |
+| 8 | Dropped parenthesization | `kir-js-esm/emitter.ts` | behavior 70 |
+| 9 | Python chained-comparison emission | `kir-python/emitter.ts` | short-circuit-meter 3, behavior 45 |
+| 10 | `await` inserted inside binary evaluation | `kir-js-esm/emitter.ts` | tick-discipline 12 |
 
 ## Out of Scope
 
@@ -233,4 +275,5 @@ unsupported; it must never fall back to source or host semantics.
 
 | Original Claim | Reality | Impact |
 | --- | --- | --- |
-| — | — | — |
+| The emitted legs meter only the handler body, so an absolute emitted step count equals the expression node count. | Both emitted targets also meter request inspection, exactly as RT-1 does. | The metering oracle derives the per-leg inspection cost from a control fixture instead of assuming zero. |
+| A binary in a `let` initializer or `return` value could be probed through RT-1 with empty arguments. | Once the linker admits the program, RT-1 proceeds to argument validation and reports `invalid-handler-arguments`, not an admission code. | The admission probe reports the link outcome by filtering for the closed link-code set, so RT-1 admission stays observable through the real execute path. |
