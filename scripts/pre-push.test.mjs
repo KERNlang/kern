@@ -50,8 +50,8 @@ test('prePushChangedFiles routes new remote refs through new-branch logic', () =
     gitCommand(args, options = {}) {
       const command = args.join(' ');
       if (command === 'rev-parse --abbrev-ref --symbolic-full-name @{upstream}') return options.allowFailure ? null : '';
-      if (command === 'rev-parse --verify --quiet origin/dev') return 'origin/dev';
-      if (command === 'merge-base local-sha origin/dev') return 'base-sha';
+      if (command === 'rev-parse --verify --quiet origin/main') return 'origin/main';
+      if (command === 'merge-base local-sha origin/main') return 'base-sha';
       if (command === 'diff --name-only base-sha local-sha') return 'packages/core/src/parser-core.ts\n';
       throw new Error(`unexpected git call: ${command}`);
     },
@@ -65,9 +65,9 @@ test('prePushChangedFiles falls back to upstream when stdin is empty', () => {
     stdin: '',
     gitCommand(args) {
       const command = args.join(' ');
-      if (command === 'rev-parse --abbrev-ref --symbolic-full-name @{upstream}') return 'origin/dev';
+      if (command === 'rev-parse --abbrev-ref --symbolic-full-name @{upstream}') return 'origin/topic';
       if (command === 'rev-parse --verify HEAD') return 'head-sha';
-      if (command === 'diff --name-only origin/dev head-sha') return 'packages/core/src/parser-core.ts\n';
+      if (command === 'diff --name-only origin/topic head-sha') return 'packages/core/src/parser-core.ts\n';
       throw new Error(`unexpected git call: ${command}`);
     },
   });
@@ -75,14 +75,14 @@ test('prePushChangedFiles falls back to upstream when stdin is empty', () => {
   assert.deepEqual(files, ['packages/core/src/parser-core.ts']);
 });
 
-test('changedFilesForNewRemoteRef prefers dev fallback before origin HEAD', () => {
+test('changedFilesForNewRemoteRef prefers origin/main fallback before origin HEAD', () => {
   const calls = [];
   const files = changedFilesForNewRemoteRef('local-sha', (args, options = {}) => {
     calls.push(args);
     const command = args.join(' ');
     if (command === 'rev-parse --abbrev-ref --symbolic-full-name @{upstream}') return options.allowFailure ? null : '';
-    if (command === 'rev-parse --verify --quiet origin/dev') return 'origin/dev';
-    if (command === 'merge-base local-sha origin/dev') return 'base-sha';
+    if (command === 'rev-parse --verify --quiet origin/main') return 'origin/main';
+    if (command === 'merge-base local-sha origin/main') return 'base-sha';
     if (command === 'diff --name-only base-sha local-sha') return 'packages/core/src/parser-core.ts\n';
     throw new Error(`unexpected git call: ${command}`);
   });

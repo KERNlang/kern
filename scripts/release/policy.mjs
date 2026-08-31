@@ -289,10 +289,6 @@ export function validateReleasePolicy(policy) {
     ) {
       throw new Error(`Invalid dist-tag for channel ${name}: ${channel.distTag}`);
     }
-    if (typeof channel.syncDev !== 'boolean') {
-      throw new Error(`Channel ${name} must declare a boolean syncDev policy`);
-    }
-
     if (channel.versionMode === 'canary-run') {
       assertPlainSemver(channel.baseVersion, `canary base for channel ${name}`);
       if (
@@ -304,15 +300,9 @@ export function validateReleasePolicy(policy) {
       if (channel.distTag === 'latest') {
         throw new Error(`Prerelease channel ${name} cannot map to latest dist-tag`);
       }
-      if (channel.syncDev) {
-        throw new Error(`Prerelease channel ${name} cannot sync dev`);
-      }
     } else {
       if (channel.distTag !== 'latest') {
         throw new Error(`Stable channel ${name} must use latest dist-tag`);
-      }
-      if (!channel.syncDev) {
-        throw new Error(`Stable channel ${name} must sync dev`);
       }
     }
   }
@@ -343,7 +333,6 @@ export function resolveReleaseIntent({ policy, channel, version, sha, runNumber 
       channel,
       version,
       distTag: channelConfig.distTag,
-      syncsDev: channelConfig.syncDev,
     };
   }
 
@@ -364,7 +353,6 @@ export function resolveReleaseIntent({ policy, channel, version, sha, runNumber 
       channel,
       version: resolvedVersion,
       distTag: channelConfig.distTag,
-      syncsDev: channelConfig.syncDev,
     };
   }
 
