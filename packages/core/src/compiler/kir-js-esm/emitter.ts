@@ -7,23 +7,16 @@ import type {
   LinkedKernKirProgram,
   LinkedKernKirStatement,
 } from '../../kir-runtime/linked-kir-program/index.js';
-import { linkedStatementsInvokeCapability } from '../../kir-runtime/linked-kir-program/index.js';
+import {
+  LINKED_KIR_BINARY_OPERATORS,
+  linkedStatementsInvokeCapability,
+} from '../../kir-runtime/linked-kir-program/index.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_HASH_SOURCE } from './target-hash.js';
 import { TARGET_JSON_SOURCE } from './target-json.js';
 
 const encoder = new TextEncoder();
-const BINARY_HELPERS = new Map([
-  ['&&', '__and'],
-  ['||', '__or'],
-  ['==', '__eq'],
-  ['!=', '__ne'],
-  ['<', '__lt'],
-  ['<=', '__le'],
-  ['>', '__gt'],
-  ['>=', '__ge'],
-]);
 const KERNEL_SOURCE = `${TARGET_BASE_SOURCE}${TARGET_JSON_SOURCE}${TARGET_HASH_SOURCE}${TARGET_EXECUTION_SOURCE}`;
 
 export const TARGET_KERNEL_SHA256 = sha256(KERNEL_SOURCE);
@@ -92,14 +85,13 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
         .join(',')}])})`;
       break;
     case 'binary': {
-      const helper = BINARY_HELPERS.get(expression.op);
-      if (helper === undefined) throw new Error('linked expression carries an unsupported binary operator');
+      const operator = LINKED_KIR_BINARY_OPERATORS[expression.op];
       const left = expressionSource(expression.left, bindings);
       const right = expressionSource(expression.right, bindings);
       source =
-        expression.op === '&&' || expression.op === '||'
-          ? `${helper}(${left},()=>${right})`
-          : `${helper}(${left},${right})`;
+        operator.family === 'logical'
+          ? `${operator.javascriptHelper}(${left},()=>${right})`
+          : `${operator.javascriptHelper}(${left},${right})`;
       break;
     }
     case 'member':

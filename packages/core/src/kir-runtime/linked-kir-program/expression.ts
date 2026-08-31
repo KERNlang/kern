@@ -1,25 +1,16 @@
 import type { CanonicalValue } from '../../canonical-value/types.js';
 import { KernKirFault, type KernKirValue } from '../contracts.js';
 import { canonicalRecord, denseArray, exact, plainRecord, type RuntimeMeter } from '../inspect.js';
-import type {
-  LinkedKernKirBinaryOperator,
-  LinkedKernKirExpression,
-  LinkedKernKirStaticType,
-  LinkedKernKirTypeScope,
+import {
+  LINKED_KIR_BINARY_OPERATORS,
+  type LinkedKernKirExpression,
+  type LinkedKernKirStaticType,
+  type LinkedKernKirTypeScope,
+  linkedKirBinaryOperator,
 } from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const CANONICAL_INTEGER = /^(?:0|[1-9][0-9]*)$/u;
-const BINARY_OPERATORS = new Map<string, 'logical' | 'equality' | 'ordering'>([
-  ['&&', 'logical'],
-  ['||', 'logical'],
-  ['==', 'equality'],
-  ['!=', 'equality'],
-  ['<', 'ordering'],
-  ['<=', 'ordering'],
-  ['>', 'ordering'],
-  ['>=', 'ordering'],
-]);
 
 function unsupported(message: string): never {
   throw new KernKirFault('handler-entry-unsupported', 'link', message);
@@ -203,22 +194,22 @@ export function compileLinkedExpression(
   }
   if (kind === 'binary') {
     const values = canonicalRecord(fields, ['left', 'op', 'right'], `${label}.fields`);
-    const op = canonicalText(values.get('op'), `${label}.fields.op`, meter);
-    const family = BINARY_OPERATORS.get(op);
-    if (family === undefined) unsupported(`${label}: KIR_BINARY_OP_UNSUPPORTED ${op}`);
+    const op = linkedKirBinaryOperator(canonicalText(values.get('op'), `${label}.fields.op`, meter));
+    if (op === undefined) unsupported(`${label}: KIR_BINARY_OP_UNSUPPORTED`);
     const leftValue = values.get('left');
     const rightValue = values.get('right');
     if (leftValue === undefined || rightValue === undefined) unsupported(`${label}.fields: missing operand`);
     const left = compileLinkedExpression(leftValue, scope, meter, `${label}.left`, depth + 1);
     const right = compileLinkedExpression(rightValue, scope, meter, `${label}.right`, depth + 1);
     const operand = staticExpressionType(left, scope);
+    const { operandType } = LINKED_KIR_BINARY_OPERATORS[op];
     if (operand === undefined || operand !== staticExpressionType(right, scope)) {
       unsupported(`${label}: KIR_BINARY_OPERAND_TYPE`);
     }
-    if (family === 'logical' ? operand !== 'boolean' : family === 'ordering' && operand !== 'integer') {
+    if (operandType !== 'either' && operand !== operandType) {
       unsupported(`${label}: KIR_BINARY_OPERAND_TYPE`);
     }
-    return Object.freeze({ kind: 'binary', left, op: op as LinkedKernKirBinaryOperator, right });
+    return Object.freeze({ kind: 'binary', left, op, right });
   }
   if (kind === 'call') {
     const values = canonicalRecord(fields, ['args', 'callee', 'optional'], `${label}.fields`);
