@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -109,23 +109,54 @@ export function envelopeBytes(envelope) {
   return encoder.encode(canonicalJson(normalizeEnvelope(envelope)));
 }
 
-const JAVASCRIPT_DRIVER = [
-  "import { readFile, writeFile } from 'node:fs/promises';",
-  'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
-  'const module = await import(entryPath);',
-  'const request = JSON.parse(await readFile(inputPath, "utf8"));',
-  'const calls = [];',
-  'const result = await module.execute(request, {',
-  '  invoke: async (call) => {',
-  '    calls.push({ namespace: call.namespace, operation: call.operation });',
-  '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
-  '  },',
-  '});',
-  'await writeFile(outputPath, JSON.stringify({ calls, envelope: result, format: module.format }));',
-].join('\n');
+function javascriptDriver(abortAfterMicrotasks) {
+  return [
+    "import { readFile, writeFile } from 'node:fs/promises';",
+    'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
+    'const module = await import(entryPath);',
+    'const request = JSON.parse(await readFile(inputPath, "utf8"));',
+    'const calls = [];',
+    'const options = {',
+    '  invoke: async (call) => {',
+    '    calls.push({ namespace: call.namespace, operation: call.operation });',
+    '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
+    '  },',
+    '};',
+    ...(abortAfterMicrotasks === undefined
+      ? []
+      : [
+          'const controller = new AbortController();',
+          `let remaining = ${abortAfterMicrotasks};`,
+          'const step = () => {',
+          '  if (remaining === 0) { controller.abort(); return; }',
+          '  remaining -= 1;',
+          '  Promise.resolve().then(step);',
+          '};',
+          'Promise.resolve().then(step);',
+          'options.signal = controller.signal;',
+        ]),
+    'const result = await module.execute(request, options);',
+    'await writeFile(outputPath, JSON.stringify({ calls, envelope: result, format: module.format, manifest: module.manifest }));',
+  ].join('\n');
+}
 
-export async function executeJavaScriptChild(bytes, request) {
-  const directory = await mkdtemp(join(tmpdir(), 'kern-k0-js-'));
+export function queueAbort(abortAfterMicrotasks) {
+  const controller = new AbortController();
+  let remaining = abortAfterMicrotasks;
+  const step = () => {
+    if (remaining === 0) {
+      controller.abort();
+      return;
+    }
+    remaining -= 1;
+    Promise.resolve().then(step);
+  };
+  Promise.resolve().then(step);
+  return controller.signal;
+}
+
+export async function executeJavaScriptChild(bytes, request, options = {}) {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'kern-k0-js-')));
   try {
     const entry = join(directory, 'entry.mjs');
     const driver = join(directory, 'driver.mjs');
@@ -133,24 +164,36 @@ export async function executeJavaScriptChild(bytes, request) {
     const output = join(directory, 'output.json');
     await Promise.all([
       writeFile(entry, bytes),
-      writeFile(driver, JAVASCRIPT_DRIVER),
+      writeFile(driver, javascriptDriver(options.abortAfterMicrotasks)),
       writeFile(input, JSON.stringify(request)),
     ]);
     const node22 = process.env.KERN_NODE22 ?? process.execPath;
     const version = spawnSync(node22, ['--version'], { encoding: 'utf8' });
     assert.equal(version.status, 0, version.stderr);
     assert.match(version.stdout, /^v22\./u, `KERN_NODE22 must select Node 22, received ${version.stdout.trim()}`);
-    const run = spawnSync(node22, [driver, entry, input, output], {
-      cwd: directory,
-      encoding: 'utf8',
-      maxBuffer: CHILD_MAX_BYTES,
-      timeout: 5_000,
-    });
+    const run = spawnSync(
+      node22,
+      [
+        '--experimental-permission',
+        `--allow-fs-read=${directory}`,
+        `--allow-fs-write=${directory}`,
+        driver,
+        entry,
+        input,
+        output,
+      ],
+      { cwd: directory, encoding: 'utf8', maxBuffer: CHILD_MAX_BYTES, timeout: 5_000 },
+    );
     assert.equal(run.signal, null, `JavaScript child timed out: ${run.stderr}`);
     assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, '', 'the JavaScript child must use the output file as its protocol');
     assert.equal(run.stderr, '', 'clean JavaScript execution must not emit stderr');
-    const response = JSON.parse(await readFile(output, 'utf8'));
+    const encoded = await readFile(output, 'utf8');
+    assert.ok(Buffer.byteLength(encoded) <= CHILD_MAX_BYTES, 'JavaScript child response exceeded its bound');
+    const response = JSON.parse(encoded);
+    assert.deepEqual(Object.keys(response).sort(), ['calls', 'envelope', 'format', 'manifest']);
     assert.equal(response.format, KERN_KIR_RUNTIME_FORMAT);
+    assert.ok(response.manifest && typeof response.manifest === 'object');
     return { calls: response.calls, envelope: response.envelope };
   } finally {
     await rm(directory, { recursive: true, force: true });
