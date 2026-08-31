@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { admission, executeKernKir, handlerSource, provider, runtimeRequest } from './k0-support.mjs';
+import { readFile } from 'node:fs/promises';
+
+import { LINKED_KIR_BINARY_OPERATORS } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import {
+  OPERATORS,
+  admission,
+  compileJavaScript,
+  compilePython,
+  executeKernKir,
+  handlerSource,
+  project,
+  provider,
+  runtimeRequest,
+} from './k0-support.mjs';
 
 const FLAGS = Object.freeze([
   { name: 'flag', type: 'boolean' },
@@ -128,4 +141,117 @@ test('RT-3 keeps a branch-local binary binding out of the enclosing scope', asyn
 test('RT-3 rejects a non-canonical integer operand before it reaches a comparison', async () => {
   const codes = await admission(returnSource(FLAGS, '00 < 1'));
   assert.equal(codes.projection, 'projection-rejected', 'F5 must reject a non-canonical integer literal');
+});
+
+const REBINDING_SOURCES = Object.freeze({
+  'capability rebinds a boolean let then feeds a binary': handlerSource('boolean', FLAGS, [
+    'let name=x value="true"',
+    'capability namespace=fixture operation=resolve name=x',
+    'return value="x && true"',
+  ]),
+  'capability rebinds a boolean let then feeds an if condition': handlerSource('string', FLAGS, [
+    'let name=x value="true"',
+    'capability namespace=fixture operation=resolve name=x',
+    'if cond="x && flag"',
+    '  print value="\"taken\""',
+    'return value="\"done\""',
+  ]),
+  'capability rebinds a boolean parameter': handlerSource('boolean', FLAGS, [
+    'capability namespace=fixture operation=resolve name=flag',
+    'return value="flag && other"',
+  ]),
+  'capability rebinds inside a branch and is used in that branch': handlerSource('string', FLAGS, [
+    'let name=x value="true"',
+    'if cond="flag"',
+    '  capability namespace=fixture operation=resolve name=x',
+    '  if cond="x && flag"',
+    '    print value="\"deep\""',
+    'return value="\"done\""',
+  ]),
+  'let rebinds a boolean let with an untyped initializer': handlerSource('boolean', LABEL, [
+    'let name=x value="true"',
+    'let name=x value="Json.parse(label)"',
+    'return value="x && true"',
+  ]),
+  'let rebinds an integer let with text': handlerSource('boolean', LABEL, [
+    'let name=n value="3"',
+    'let name=n value="label"',
+    'return value="n < 5"',
+  ]),
+  'sibling branch rebinds a branch-local name': handlerSource('string', FLAGS, [
+    'if cond="flag"',
+    '  let name=y value="true"',
+    '  print value="\"then\""',
+    'else',
+    '  capability namespace=fixture operation=resolve name=y',
+    '  if cond="y && flag"',
+    '    print value="\"else-deep\""',
+    'return value="\"done\""',
+  ]),
+  'branch rebinds an outer boolean let with text': handlerSource('string', FLAGS, [
+    'let name=x value="true"',
+    'if cond="flag"',
+    '  let name=x value="\"text\""',
+    '  print value="x"',
+    'return value="\"done\""',
+  ]),
+});
+
+for (const [name, source] of Object.entries(REBINDING_SOURCES)) {
+  test(`RT-3 never carries a stale static type across a re-binding: ${name}`, async () => {
+    const codes = await admission(source);
+    assert.equal(codes.projection, 'projected', 'the re-binding control must reach the linker through real F5');
+    assert.deepEqual(
+      { javascript: codes.javascript, python: codes.python, rt1: codes.rt1 },
+      {
+        javascript: 'handler-entry-unsupported',
+        python: 'handler-entry-unsupported',
+        rt1: 'handler-entry-unsupported',
+      },
+      'KIR_BINARY_OPERAND_TYPE: a re-bound name must never keep the static type of its previous binding',
+    );
+  });
+}
+
+test('RT-3 carries the operand-type label at the runtime guard on all three legs', async () => {
+  const verified = await project(returnSource(FLAGS, '1 < 2'));
+  const javascript = compileJavaScript(verified);
+  const python = compilePython(verified);
+  assert.equal(javascript.outcome, 'success', `javascript compile failed: ${javascript.code}`);
+  assert.equal(python.outcome, 'success', `python compile failed: ${python.code}`);
+  const decoder = new TextDecoder();
+  const legs = {
+    javascript: decoder.decode(javascript.artifact.bytes),
+    python: decoder.decode(python.artifact.bytes),
+    rt1: await readFile(new URL('../../packages/core/dist/kir-runtime/expression.js', import.meta.url), 'utf8'),
+  };
+  for (const [leg, text] of Object.entries(legs)) {
+    assert.match(
+      text,
+      /KIR_BINARY_OPERAND_TYPE/u,
+      `the ${leg} operand guard must carry the KIR_BINARY_OPERAND_TYPE label beside the closed wire code`,
+    );
+    assert.match(
+      text,
+      /unsupported-runtime-input/u,
+      `the ${leg} operand guard must keep the closed unsupported-runtime-input wire code`,
+    );
+  }
+});
+
+test('RT-3 derives every operator table from one shared contract', () => {
+  const contract = LINKED_KIR_BINARY_OPERATORS;
+  assert.deepEqual(Object.keys(contract).sort(), [...OPERATORS].sort());
+  assert.ok(Object.isFrozen(contract), 'the shared operator contract must be frozen');
+  const helpers = new Set();
+  for (const operator of OPERATORS) {
+    const entry = contract[operator];
+    assert.ok(['logical', 'equality', 'ordering'].includes(entry.family), `${operator} needs a closed family`);
+    assert.ok(['boolean', 'integer', 'either'].includes(entry.operandType), `${operator} needs a closed operand type`);
+    assert.match(entry.javascriptHelper, /^__[a-z]+$/u);
+    assert.match(entry.pythonHelper, /^_[a-z]+$/u);
+    helpers.add(entry.javascriptHelper);
+    helpers.add(entry.pythonHelper);
+  }
+  assert.equal(helpers.size, OPERATORS.length * 2, 'every operator needs its own helper on each target');
 });

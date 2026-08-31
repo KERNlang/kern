@@ -98,9 +98,31 @@ be a binary operand. Mixed operand types are rejected; there is no coercion and
 no host truthiness anywhere on any leg. Violations fail closed at link through
 the existing closed `handler-entry-unsupported` result, mirroring RT-2's label
 convention: `KIR_BINARY_OP_UNSUPPORTED` for an operator outside the set and
-`KIR_BINARY_OPERAND_TYPE` for an operand-type violation. Because `<` is
-left-associative and yields boolean, a chained comparison such as `1 < 2 < 3`
-folds to a boolean-versus-integer ordering and is rejected at link.
+`KIR_BINARY_OPERAND_TYPE` for an operand-type violation. Both labels live in
+the fault message and in the negative-control assertion, never on the wire.
+Because `<` is left-associative and yields boolean, a chained comparison such
+as `1 < 2 < 3` folds to a boolean-versus-integer ordering and is rejected at
+link.
+
+Every binder clears or replaces the static type it records: `let` records the
+initializer's static type or deletes any stale entry, `capability` always
+deletes, and a parameter records `boolean` or deletes. This is a second,
+independent defense — the linker also rejects any re-binding of a live name as
+a duplicate binding, and either mechanism alone is sufficient; each was removed
+on its own and the capability-rebinding fixtures stayed rejected under the
+remaining defense.
+
+### Runtime defense in depth
+
+The static gate makes a mixed-tag operand unreachable, so the operand guard in
+RT-1 and in both emitted kernels is defense in depth, not a reachable path. It
+raises the closed wire code `unsupported-runtime-input` — a new wire code would
+break three public `…CompileFailureCode` contracts for an unreachable state —
+and carries `KIR_BINARY_OPERAND_TYPE` as its label. RT-1 passes the label as
+the existing `KernKirFault` message; both target kernels gained a matching
+optional third `Fault` label argument, so the same label is present in the
+shipped artifact on all three legs. `failureEnvelope` still drops fault
+messages everywhere, so no wire contract changes.
 
 ### Semantics on all three legs
 
@@ -127,7 +149,14 @@ cancellation stays at the statement boundary that RT-2 pinned.
 
 One shared closed `binary` variant on `LinkedKernKirExpression`, one static
 type function used by both the binary gate and the RT-2 condition gate, and one
-specialization per target. `LinkScope.booleans` becomes a
+specialization per target. `LINKED_KIR_BINARY_OPERATORS` in
+`linked-kir-program/contracts.ts` is the single operator contract — family,
+operand type, and each target's helper name — declared `satisfies
+Record<LinkedKernKirBinaryOperator, LinkedKernKirBinaryOperatorContract>`. The
+linker, both emitters, and the RT-1 evaluator table all index it by the
+operator union, so widening the union without updating every table is a `tsc`
+error rather than a runtime surprise; adding a ninth operator was verified to
+fail the build in all three consumers. `LinkScope.booleans` becomes a
 `Map<string, 'boolean' | 'integer'>` so a single resolver answers both gates.
 Both emitters gain named per-operator kernel helpers rather than emitting host
 infix operators, which keeps precedence, laziness, tag checking, and
@@ -204,7 +233,7 @@ committed events.
 | Gate | Result |
 | --- | --- |
 | `scripts/kern-5-rt3-binary-expression/behavior.test.mjs` | 72/72 |
-| `scripts/kern-5-rt3-binary-expression/type-gate.test.mjs` | 32/32 |
+| `scripts/kern-5-rt3-binary-expression/type-gate.test.mjs` | 42/42 |
 | `scripts/kern-5-rt3-binary-expression/k0-divergence.test.mjs` | 6/6 |
 | `scripts/kern-5-rt3-binary-expression/tick-discipline.test.mjs` | 16/16 |
 | `scripts/kern-5-rt3-binary-expression/short-circuit-meter.test.mjs` | 3/3 |
@@ -239,6 +268,14 @@ Ten mutants were applied, rebuilt, run, and reverted. All ten were killed.
 | 8 | Dropped parenthesization | `kir-js-esm/emitter.ts` | behavior 70 |
 | 9 | Python chained-comparison emission | `kir-python/emitter.ts` | short-circuit-meter 3, behavior 45 |
 | 10 | `await` inserted inside binary evaluation | `kir-js-esm/emitter.ts` | tick-discipline 12 |
+
+Three further mutants cover the review findings, all killed. Removing *both*
+the stale-type clear and the capability duplicate-binding fence admits a
+capability result into a boolean gate and fails type-gate 4; dropping the
+`KIR_BINARY_OPERAND_TYPE` label from the emitted Python guard fails type-gate
+1; adding a ninth operator to `LinkedKernKirBinaryOperator` without updating
+the tables fails `tsc` in the JavaScript emitter, the Python emitter, and the
+RT-1 evaluator table.
 
 ## Out of Scope
 
@@ -275,5 +312,7 @@ unsupported; it must never fall back to source or host semantics.
 
 | Original Claim | Reality | Impact |
 | --- | --- | --- |
+| The recorded static type could go stale across a re-binding, letting a capability result reach a binary operand. | Every re-binding is already rejected as a duplicate binding, so the eight adversarial fixtures fail closed on all three legs today. Removing that unrelated fence, however, admits three of them — the hazard was real and masked. | Binding now clears or replaces the recorded type, giving a second independent defense, and the eight fixtures are permanent regression fences. |
+| Per-operator tables were independent `Map` lookups in four places. | Widening the operator union compiled cleanly and would have failed at run time. | One `satisfies`-checked operator contract now feeds the linker, both emitters, and the RT-1 evaluator. |
 | The emitted legs meter only the handler body, so an absolute emitted step count equals the expression node count. | Both emitted targets also meter request inspection, exactly as RT-1 does. | The metering oracle derives the per-leg inspection cost from a control fixture instead of assuming zero. |
 | A binary in a `let` initializer or `return` value could be probed through RT-1 with empty arguments. | Once the linker admits the program, RT-1 proceeds to argument validation and reports `invalid-handler-arguments`, not an admission code. | The admission probe reports the link outcome by filtering for the closed link-code set, so RT-1 admission stays observable through the real execute path. |
