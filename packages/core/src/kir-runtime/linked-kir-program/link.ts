@@ -18,6 +18,7 @@ import {
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
   type LinkedKernKirEntry,
+  type LinkedKernKirExpression,
   type LinkedKernKirHandler,
   type LinkedKernKirParameterType,
   type LinkedKernKirProgram,
@@ -113,9 +114,24 @@ function assertLeaf(node: StructuralKirNode, label: string): void {
   if (nodeChildren(node, label).length !== 0) fault('handler-entry-unsupported', `${label}: statement must be a leaf`);
 }
 
+interface LinkScope {
+  readonly bindings: Set<string>;
+  readonly booleans: Set<string>;
+}
+
+function branchScope(scope: LinkScope): LinkScope {
+  return { bindings: new Set(scope.bindings), booleans: new Set(scope.booleans) };
+}
+
+function isBooleanExpression(expression: LinkedKernKirExpression, scope: LinkScope): boolean {
+  if (expression.kind === 'literal') return expression.value.tag === 'boolean';
+  if (expression.kind === 'identifier') return scope.booleans.has(expression.name);
+  return false;
+}
+
 function compileStatement(
   node: StructuralKirNode,
-  bindings: Set<string>,
+  scope: LinkScope,
   meter: RuntimeMeter,
   label: string,
 ): LinkedKernKirStatement {
@@ -126,39 +142,100 @@ function compileStatement(
   if (kind === 'let') {
     propertySet(properties, ['name', 'value'], [], label);
     const name = propertyText(properties, 'name', label, meter);
-    if (bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
+    if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
     const value = properties.get('value');
     if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
     const compiled = Object.freeze({
       kind: 'let' as const,
       name,
-      value: compileLinkedExpression(value, bindings, meter, `${label}.value`),
+      value: compileLinkedExpression(value, scope.bindings, meter, `${label}.value`),
     });
-    bindings.add(name);
+    if (isBooleanExpression(compiled.value, scope)) scope.booleans.add(name);
+    scope.bindings.add(name);
     return compiled;
   }
   if (kind === 'capability') {
     propertySet(properties, ['name', 'namespace', 'operation'], ['input'], label);
     const name = propertyText(properties, 'name', label, meter);
-    if (bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
+    if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
     const input = properties.get('input');
     const compiled = Object.freeze({
       kind: 'capability' as const,
       name,
       namespace: propertyText(properties, 'namespace', label, meter),
       operation: propertyText(properties, 'operation', label, meter),
-      input: input === undefined ? undefined : compileLinkedExpression(input, bindings, meter, `${label}.input`),
+      input: input === undefined ? undefined : compileLinkedExpression(input, scope.bindings, meter, `${label}.input`),
     });
-    bindings.add(name);
+    scope.bindings.add(name);
     return compiled;
   }
   if (kind === 'print' || kind === 'return') {
     propertySet(properties, ['value'], [], label);
     const value = properties.get('value');
     if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
-    return Object.freeze({ kind, value: compileLinkedExpression(value, bindings, meter, `${label}.value`) });
+    return Object.freeze({ kind, value: compileLinkedExpression(value, scope.bindings, meter, `${label}.value`) });
   }
   fault('handler-entry-unsupported', `${label}: statement kind ${kind} is outside RT-1`);
+}
+
+function compileBranch(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): readonly LinkedKernKirStatement[] {
+  const children = nodeChildren(node, label);
+  if (children.length === 0) fault('handler-entry-unsupported', `${label}: branch block is empty`);
+  return compileBlock(children, branchScope(scope), meter, label);
+}
+
+function compileIf(
+  node: StructuralKirNode,
+  elseNode: StructuralKirNode | undefined,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirStatement {
+  meter.step();
+  const properties = nodeProperties(node, label);
+  propertySet(properties, ['cond'], [], label);
+  const cond = properties.get('cond');
+  if (cond === undefined) fault('handler-entry-unsupported', `${label}.cond`);
+  const condition = compileLinkedExpression(cond, scope.bindings, meter, `${label}.cond`);
+  if (!isBooleanExpression(condition, scope)) {
+    fault('handler-entry-unsupported', `${label}.cond: KIR_IF_COND_NOT_BOOLEAN`);
+  }
+  const thenBranch = compileBranch(node, scope, meter, `${label}.then`);
+  let elseBranch: readonly LinkedKernKirStatement[] | undefined;
+  if (elseNode !== undefined) {
+    const elseLabel = `${label}.else`;
+    propertySet(nodeProperties(elseNode, elseLabel), [], [], elseLabel);
+    elseBranch = compileBranch(elseNode, scope, meter, elseLabel);
+  }
+  return Object.freeze({ kind: 'if' as const, condition, thenBranch, elseBranch });
+}
+
+function compileBlock(
+  nodes: readonly StructuralKirNode[],
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): readonly LinkedKernKirStatement[] {
+  const statements: LinkedKernKirStatement[] = [];
+  for (let index = 0; index < nodes.length; index += 1) {
+    const childLabel = `${label}.children[${index}]`;
+    const node = nodes[index];
+    if (nodeKind(node, childLabel) !== 'if') {
+      statements.push(compileStatement(node, scope, meter, childLabel));
+      continue;
+    }
+    const next = nodes[index + 1];
+    const paired = next !== undefined && nodeKind(next, `${label}.children[${index + 1}]`) === 'else';
+    statements.push(compileIf(node, paired ? next : undefined, scope, meter, childLabel));
+    if (paired) index += 1;
+  }
+  meter.collection(statements.length, label);
+  return Object.freeze(statements);
 }
 
 function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: string): LinkedKernKirHandler {
@@ -170,7 +247,7 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
   const children = nodeChildren(fn, label);
   const parameters: { readonly name: string; readonly type: LinkedKernKirParameterType }[] = [];
   let handler: StructuralKirNode | undefined;
-  const bindings = new Set<string>();
+  const scope: LinkScope = { bindings: new Set<string>(), booleans: new Set<string>() };
   for (let index = 0; index < children.length; index += 1) {
     const child = children[index];
     const childLabel = `${label}.children[${index}]`;
@@ -180,9 +257,11 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
       propertySet(props, ['name', 'type'], [], childLabel);
       assertLeaf(child, childLabel);
       const name = propertyText(props, 'name', childLabel, meter);
-      if (bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
-      bindings.add(name);
-      parameters.push(Object.freeze({ name, type: parameterType(props.get('type'), `${childLabel}.type`, meter) }));
+      if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
+      scope.bindings.add(name);
+      const type = parameterType(props.get('type'), `${childLabel}.type`, meter);
+      if (type.kind === 'boolean') scope.booleans.add(name);
+      parameters.push(Object.freeze({ name, type }));
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;
     else fault('handler-entry-unsupported', `${childLabel}: expected parameters followed by one handler`);
@@ -193,11 +272,7 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
   if (propertyText(handlerProperties, 'lang', `${label}.handler`, meter) !== 'kern') {
     fault('handler-entry-unsupported', `${label}: handler language is not kern`);
   }
-  const statementNodes = nodeChildren(handler, `${label}.handler`);
-  const statements = statementNodes.map((node, index) =>
-    compileStatement(node, bindings, meter, `${label}.handler.children[${index}]`),
-  );
-  meter.collection(statements.length, `${label}.statements`);
+  const statements = compileBlock(nodeChildren(handler, `${label}.handler`), scope, meter, `${label}.handler`);
   if (
     statements.length === 0 ||
     statements.at(-1)?.kind !== 'return' ||
@@ -205,7 +280,7 @@ function compileHandler(fn: StructuralKirNode, meter: RuntimeMeter, label: strin
   ) {
     fault('handler-entry-unsupported', `${label}: expected exactly one final return`);
   }
-  return Object.freeze({ parameters: Object.freeze(parameters), returnType, statements: Object.freeze(statements) });
+  return Object.freeze({ parameters: Object.freeze(parameters), returnType, statements });
 }
 
 function selectHandler(

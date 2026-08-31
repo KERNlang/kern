@@ -7,6 +7,7 @@ import type {
   LinkedKernKirProgram,
   LinkedKernKirStatement,
 } from '../../kir-runtime/linked-kir-program/index.js';
+import { linkedStatementsInvokeCapability } from '../../kir-runtime/linked-kir-program/index.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_HASH_SOURCE } from './target-hash.js';
@@ -136,7 +137,7 @@ function capabilitySource(
       ${local}=__slot${local.slice(3)}.value;`;
 }
 
-function statementSource(statement: LinkedKernKirStatement, local: string, bindings: Map<string, string>): string {
+function leafSource(statement: LinkedKernKirStatement, local: string, bindings: Map<string, string>): string {
   if (statement.kind === 'capability') return capabilitySource(statement, local, bindings);
   if (statement.kind === 'let') {
     const value = expressionSource(statement.value, bindings);
@@ -165,17 +166,13 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
     bindings.set(parameter.name, local);
     return `const ${local}=__request.arguments[__argumentNames[${index}]];if(${local}===undefined||!__matches(${local},${typeSource(parameter.type)}))throw new __Fault('invalid-handler-arguments','link');`;
   });
-  const statementLocals = handler.statements.map(
-    (_statement, index) => `__k${(handler.parameters.length + index).toString(36)}`,
-  );
-  const declarations = statementLocals.length === 0 ? '' : `let ${statementLocals.join(',')};`;
-  const body: string[] = [];
-  for (let index = 0; index < handler.statements.length; index += 1) {
-    const statement = handler.statements[index];
-    const local = statementLocals[index];
-    if (statement.kind === 'return') {
-      const value = expressionSource(statement.value, bindings);
-      body.push(`
+  const statementLocals: string[] = [];
+  const nextLocal = (): string => {
+    const local = `__k${(handler.parameters.length + statementLocals.length).toString(36)}`;
+    statementLocals.push(local);
+    return local;
+  };
+  const returnSource = (value: string): string => `
       __meter.step(); __checkAbort();
       {const __returned=${value};
       if(!__matches(__returned,${typeSource(handler.returnType)}))throw new __Fault('invalid-handler-result','execution');
@@ -183,10 +180,33 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
       __checkAbort();
       if(__successBytes(__request.requestId,__events,__result,__checkAbort)>__request.limits.maxBytes)throw new __Fault('runtime-limit-exceeded','execution');
       __checkAbort();
-      return Object.freeze({completion:Object.freeze({kind:'return'}),diagnostics:Object.freeze([]),events:Object.freeze(__events),format:__runtimeFormat,outcome:'success',requestId:__request.requestId,result:__result});}`);
-    } else body.push(statementSource(statement, local, bindings));
-  }
-  const hasCapability = handler.statements.some((statement) => statement.kind === 'capability');
+      return Object.freeze({completion:Object.freeze({kind:'return'}),diagnostics:Object.freeze([]),events:Object.freeze(__events),format:__runtimeFormat,outcome:'success',requestId:__request.requestId,result:__result});}`;
+  const blockSource = (statements: readonly LinkedKernKirStatement[], scope: Map<string, string>): string =>
+    statements
+      .map((statement) => {
+        if (statement.kind === 'return') return returnSource(expressionSource(statement.value, scope));
+        if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope);
+        const local = nextLocal();
+        const condition = expressionSource(statement.condition, scope);
+        const thenSource = blockSource(statement.thenBranch, new Map(scope));
+        const elseSource =
+          statement.elseBranch === undefined ? undefined : blockSource(statement.elseBranch, new Map(scope));
+        return `
+      __meter.step(); __checkAbort();
+      ${local}=${condition};
+      if(${local}.tag!=='boolean')throw new __Fault('unsupported-runtime-input','execution');
+      if(${local}.value===true){${thenSource}
+      }${
+        elseSource === undefined
+          ? ''
+          : `else{${elseSource}
+      }`
+      }`;
+      })
+      .join('');
+  const body = blockSource(handler.statements, bindings);
+  const declarations = statementLocals.length === 0 ? '' : `let ${statementLocals.join(',')};`;
+  const hasCapability = linkedStatementsInvokeCapability(handler.statements);
   return `
   const __runSpecialized=async(__request,__options,__meter,__deadline,__events)=>{
     const __argumentNames=Object.freeze([${argumentNames.join(',')}]);
@@ -204,7 +224,7 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
     const __remaining=__deadline.remainingMs();
     const __timer=__remaining===null?undefined:setTimeout(()=>{__reason='timeout';__controller.abort();},__remaining);
     const __checkAbort=()=>{__deadline.check();if(__controller.signal.aborted)throw new __Fault(__reason==='timeout'?'execution-timeout':'execution-cancelled','execution');};
-    try {${body.join('')}
+    try {${body}
       throw new __Fault('handler-entry-unsupported','execution');
     } finally {
       if(__timer!==undefined)clearTimeout(__timer);

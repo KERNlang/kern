@@ -36,7 +36,24 @@ export type LinkedKernKirStatement =
       readonly operation: string;
     }
   | { readonly kind: 'print'; readonly value: LinkedKernKirExpression }
-  | { readonly kind: 'return'; readonly value: LinkedKernKirExpression };
+  | { readonly kind: 'return'; readonly value: LinkedKernKirExpression }
+  | {
+      readonly kind: 'if';
+      readonly condition: LinkedKernKirExpression;
+      readonly thenBranch: readonly LinkedKernKirStatement[];
+      readonly elseBranch: readonly LinkedKernKirStatement[] | undefined;
+    };
+
+export function linkedStatementsInvokeCapability(statements: readonly LinkedKernKirStatement[]): boolean {
+  return statements.some((statement) => {
+    if (statement.kind === 'capability') return true;
+    if (statement.kind !== 'if') return false;
+    return (
+      linkedStatementsInvokeCapability(statement.thenBranch) ||
+      (statement.elseBranch !== undefined && linkedStatementsInvokeCapability(statement.elseBranch))
+    );
+  });
+}
 
 export interface LinkedKernKirHandler {
   readonly parameters: readonly { readonly name: string; readonly type: LinkedKernKirParameterType }[];

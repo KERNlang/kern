@@ -7,6 +7,7 @@ import type {
   LinkedKernKirProgram,
   LinkedKernKirStatement,
 } from '../../kir-runtime/linked-kir-program/index.js';
+import { linkedStatementsInvokeCapability } from '../../kir-runtime/linked-kir-program/index.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_JSON_SOURCE } from './target-json.js';
@@ -130,7 +131,14 @@ function capabilitySource(
 `;
 }
 
-function statementSource(statement: LinkedKernKirStatement, local: string, bindings: Map<string, string>): string {
+function indented(source: string): string {
+  return source
+    .split('\n')
+    .map((line) => (line === '' ? line : `    ${line}`))
+    .join('\n');
+}
+
+function leafSource(statement: LinkedKernKirStatement, local: string, bindings: Map<string, string>): string {
   if (statement.kind === 'capability') return capabilitySource(statement, local, bindings);
   if (statement.kind === 'let') {
     const value = expressionSource(statement.value, bindings);
@@ -165,14 +173,15 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
     if ${local} is None or not _matches(${local}, ${typeSource(parameter.type)}):
         raise _Fault("invalid-handler-arguments", "link")`;
   });
-  const body: string[] = [];
-  for (let index = 0; index < handler.statements.length; index += 1) {
-    const statement = handler.statements[index];
-    const local = `_k${(handler.parameters.length + index).toString(36)}`;
-    if (statement.kind === 'return') {
-      body.push(`        _meter.step()
+  const statementLocals: string[] = [];
+  const nextLocal = (): string => {
+    const local = `_k${(handler.parameters.length + statementLocals.length).toString(36)}`;
+    statementLocals.push(local);
+    return local;
+  };
+  const returnSource = (value: string): string => `        _meter.step()
         _check_abort()
-        _returned = ${expressionSource(statement.value, bindings)}
+        _returned = ${value}
         if not _matches(_returned, ${typeSource(handler.returnType)}):
             raise _Fault("invalid-handler-result", "execution")
         _result = {"presence": "value", "value": _returned}
@@ -181,12 +190,30 @@ function specializedSource(handler: LinkedKernKirHandler, entry: LinkedKernKirPr
             raise _Fault("runtime-limit-exceeded", "execution")
         _check_abort()
         return {"completion": {"kind": "return"}, "diagnostics": [], "events": _events, "format": format, "outcome": "success", "requestId": _request["requestId"], "result": _result}
-`);
-    } else {
-      body.push(statementSource(statement, local, bindings));
-    }
-  }
-  const hasCapability = handler.statements.some((statement) => statement.kind === 'capability');
+`;
+  const blockSource = (statements: readonly LinkedKernKirStatement[], scope: Map<string, string>): string =>
+    statements
+      .map((statement) => {
+        if (statement.kind === 'return') return returnSource(expressionSource(statement.value, scope));
+        if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope);
+        const local = nextLocal();
+        const condition = expressionSource(statement.condition, scope);
+        const thenSource = indented(blockSource(statement.thenBranch, new Map(scope)));
+        const elseSource =
+          statement.elseBranch === undefined
+            ? ''
+            : `        else:\n${indented(blockSource(statement.elseBranch, new Map(scope)))}`;
+        return `        _meter.step()
+        _check_abort()
+        ${local} = ${condition}
+        if ${local}["tag"] != "boolean":
+            raise _Fault("unsupported-runtime-input", "execution")
+        if ${local}["value"] is True:
+${thenSource}${elseSource}`;
+      })
+      .join('');
+  const body = blockSource(handler.statements, bindings);
+  const hasCapability = linkedStatementsInvokeCapability(handler.statements);
   return `
 
 async def _run_specialized(_request, _options, _meter, _deadline, _events):
@@ -219,7 +246,7 @@ ${parameterLines.join('\n')}
 
     _watcher = None if _external is None else asyncio.create_task(_watch_external())
     try:
-${body.join('')}        raise _Fault("handler-entry-unsupported", "execution")
+${body}        raise _Fault("handler-entry-unsupported", "execution")
     finally:
         if _watcher is not None and not _watcher.done():
             _watcher.cancel()
