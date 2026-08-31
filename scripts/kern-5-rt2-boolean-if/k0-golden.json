@@ -3,8 +3,8 @@
     "assign": "projection-rejected",
     "capability": "admitted",
     "else": "handler-entry-unsupported",
-    "if": "handler-entry-unsupported",
-    "if-else": "handler-entry-unsupported",
+    "if": "admitted",
+    "if-else": "admitted",
     "let": "admitted",
     "print": "admitted",
     "return": "admitted",
@@ -12,6 +12,7 @@
   },
   "linkedStatementKinds": [
     "capability",
+    "if",
     "let",
     "print",
     "return"

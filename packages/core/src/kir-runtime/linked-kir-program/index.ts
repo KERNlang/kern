@@ -8,6 +8,7 @@ export {
   type LinkedKernKirProgram,
   type LinkedKernKirStatement,
   type LinkKernKirProgramResult,
+  linkedStatementsInvokeCapability,
 } from './contracts.js';
 export {
   authenticateLinkedKernKirProjectionOrThrow,

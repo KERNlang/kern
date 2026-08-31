@@ -19,6 +19,8 @@ import {
   authenticateLinkedKernKirProjectionOrThrow,
   type LinkedKernKirHandler,
   type LinkedKernKirParameterType,
+  type LinkedKernKirStatement,
+  linkedStatementsInvokeCapability,
   linkVerifiedKernKirProgramOrThrow,
 } from './linked-kir-program/index.js';
 
@@ -75,7 +77,7 @@ async function run(
       fault('invalid-handler-arguments', `argument ${parameter.name} has wrong type`);
     bindings.set(parameter.name, value);
   }
-  if (handler.statements.some((statement) => statement.kind === 'capability') && options.invoke === undefined) {
+  if (linkedStatementsInvokeCapability(handler.statements) && options.invoke === undefined) {
     throw new KernKirFault('capability-error', 'execution', 'capability provider is missing');
   }
   if (request.control.preCancelled || options.signal?.aborted) {
@@ -105,8 +107,8 @@ async function run(
       'execution interrupted',
     );
   };
-  try {
-    for (const statement of handler.statements) {
+  const runBlock = async (statements: readonly LinkedKernKirStatement[]): Promise<KernKirEnvelope | undefined> => {
+    for (const statement of statements) {
       meter.step();
       checkAbort();
       if (statement.kind === 'let') {
@@ -167,6 +169,15 @@ async function run(
         if (events.length + 1 > request.limits.maxEvents)
           throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
         events.push(Object.freeze({ op: 'stdout', text: value.value }));
+      } else if (statement.kind === 'if') {
+        const condition = evaluateExpression(statement.condition, bindings, meter);
+        if (condition.tag !== 'boolean')
+          throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
+        const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
+        if (branch !== undefined) {
+          const returned = await runBlock(branch);
+          if (returned !== undefined) return returned;
+        }
       } else {
         const value = evaluateExpression(statement.value, bindings, meter);
         if (!matchesType(value, handler.returnType))
@@ -188,6 +199,11 @@ async function run(
         });
       }
     }
+    return undefined;
+  };
+  try {
+    const returned = await runBlock(handler.statements);
+    if (returned !== undefined) return returned;
     throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
   } finally {
     if (timer !== undefined) clearTimeout(timer);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -102,7 +102,7 @@ const JAVASCRIPT_DRIVER = [
 ].join('\n');
 
 async function executeJavaScriptChild(bytes, request) {
-  const directory = await mkdtemp(join(tmpdir(), 'kern-rt2-js-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'kern-rt2-js-')));
   try {
     const entry = join(directory, 'entry.mjs');
     const driver = join(directory, 'driver.mjs');
