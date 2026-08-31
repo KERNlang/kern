@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, isAbsolute, resolve } from 'node:path';
+import { delimiter, isAbsolute, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { KernKirRequest } from '@kernlang/core/runtime/kir';
 import type { ShadowCompilations } from './compile-report.js';
@@ -101,7 +101,10 @@ function executableOnPath(name: string): string | undefined {
 
 function pythonExecutable(): string {
   const configured = process.env.KERN_PYTHON ?? 'python3';
-  const executable = isAbsolute(configured) ? configured : executableOnPath(configured);
+  const executable =
+    isAbsolute(configured) || configured.includes(sep) || configured.includes('/')
+      ? resolve(configured)
+      : executableOnPath(configured);
   if (!executable) throw new KirShadowUnavailableError('python-host-missing');
   const output = runChild(
     executable,
