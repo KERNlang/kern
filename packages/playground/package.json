@@ -19,15 +19,15 @@
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
     "@monaco-editor/react": "^4.6.0",
-    "monaco-editor": "^0.55.1",
-    "next": "^16.2.11",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "monaco-editor": "^0.56.0",
+    "next": "^16.3.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.0.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "typescript": "^6.0.3"
   }
 }
