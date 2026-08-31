@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Date:** 2026-08-31
-**Base:** `ad91deb3c2be25e9883a1a60cad68e59a96c6b94` (RT-2 implemented)
-**Implemented at:** `04efecc9` (oracle and spec), `6aa2f2c3` (link, RT-1, both emitters)
+**Base:** `ad91deb3c2be25e9883a1a60cad68e59a96c6b94` (RT-2 implemented), rebased onto `45941355`
+**Implemented at:** `e0e73e50` (oracle and spec), `43b2aeaf` (link, RT-1, both emitters)
 **Confidence:** 0.95
 
 ## Executive Summary
