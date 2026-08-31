@@ -114,7 +114,9 @@ import type {
 import { createFingerprint } from './types.js';
 
 type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
-type ReviewExecutionConfig = ReviewConfig & { canonicalBuildDiagnosticsCache?: Map<string, Set<string>> };
+type ReviewExecutionConfig = ReviewConfig & {
+  canonicalBuildDiagnosticsCache?: Map<string, Set<string> | undefined>;
+};
 
 const TYPESCRIPT_CONCEPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
@@ -1378,7 +1380,10 @@ export function reviewDirectory(dirPath: string, recursive = false, config?: Rev
   const reports: ReviewReport[] = [];
   const ctx = getProjectContext(dirPath);
   const files = collectReviewableFiles(dirPath, recursive, ctx);
-  const batchConfig: ReviewExecutionConfig = { ...(config ?? {}), canonicalBuildDiagnosticsCache: new Map() };
+  const batchConfig: ReviewExecutionConfig = {
+    ...(config ?? {}),
+    canonicalBuildDiagnosticsCache: new Map<string, Set<string> | undefined>(),
+  };
 
   for (const file of files) {
     try {

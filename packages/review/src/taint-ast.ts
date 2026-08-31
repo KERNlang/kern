@@ -10,7 +10,7 @@ import {
   type FunctionDeclaration,
   type FunctionExpression,
   type MethodDeclaration,
-  type Node,
+  Node,
   type SourceFile,
   SyntaxKind,
 } from 'ts-morph';
@@ -907,7 +907,7 @@ function findTaintedIdentifier(
 ): string | undefined {
   if (shouldIgnore(expr)) return undefined;
   const k = expr.getKindName();
-  if (k === 'Identifier' && taintedNames.has(expr.getText())) return expr.getText();
+  if (k === 'Identifier' && taintedNames.has(expr.getText()) && !isPropertyAssignmentName(expr)) return expr.getText();
   if (k === 'PropertyAccessExpression') {
     return findTaintedIdentifier((expr as any).getExpression(), taintedNames, shouldIgnore);
   }
@@ -923,6 +923,11 @@ function findTaintedIdentifier(
     if (found) return found;
   }
   return undefined;
+}
+
+function isPropertyAssignmentName(node: Node): boolean {
+  const parent = node.getParent();
+  return Node.isPropertyAssignment(parent) && parent.getNameNode() === node;
 }
 
 // ── Command-sink receiver scoping ───────────────────────────────────────

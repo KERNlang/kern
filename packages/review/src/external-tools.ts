@@ -159,7 +159,7 @@ export interface RunTSCDiagnosticsOptions {
   /** Compare suspected ts-morph-only diagnostics against canonical on-disk tsc output. */
   canonicalFilePaths?: string[];
   /** Request-scoped canonical build results shared by multi-file review callers. */
-  canonicalBuildDiagnosticsCache?: Map<string, Set<string>>;
+  canonicalBuildDiagnosticsCache?: Map<string, Set<string> | undefined>;
 }
 
 // TS diagnostic codes in the "type erosion" family — the downstream cascade
@@ -990,17 +990,19 @@ function filterToCanonicalBuildDiagnostics(
   filePaths: string[],
   health?: ReviewHealthBuilder,
   canonical?: CanonicalBuildDiagnosticKeys,
-  cache?: Map<string, Set<string>>,
+  cache?: Map<string, Set<string> | undefined>,
 ): ReviewFinding[] {
   const resolvedCanonical = canonical ?? collectCanonicalBuildDiagnosticKeys(filePaths, health, cache);
   if (!resolvedCanonical.attempted) return findings;
-  return findings.filter((finding) => resolvedCanonical.keys.has(tscFindingKey(finding)));
+  return findings.filter(
+    (finding) => !isSuspectedTsMorphOnlyDiagnostic(finding) || resolvedCanonical.keys.has(tscFindingKey(finding)),
+  );
 }
 
 function collectCanonicalBuildDiagnosticKeys(
   filePaths: string[],
   health?: ReviewHealthBuilder,
-  cache?: Map<string, Set<string>>,
+  cache?: Map<string, Set<string> | undefined>,
 ): CanonicalBuildDiagnosticKeys {
   const tsconfigPaths = new Set<string>();
   for (const filePath of filePaths) {
@@ -1013,9 +1015,11 @@ function collectCanonicalBuildDiagnosticKeys(
 
   const keys = new Set<string>();
   for (const tsconfigPath of tsconfigPaths) {
-    const configKeys = cache?.get(tsconfigPath) ?? collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
-    if (!configKeys) return { attempted: false, keys: new Set() };
+    const configKeys = cache?.has(tsconfigPath)
+      ? cache.get(tsconfigPath)
+      : collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
     cache?.set(tsconfigPath, configKeys);
+    if (!configKeys) return { attempted: false, keys: new Set() };
     for (const key of configKeys) keys.add(key);
   }
 
@@ -1028,17 +1032,21 @@ function collectCanonicalBuildDiagnosticsForConfig(
 ): Set<string> | undefined {
   const tscBin = findTscBin(dirname(tsconfigPath));
   if (!tscBin) {
-    health?.noteKind('tsc', 'fallback', 'canonical tsc -b comparison skipped because TypeScript was not found');
+    health?.noteKind('tsc', 'fallback', 'canonical TypeScript comparison skipped because TypeScript was not found');
     return undefined;
   }
 
   let output = '';
   try {
-    execFileSync(process.execPath, [tscBin, '-b', tsconfigPath, '--pretty', 'false'], {
-      encoding: 'utf-8',
-      cwd: dirname(tsconfigPath),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      process.execPath,
+      [tscBin, '-p', tsconfigPath, '--noEmit', '--incremental', 'false', '--composite', 'false', '--pretty', 'false'],
+      {
+        encoding: 'utf-8',
+        cwd: dirname(tsconfigPath),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
   } catch (err) {
     const execErr = err as { stdout?: unknown; stderr?: unknown };
     output = `${typeof execErr.stdout === 'string' ? execErr.stdout : ''}\n${
@@ -1099,7 +1107,7 @@ function parseTscBuildDiagnosticKeys(
   }
 
   if (output.trim().length > 0 && keys.size === 0) {
-    health?.noteKind('tsc', 'fallback', 'canonical tsc -b output could not be mapped; using ts-morph diagnostics');
+    health?.noteKind('tsc', 'fallback', 'canonical TypeScript output could not be mapped; using ts-morph diagnostics');
     if (process.env.KERN_DEBUG) console.error('unmapped canonical tsc output:', output);
     return undefined;
   }

@@ -1,50 +1,40 @@
 # Review Analyzer False-Positive Regressions
 
-**Status:** SPEC
+**Status:** IMPLEMENTED
 **Date:** 2026-08-27
 **Confidence:** 0.95
 
 ## Executive Summary
 
-Add RED, source-grounded regressions for the analyzer false positives blocking
-the review-quality work associated with KERN PR #558. The eventual production
-fix must preserve positive detections while making taint argument positions,
-promise-observer handling, assertion narrowing, collection reads, and canonical
-TypeScript diagnostics precise. This slice contains only the claim-tagged spec
-and failing tests; production implementation, commit, push, and deployment are
-out of scope.
+The delivered analyzer changes preserve positive detections while making taint
+argument positions, promise-observer handling, assertion narrowing, collection
+reads, and canonical TypeScript diagnostics precise. The source-grounded RED
+regressions remain as the implementation oracle.
 
-## Current State / Root Cause
+## Implemented Behavior
 
-- **[VERIFIED]** The AST taint pass scans every argument of a resolved command
-  sink and records the first tainted argument, with no command API/options
-  argument-position policy (`packages/review/src/taint-ast.ts:339-383`). The
-  RED fixture covers `spawn`, `spawnSync`, and `execFile` options `{ input }`
-  while retaining tainted executable/argv controls
-  (`packages/review/tests/taint.test.ts:199-219`).
+- **[VERIFIED]** Command sink options are structural object-literal arguments;
+  direct `options.input` is exempt while executable, argv, and execution
+  options remain sinks (`packages/review/src/taint-sink-arguments.ts`;
+  `packages/review/tests/taint.test.ts`). Callback function bodies are not
+  traversed as sink arguments. Object property names do not create internal
+  taint while computed names, shorthand values, and property values do
+  (`packages/review/src/taint-ast.ts`; `packages/review/tests/taint-ast.test.ts`).
 - **[VERIFIED]** `floating-promise` recognizes a two-arm `.then` only when both
-  callbacks pass `isInlineSynchronousHandler`; property-based logging and an
-  exit-code assignment are rejected by `hasOnlySafeObserverCalls`
-  (`packages/review/src/rules/base.ts:114-145, packages/review/src/rules/base.ts:222-269`).
+  callbacks are synchronous observers (`packages/review/src/rules/then-observer.ts`).
   A normal ignored chain remains a positive control
   (`packages/review/tests/false-positives.test.ts:190-210`).
-- **[VERIFIED]** Assigned `.find()` results are scanned only for regex-like
-  null guards or an early-exit `if`; `assert.ok(identifier)` is not recognized
-  (`packages/review/src/rules/null-safety.ts:64-136`). The RED fixture also
-  proves unrelated and post-dereference assertions must continue to fire
-  (`packages/review/tests/rules-null-safety.test.ts:32-67`).
-- **[VERIFIED]** `unused-collection` treats `sort()` and `reverse()` as neither
-  writes nor reads, so a populated array returned through either operation is
-  reported as unused (`packages/review/src/rules/dead-logic.ts:324-404`). The
-  discarded-operation controls remain positive
-  (`packages/review/tests/rules-dead-logic.test.ts:237-263`).
-- **[VERIFIED]** TypeScript diagnostics are emitted from the ts-morph project
-  and only filtered for known review-mode noise; TS1470 is not in that filter
-  (`packages/review/src/external-tools.ts:177-204, 268-284, 368-381`). For an
-  actual `package.json {"type":"module"}`, NodeNext `allowJs/checkJs`
-  project and `src/tool.mjs` containing `import.meta.url`, the canonical helper
-  returns no TS1470 while `reviewFile` currently emits it
-  (`packages/review/tests/tsc-canonical-packaged-runtime.test.ts:40-72`).
+- **[VERIFIED]** An earlier exact `assert.ok(identifier)` is a `.find()` guard;
+  unrelated and post-dereference assertions remain findings
+  (`packages/review/src/rules/null-safety.ts`; `packages/review/tests/rules-null-safety.test.ts`).
+- **[VERIFIED]** Returned `sort()` and `reverse()` values count as collection
+  reads, while discarded operations remain findings
+  (`packages/review/src/rules/collection-operations.ts`; `packages/review/tests/rules-dead-logic.test.ts`).
+- **[VERIFIED]** TS1470 comparison uses a read-only, non-incremental canonical
+  compiler check. It filters only suspected diagnostics, scopes the trigger to
+  the reviewed file, and reuses both successful and failed results only for a
+  directory request (`packages/review/src/external-tools.ts`;
+  `packages/review/src/index.ts`; `packages/review/tests/tsc-canonical-packaged-runtime.test.ts`).
 - **[VERIFIED]** Boundary mutation extraction is assignment-based and scopes
   `global*` roots as global and `state/store/cache/registry` roots as shared
   (`packages/review/src/mappers/ts-concepts/extractors/state-mutation.ts:6-33`).
@@ -65,43 +55,35 @@ out of scope.
 - **[VERIFIED]** Existing boundary concept tests prove the native rule matches
   a global/shared concept and rejects local scope
   (`packages/review/tests/native-concept-rules.test.ts:238-268`).
-- **[VERIFIED]** Canonical diagnostic filtering already rejects ts-morph-only
-  errors absent from `tsc -b` (`packages/review/src/external-tools.ts:926-1078`;
+- **[VERIFIED]** Canonical diagnostic filtering rejects suspected ts-morph-only
+  errors absent from a read-only `tsc -p` check while retaining unrelated
+  diagnostics (`packages/review/src/external-tools.ts`;
   `packages/review/tests/tsc-canonical-packaged-runtime.test.ts:8-38`).
 
-## Implementation Plan
+## Implementation
 
-One production plan is sufficient: make each classifier semantic at its live
-entry point, preserve the existing positive controls, then run the targeted
-regressions and the package gate. Alternative broad text/regex carve-outs are
-strawmen because they would admit the unrelated/post-dereference and ignored
-chain cases explicitly pinned by this spec.
-
-1. Define command-specific taint argument positions so `options.input` is not a
-   command sink, while executable and argv remain sink arguments.
-2. Permit only synchronous two-arm observer callbacks whose operations are
-   synchronous logging/exit-code handling; retain ordinary ignored chains as
-   findings.
-3. Recognize an exact `assert.ok(identifier)` assertion only when it precedes
-   the dereference in the same flow region; do not treat unrelated or late
-   assertions as guards.
-4. Count returned `sort()`/`reverse()` values as collection reads and retain
-   discarded collection findings.
-5. Align review diagnostics with the canonical `tsc -b` result for this ESM
-   `.mjs` case without suppressing genuine canonical diagnostics.
+1. Defined structural command-options handling and callback boundaries.
+2. Added synchronous two-arm observer handling while preserving floating
+   promise positives.
+3. Added exact assertion narrowing with negative controls.
+4. Counted consumed collection ordering operations as reads.
+5. Added read-only canonical TypeScript diagnostics with request-scoped caching.
 
 ## Blast Radius
 
 | File | Action | Reason |
 |---|---|---|
-| `packages/review/src/taint-ast.ts` | future modify | command argument-position semantics |
-| `packages/review/src/rules/base.ts` | future modify | synchronous CLI observer classification |
-| `packages/review/src/rules/null-safety.ts` | future modify | exact assertion narrowing |
-| `packages/review/src/rules/dead-logic.ts` | future modify | collection read operation set |
-| `packages/review/src/external-tools.ts` | future modify | canonical TS1470/noise decision |
+| `packages/review/src/taint-ast.ts` | modified | internal command-sink taint traversal |
+| `packages/review/src/taint-sink-arguments.ts` | modified | structural command-options semantics |
+| `packages/review/src/rules/then-observer.ts` | modified | synchronous CLI observer classification |
+| `packages/review/src/rules/null-safety.ts` | modified | exact assertion narrowing |
+| `packages/review/src/rules/collection-operations.ts` | modified | collection read operation handling |
+| `packages/review/src/external-tools.ts` | modified | canonical TS1470/noise decision |
+| `packages/review/src/index.ts` | modified | request-scoped canonical diagnostics |
 | `packages/review/src/mappers/ts-concepts/extractors/state-mutation.ts` | future inspect/modify only if needed | preserve boundary read/assignment distinction |
 | `packages/review/tests/false-positives.test.ts` | modified RED | CLI positive/negative fixtures |
 | `packages/review/tests/taint.test.ts` | modified RED | command options and executable/argv fixtures |
+| `packages/review/tests/taint-ast.test.ts` | modified RED | object property-name taint boundary |
 | `packages/review/tests/rules-null-safety.test.ts` | modified RED | assertion narrowing fixtures |
 | `packages/review/tests/rules-dead-logic.test.ts` | modified RED | sort/reverse read/discard fixtures |
 | `packages/review/tests/concepts/concept-rules.test.ts` | modified guardrails | boundary-mutation read/assignment fixtures |
@@ -109,30 +91,34 @@ chain cases explicitly pinned by this spec.
 
 ## Acceptance Criteria
 
-- [ ] `spawn`, `spawnSync`, and `execFile` with tainted `options.input` do not
+- [x] `spawn`, `spawnSync`, and `execFile` with tainted `options.input` do not
   emit `taint-command`.
-- [ ] Tainted command executable and argv still each emit `taint-command`.
-- [ ] Top-level CLI `.then(success, failure)` with synchronous logging and
+- [x] Tainted command executable and argv still each emit `taint-command`.
+- [x] Object property names do not create internal taint, while computed,
+  shorthand, and property values still do.
+- [x] Top-level CLI `.then(success, failure)` with synchronous logging and
   `process.exitCode` handling emits no `floating-promise`.
-- [ ] Ordinary ignored promise chains still emit `floating-promise`.
-- [ ] An earlier exact `assert.ok(identifier)` suppresses the corresponding
+- [x] Ordinary ignored promise chains still emit `floating-promise`.
+- [x] An earlier exact `assert.ok(identifier)` suppresses the corresponding
   `.find()` unchecked finding.
-- [ ] Unrelated and post-dereference assertions do not suppress
+- [x] Unrelated and post-dereference assertions do not suppress
   `unchecked-find`.
-- [ ] A populated collection returned via `sort()` or `reverse()` emits no
+- [x] A populated collection returned via `sort()` or `reverse()` emits no
   `unused-collection`.
-- [ ] A populated collection whose `sort()` or `reverse()` result is discarded
+- [x] A populated collection whose `sort()` or `reverse()` result is discarded
   still emits `unused-collection`.
-- [ ] Canonical-clean ESM `.mjs` `import.meta.url` emits no TS1470 from review.
-- [ ] `filter`/`includes` reads emit no boundary-mutation finding, while shared
+- [x] Canonical-clean ESM `.mjs` `import.meta.url` emits no TS1470 from review.
+- [x] Read-only canonical diagnostics retain real errors, write no build
+  artifacts, and cache a failed directory-request build.
+- [x] `filter`/`includes` reads emit no boundary-mutation finding, while shared
   and global property assignments retain `boundary-mutation-shared` and
   `boundary-mutation-global`.
 
 ## Out of Scope
 
-- Production analyzer changes, broad rule redesign, unrelated rule families,
-  KERN PR mutation, commits, pushes, publishing, deployment, and CI.
-- Suppressing any TypeScript diagnostic that canonical `tsc -b` reports.
+- Further broad rule redesign, unrelated rule families, KERN PR mutation,
+  commits, pushes, publishing, deployment, and CI.
+- Suppressing any TypeScript diagnostic that the canonical check reports.
 - Treating arbitrary callback calls, arbitrary assertions, or discarded
   collection operations as handled/read.
 
@@ -147,7 +133,7 @@ into a new spec.
 | Original Claim | Reality | Impact |
 |---|---|---|
 | A single `spawn(executable, argv, { input })` call would expose all three taint arguments in review output. | The AST scan stops at the first tainted argument per call, and root-cause grouping collapses repeated `input` sinks. | The RED fixture uses separate executable, argv, and options calls so the expected two retained findings are discriminating. |
-| `runTSCDiagnosticsFromPaths` alone would reproduce the TS1470 false positive. | Its canonical `tsc -b` comparison already drops the ts-morph-only TS1470; `reviewFile` emits the unfiltered diagnostic. | The regression asserts both canonical cleanliness and `reviewFile` suppression. |
+| `runTSCDiagnosticsFromPaths` alone would reproduce the TS1470 false positive. | Its canonical comparison already drops the ts-morph-only TS1470; `reviewFile` emits the unfiltered diagnostic. | The regression asserts both canonical cleanliness and `reviewFile` suppression. |
 
 ## RED Evidence
 

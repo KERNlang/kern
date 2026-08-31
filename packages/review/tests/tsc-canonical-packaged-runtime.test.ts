@@ -38,7 +38,7 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
     }
   });
 
-  test('does not report TS1470 for ESM .mjs import.meta when canonical tsc -b is clean', () => {
+  test('does not report TS1470 for ESM .mjs import.meta when the canonical check is clean', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-review-esm-tsc-'));
     try {
       const srcDir = join(dir, 'src');
@@ -64,7 +64,7 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
       writeFileSync(esmFile, 'export const here = import.meta.url;\n');
 
       // This helper compares ts-morph diagnostics against the exact canonical
-      // `tsc -b` diagnostic set. The canonical build has no TS1470 here.
+      // read-only diagnostic set. The canonical check has no TS1470 here.
       expect(runTSCDiagnosticsFromPaths([esmFile]).find((f) => f.ruleId === 'ts1470')).toBeUndefined();
       expect(reviewFile(esmFile).findings.find((f) => f.ruleId === 'ts1470')).toBeUndefined();
     } finally {
@@ -164,6 +164,73 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
     }
   });
 
+  test('keeps real diagnostics when an incremental canonical build is already current', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-incremental-tsc-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            strict: true,
+            target: 'ES2022',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      const file = join(srcDir, 'tool.mjs');
+      writeFileSync(file, 'export const value: number = "wrong"; export const here = import.meta.url;\n');
+
+      reviewFile(file, { noCache: true });
+      expect(reviewFile(file, { noCache: true }).findings.find((finding) => finding.ruleId === 'ts2322')).toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('does not write build artifacts while canonicalizing a TS1470 review', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-readonly-tsc-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            strict: true,
+            target: 'ES2022',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      const file = join(srcDir, 'tool.mjs');
+      writeFileSync(file, 'export const here = import.meta.url;\n');
+
+      expect(
+        reviewFile(file, { noCache: true }).findings.find((finding) => finding.ruleId === 'ts1470'),
+      ).toBeUndefined();
+      expect(existsSync(join(dir, 'dist'))).toBe(false);
+      expect(existsSync(join(dir, 'tsconfig.tsbuildinfo'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('batches canonical builds for a directory review', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-review-batched-tsc-'));
     try {
@@ -192,6 +259,45 @@ describe('canonical tsc lookup in packaged review runtimes', () => {
       writeFileSync(
         join(tscDir, 'tsc'),
         `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(callsFile)}, 'build\\n');\n`,
+      );
+      writeFileSync(join(srcDir, 'one.ts'), 'export const one = import.meta.url;\n');
+      writeFileSync(join(srcDir, 'two.ts'), 'export const two = import.meta.url;\n');
+
+      reviewDirectory(srcDir, false, { noCache: true });
+      expect(readFileSync(callsFile, 'utf8').trim().split('\n')).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('caches a failed canonical build for the directory request', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-failed-batched-tsc-'));
+    try {
+      const srcDir = join(dir, 'src');
+      const tscDir = join(dir, 'node_modules', 'typescript', 'bin');
+      const callsFile = join(dir, 'canonical-build-calls.txt');
+      mkdirSync(srcDir);
+      mkdirSync(tscDir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            allowJs: true,
+            checkJs: true,
+            composite: true,
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            outDir: 'dist',
+            strict: true,
+            target: 'ES2022',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      writeFileSync(
+        join(tscDir, 'tsc'),
+        `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(callsFile)}, 'build\\n');\nprocess.stderr.write('canonical unavailable\\n');\nprocess.exitCode = 1;\n`,
       );
       writeFileSync(join(srcDir, 'one.ts'), 'export const one = import.meta.url;\n');
       writeFileSync(join(srcDir, 'two.ts'), 'export const two = import.meta.url;\n');
