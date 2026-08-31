@@ -87,6 +87,29 @@ export const TARGET_EXECUTION_SOURCE = `
       result: Object.freeze({ presence: 'absent' }),
     });
   };
+  const __boolOperand = (operand) => {
+    if (operand.tag !== 'boolean') throw new __Fault('unsupported-runtime-input', 'execution');
+    return operand;
+  };
+  const __intOperand = (operand) => {
+    if (operand.tag !== 'integer') throw new __Fault('unsupported-runtime-input', 'execution');
+    return BigInt(operand.value);
+  };
+  const __boolValue = (flag) => Object.freeze({ tag: 'boolean', value: flag });
+  const __and = (left, right) => __boolOperand(left).value === false ? left : __boolOperand(right());
+  const __or = (left, right) => __boolOperand(left).value === true ? left : __boolOperand(right());
+  const __sameOperands = (left, right) => {
+    if (left.tag !== right.tag) throw new __Fault('unsupported-runtime-input', 'execution');
+    if (left.tag === 'boolean') return left.value === right.value;
+    if (left.tag === 'integer') return BigInt(left.value) === BigInt(right.value);
+    throw new __Fault('unsupported-runtime-input', 'execution');
+  };
+  const __eq = (left, right) => __boolValue(__sameOperands(left, right));
+  const __ne = (left, right) => __boolValue(!__sameOperands(left, right));
+  const __lt = (left, right) => __boolValue(__intOperand(left) < __intOperand(right));
+  const __le = (left, right) => __boolValue(__intOperand(left) <= __intOperand(right));
+  const __gt = (left, right) => __boolValue(__intOperand(left) > __intOperand(right));
+  const __ge = (left, right) => __boolValue(__intOperand(left) >= __intOperand(right));
   const __chars = (points) => {
     const chunks = [];
     for (let index = 0; index < points.length; index += 8192) {

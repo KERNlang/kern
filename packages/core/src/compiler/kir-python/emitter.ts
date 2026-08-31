@@ -13,6 +13,16 @@ import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_JSON_SOURCE } from './target-json.js';
 
 const encoder = new TextEncoder();
+const BINARY_HELPERS = new Map([
+  ['&&', '_and'],
+  ['||', '_or'],
+  ['==', '_eq'],
+  ['!=', '_ne'],
+  ['<', '_lt'],
+  ['<=', '_le'],
+  ['>', '_gt'],
+  ['>=', '_ge'],
+]);
 const KERNEL_SOURCE = `${TARGET_BASE_SOURCE}${TARGET_JSON_SOURCE}${TARGET_EXECUTION_SOURCE}`;
 
 export const TARGET_KERNEL_SHA256 = sha256(KERNEL_SOURCE);
@@ -74,6 +84,17 @@ function expressionSource(expression: LinkedKernKirExpression, bindings: Readonl
         .map((entry) => `{"key":${encodedText(entry.key)},"value":${expressionSource(entry.value, bindings)}}`)
         .join(',')}]}`;
       break;
+    case 'binary': {
+      const helper = BINARY_HELPERS.get(expression.op);
+      if (helper === undefined) throw new Error('linked expression carries an unsupported binary operator');
+      const left = expressionSource(expression.left, bindings);
+      const right = expressionSource(expression.right, bindings);
+      source =
+        expression.op === '&&' || expression.op === '||'
+          ? `${helper}(${left},lambda:${right})`
+          : `${helper}(${left},${right})`;
+      break;
+    }
     case 'member':
       source = `_member(${expressionSource(expression.object, bindings)},${expression.optional ? 'True' : 'False'},${encodedText(expression.property)})`;
       break;

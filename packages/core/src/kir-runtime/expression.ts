@@ -1,7 +1,39 @@
 import { KernKirFault, type KernKirValue } from './contracts.js';
 import type { RuntimeMeter } from './inspect.js';
 import { parseKernJson, stringifyKernJson } from './json.js';
-import type { LinkedKernKirExpression } from './linked-kir-program/index.js';
+import type { LinkedKernKirBinaryOperator, LinkedKernKirExpression } from './linked-kir-program/index.js';
+
+function operandFault(): never {
+  throw new KernKirFault('unsupported-runtime-input', 'execution', 'binary operand is not a tagged operand');
+}
+
+function operandsEqual(left: KernKirValue, right: KernKirValue): boolean {
+  if (left.tag !== right.tag) operandFault();
+  if (left.tag === 'boolean' && right.tag === 'boolean') return left.value === right.value;
+  if (left.tag === 'integer' && right.tag === 'integer') return BigInt(left.value) === BigInt(right.value);
+  operandFault();
+}
+
+function integerOperand(value: KernKirValue): bigint {
+  if (value.tag !== 'integer') operandFault();
+  return BigInt(value.value);
+}
+
+function compareOperands(op: LinkedKernKirBinaryOperator, left: KernKirValue, right: KernKirValue): boolean {
+  if (op === '==') return operandsEqual(left, right);
+  if (op === '!=') return !operandsEqual(left, right);
+  const start = integerOperand(left);
+  const end = integerOperand(right);
+  if (op === '<') return start < end;
+  if (op === '<=') return start <= end;
+  if (op === '>') return start > end;
+  return start >= end;
+}
+
+function booleanOperand(value: KernKirValue): KernKirValue {
+  if (value.tag !== 'boolean') operandFault();
+  return value;
+}
 
 export function evaluateExpression(
   expression: LinkedKernKirExpression,
@@ -12,6 +44,16 @@ export function evaluateExpression(
   switch (expression.kind) {
     case 'literal':
       return expression.value;
+    case 'binary': {
+      const left = evaluateExpression(expression.left, bindings, meter);
+      if (expression.op === '&&' || expression.op === '||') {
+        const decided = booleanOperand(left);
+        if (decided.tag === 'boolean' && decided.value === (expression.op === '||')) return decided;
+        return booleanOperand(evaluateExpression(expression.right, bindings, meter));
+      }
+      const right = evaluateExpression(expression.right, bindings, meter);
+      return Object.freeze({ tag: 'boolean', value: compareOperands(expression.op, left, right) });
+    }
     case 'identifier': {
       const value = bindings.get(expression.name);
       if (value === undefined) {

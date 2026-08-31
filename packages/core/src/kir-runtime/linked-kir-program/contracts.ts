@@ -2,8 +2,23 @@ import type { KernKirLimits, KernKirValue } from '../contracts.js';
 
 export const KERN_LINKED_KIR_PROGRAM_FORMAT = 'kern.linked-kir-program.v1' as const;
 
+export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=';
+
+export type LinkedKernKirStaticType = 'boolean' | 'integer';
+
+export interface LinkedKernKirTypeScope {
+  readonly bindings: ReadonlySet<string>;
+  readonly types: ReadonlyMap<string, LinkedKernKirStaticType>;
+}
+
 export type LinkedKernKirExpression =
   | { readonly kind: 'identifier'; readonly name: string }
+  | {
+      readonly kind: 'binary';
+      readonly left: LinkedKernKirExpression;
+      readonly op: LinkedKernKirBinaryOperator;
+      readonly right: LinkedKernKirExpression;
+    }
   | { readonly kind: 'literal'; readonly value: KernKirValue }
   | { readonly kind: 'list'; readonly items: readonly LinkedKernKirExpression[] }
   | {

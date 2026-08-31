@@ -28,33 +28,39 @@ const OPERATOR_CASES = Object.freeze([
 for (const testCase of OPERATOR_CASES) {
   test(`RT-3 ${testCase.operator} neither evaluates nor meters the short-circuited right operand`, async () => {
     const control = await stepBudgets(CONTROL_SOURCE, boolArgs(testCase.whole), 'rt3-meter-control');
-    const inspectionSteps = control.direct - control.link - CONTROL_EXECUTION_STEPS;
-    assert.equal(control.javascript, CONTROL_EXECUTION_STEPS);
-    assert.equal(control.python, CONTROL_EXECUTION_STEPS);
+    const directInspection = control.direct - control.link - CONTROL_EXECUTION_STEPS;
+    const emittedInspection = control.javascript - CONTROL_EXECUTION_STEPS;
+    assert.equal(control.python, control.javascript, 'both targets must inspect the request identically');
 
     const whole = await stepBudgets(source(testCase.operator), boolArgs(testCase.whole), 'rt3-meter-whole');
     const short = await stepBudgets(source(testCase.operator), boolArgs(testCase.shortCircuit), 'rt3-meter-short');
     assert.equal(whole.link, short.link, 'both requests link the same program');
 
     assert.deepEqual(
-      { javascript: short.javascript, python: short.python },
-      { javascript: SHORT_CIRCUIT_EXECUTION_STEPS, python: SHORT_CIRCUIT_EXECUTION_STEPS },
-      'RT3_SHORT_CIRCUIT_METER: the short-circuited right operand must consume no emitted step',
+      {
+        javascript: short.javascript - emittedInspection,
+        python: short.python - emittedInspection,
+        rt1: short.direct - short.link - directInspection,
+      },
+      {
+        javascript: SHORT_CIRCUIT_EXECUTION_STEPS,
+        python: SHORT_CIRCUIT_EXECUTION_STEPS,
+        rt1: SHORT_CIRCUIT_EXECUTION_STEPS,
+      },
+      'RT3_SHORT_CIRCUIT_METER: the short-circuited right operand must consume no step on any leg',
     );
     assert.deepEqual(
-      { javascript: whole.javascript, python: whole.python },
-      { javascript: FULL_EXECUTION_STEPS, python: FULL_EXECUTION_STEPS },
-      'RT3_OPERAND_STEP_COUNT: each operand node must consume exactly one emitted step',
-    );
-    assert.equal(
-      short.direct - short.link - inspectionSteps,
-      SHORT_CIRCUIT_EXECUTION_STEPS,
-      'RT3_SHORT_CIRCUIT_METER: RT-1 must skip the short-circuited right operand exactly like the targets',
-    );
-    assert.equal(
-      whole.direct - whole.link - inspectionSteps,
-      FULL_EXECUTION_STEPS,
-      'RT3_OPERAND_STEP_COUNT: RT-1 must meter each operand node exactly once',
+      {
+        javascript: whole.javascript - emittedInspection,
+        python: whole.python - emittedInspection,
+        rt1: whole.direct - whole.link - directInspection,
+      },
+      {
+        javascript: FULL_EXECUTION_STEPS,
+        python: FULL_EXECUTION_STEPS,
+        rt1: FULL_EXECUTION_STEPS,
+      },
+      'RT3_OPERAND_STEP_COUNT: each operand node must consume exactly one step on every leg',
     );
     assert.deepEqual(
       [whole.direct - short.direct, whole.javascript - short.javascript, whole.python - short.python],

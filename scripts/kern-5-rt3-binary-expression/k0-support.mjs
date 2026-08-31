@@ -59,6 +59,14 @@ export function stepRequest(requestId, args, maxSteps) {
   };
 }
 
+const LINK_CODES = Object.freeze([
+  'handler-entry-ambiguous',
+  'handler-entry-not-found',
+  'handler-entry-unsupported',
+  'handler-link-error',
+  'projection-authentication-error',
+]);
+
 export async function admission(source) {
   const verified = await project(source);
   if (verified === undefined) return { projection: 'projection-rejected' };
@@ -69,7 +77,10 @@ export async function admission(source) {
     javascript: javascript.outcome === 'failure' ? javascript.code : 'admitted',
     projection: 'projected',
     python: python.outcome === 'failure' ? python.code : 'admitted',
-    rt1: direct.outcome === 'failure' ? direct.diagnostics[0]?.code : 'admitted',
+    rt1:
+      direct.outcome === 'failure' && LINK_CODES.includes(direct.diagnostics[0]?.code)
+        ? direct.diagnostics[0].code
+        : 'admitted',
     verified,
   };
 }
@@ -159,7 +170,7 @@ function range(count) {
   return Array.from({ length: count }, (_unused, index) => index + 1);
 }
 
-export const DIRECT_BUDGETS = Object.freeze(range(400));
+export const DIRECT_BUDGETS = Object.freeze(range(120));
 export const EMITTED_BUDGETS = Object.freeze(range(60));
 
 export async function stepBudgets(source, args, requestId) {

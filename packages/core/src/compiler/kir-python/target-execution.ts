@@ -94,6 +94,68 @@ async def _invoke_capability(invoke, call, internal_signal, deadline, reason, sy
             interrupted.cancel()
 
 
+def _bool_operand(operand):
+    if operand["tag"] != "boolean":
+        raise _Fault("unsupported-runtime-input", "execution")
+    return operand
+
+
+def _int_operand(operand):
+    if operand["tag"] != "integer":
+        raise _Fault("unsupported-runtime-input", "execution")
+    return int(operand["value"])
+
+
+def _bool_value(flag):
+    return {"tag": "boolean", "value": flag}
+
+
+def _and(left, right):
+    if _bool_operand(left)["value"] is False:
+        return left
+    return _bool_operand(right())
+
+
+def _or(left, right):
+    if _bool_operand(left)["value"] is True:
+        return left
+    return _bool_operand(right())
+
+
+def _same_operands(left, right):
+    if left["tag"] != right["tag"]:
+        raise _Fault("unsupported-runtime-input", "execution")
+    if left["tag"] == "boolean":
+        return left["value"] is right["value"]
+    if left["tag"] == "integer":
+        return int(left["value"]) == int(right["value"])
+    raise _Fault("unsupported-runtime-input", "execution")
+
+
+def _eq(left, right):
+    return _bool_value(_same_operands(left, right))
+
+
+def _ne(left, right):
+    return _bool_value(not _same_operands(left, right))
+
+
+def _lt(left, right):
+    return _bool_value(_int_operand(left) < _int_operand(right))
+
+
+def _le(left, right):
+    return _bool_value(_int_operand(left) <= _int_operand(right))
+
+
+def _gt(left, right):
+    return _bool_value(_int_operand(left) > _int_operand(right))
+
+
+def _ge(left, right):
+    return _bool_value(_int_operand(left) >= _int_operand(right))
+
+
 def _expression(meter, thunk):
     meter.step()
     return thunk()

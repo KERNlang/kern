@@ -77,7 +77,9 @@ test('RT-3 binary evaluation introduces no await inside the emitted expression l
   const compiled = compileJavaScript(verified);
   assert.equal(compiled.outcome, 'success');
   const text = new TextDecoder().decode(compiled.artifact.bytes);
-  const specialized = text.slice(text.indexOf('const __runSpecialized'));
-  const awaited = [...specialized.matchAll(/\bawait\b/gu)];
+  const start = text.indexOf('const __runSpecialized');
+  const end = text.indexOf('const execute=', start);
+  assert.ok(start >= 0 && end > start, 'the emitted artifact must carry a specialized handler body');
+  const awaited = [...text.slice(start, end).matchAll(/\bawait\b/gu)];
   assert.equal(awaited.length, 0, 'a capability-free RT-3 handler must contain no await in its specialized body');
 });

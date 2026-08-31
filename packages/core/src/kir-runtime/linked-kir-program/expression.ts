@@ -1,9 +1,25 @@
 import type { CanonicalValue } from '../../canonical-value/types.js';
 import { KernKirFault, type KernKirValue } from '../contracts.js';
 import { canonicalRecord, denseArray, exact, plainRecord, type RuntimeMeter } from '../inspect.js';
-import type { LinkedKernKirExpression } from './contracts.js';
+import type {
+  LinkedKernKirBinaryOperator,
+  LinkedKernKirExpression,
+  LinkedKernKirStaticType,
+  LinkedKernKirTypeScope,
+} from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
+const CANONICAL_INTEGER = /^(?:0|[1-9][0-9]*)$/u;
+const BINARY_OPERATORS = new Map<string, 'logical' | 'equality' | 'ordering'>([
+  ['&&', 'logical'],
+  ['||', 'logical'],
+  ['==', 'equality'],
+  ['!=', 'equality'],
+  ['<', 'ordering'],
+  ['<=', 'ordering'],
+  ['>', 'ordering'],
+  ['>=', 'ordering'],
+]);
 
 function unsupported(message: string): never {
   throw new KernKirFault('handler-entry-unsupported', 'link', message);
@@ -56,9 +72,21 @@ function literal(value: KernKirValue): LinkedKernKirExpression {
   return Object.freeze({ kind: 'literal', value });
 }
 
+export function staticExpressionType(
+  expression: LinkedKernKirExpression,
+  scope: LinkedKernKirTypeScope,
+): LinkedKernKirStaticType | undefined {
+  if (expression.kind === 'binary') return 'boolean';
+  if (expression.kind === 'identifier') return scope.types.get(expression.name);
+  if (expression.kind !== 'literal') return undefined;
+  if (expression.value.tag === 'boolean') return 'boolean';
+  if (expression.value.tag === 'integer' && CANONICAL_INTEGER.test(expression.value.value)) return 'integer';
+  return undefined;
+}
+
 export function compileLinkedExpression(
   value: CanonicalValue,
-  bindings: ReadonlySet<string>,
+  scope: LinkedKernKirTypeScope,
   meter: RuntimeMeter,
   label: string,
   depth = 1,
@@ -77,7 +105,7 @@ export function compileLinkedExpression(
   if (kind === 'identifier') {
     const values = canonicalRecord(fields, ['name'], `${label}.fields`);
     const name = canonicalText(values.get('name'), `${label}.fields.name`, meter);
-    if (!IDENTIFIER.test(name) || (!bindings.has(name) && !(name === 'Json' && context === 'intrinsic-object'))) {
+    if (!IDENTIFIER.test(name) || (!scope.bindings.has(name) && !(name === 'Json' && context === 'intrinsic-object'))) {
       unsupported(`${label}: unknown identifier ${name}`);
     }
     return Object.freeze({ kind: 'identifier', name });
@@ -114,9 +142,7 @@ export function compileLinkedExpression(
     return Object.freeze({
       kind: 'list',
       items: Object.freeze(
-        items.map((item, index) =>
-          compileLinkedExpression(item, bindings, meter, `${label}.items[${index}]`, depth + 1),
-        ),
+        items.map((item, index) => compileLinkedExpression(item, scope, meter, `${label}.items[${index}]`, depth + 1)),
       ),
     });
   }
@@ -141,7 +167,7 @@ export function compileLinkedExpression(
             key: item.key,
             value: compileLinkedExpression(
               item.value as CanonicalValue,
-              bindings,
+              scope,
               meter,
               `${label}.entries.${item.key}`,
               depth + 1,
@@ -159,7 +185,7 @@ export function compileLinkedExpression(
     if (!IDENTIFIER.test(property)) unsupported(`${label}.fields.property: invalid identifier`);
     const object = compileLinkedExpression(
       objectValue,
-      bindings,
+      scope,
       meter,
       `${label}.fields.object`,
       depth + 1,
@@ -175,6 +201,25 @@ export function compileLinkedExpression(
       property,
     });
   }
+  if (kind === 'binary') {
+    const values = canonicalRecord(fields, ['left', 'op', 'right'], `${label}.fields`);
+    const op = canonicalText(values.get('op'), `${label}.fields.op`, meter);
+    const family = BINARY_OPERATORS.get(op);
+    if (family === undefined) unsupported(`${label}: KIR_BINARY_OP_UNSUPPORTED ${op}`);
+    const leftValue = values.get('left');
+    const rightValue = values.get('right');
+    if (leftValue === undefined || rightValue === undefined) unsupported(`${label}.fields: missing operand`);
+    const left = compileLinkedExpression(leftValue, scope, meter, `${label}.left`, depth + 1);
+    const right = compileLinkedExpression(rightValue, scope, meter, `${label}.right`, depth + 1);
+    const operand = staticExpressionType(left, scope);
+    if (operand === undefined || operand !== staticExpressionType(right, scope)) {
+      unsupported(`${label}: KIR_BINARY_OPERAND_TYPE`);
+    }
+    if (family === 'logical' ? operand !== 'boolean' : family === 'ordering' && operand !== 'integer') {
+      unsupported(`${label}: KIR_BINARY_OPERAND_TYPE`);
+    }
+    return Object.freeze({ kind: 'binary', left, op: op as LinkedKernKirBinaryOperator, right });
+  }
   if (kind === 'call') {
     const values = canonicalRecord(fields, ['args', 'callee', 'optional'], `${label}.fields`);
     if (canonicalBool(values.get('optional'), `${label}.fields.optional`)) unsupported(`${label}: optional call`);
@@ -184,7 +229,7 @@ export function compileLinkedExpression(
     if (calleeValue === undefined) unsupported(`${label}.fields.callee`);
     const callee = compileLinkedExpression(
       calleeValue,
-      bindings,
+      scope,
       meter,
       `${label}.fields.callee`,
       depth + 1,
@@ -202,7 +247,7 @@ export function compileLinkedExpression(
     return Object.freeze({
       kind: 'json-call',
       operation: callee.property,
-      argument: compileLinkedExpression(args[0], bindings, meter, `${label}.fields.args[0]`, depth + 1),
+      argument: compileLinkedExpression(args[0], scope, meter, `${label}.fields.args[0]`, depth + 1),
     });
   }
   unsupported(`${label}: unsupported expression kind ${kind}`);
