@@ -1,4 +1,5 @@
-import { Node } from 'ts-morph';
+import { type CallExpression, Node } from 'ts-morph';
+import { commandAcceptsArgIndex } from './taint-command-args.js';
 import type { TaintSink } from './taint-types.js';
 import { NOSQL_QUERY_ARG_INDEXES } from './taint-types.js';
 
@@ -12,16 +13,22 @@ const COMMAND_SINK_ARGUMENTS: Readonly<Record<string, ReadonlySet<number>>> = {
 };
 
 export function acceptsTaintedSinkArgument(
+  call: CallExpression,
   category: TaintSink['category'],
   calleeName: string,
   argIndex: number,
-  argument?: import('ts-morph').Node,
 ): boolean {
   if (category === 'nosql') return NOSQL_QUERY_ARG_INDEXES[calleeName]?.has(argIndex) ?? false;
   if (category !== 'command') return true;
-  if (argument && (Node.isArrowFunction(argument) || Node.isFunctionExpression(argument))) return false;
+  const argument = call.getArguments()[argIndex];
+  if (!argument) return false;
+  if (Node.isArrowFunction(argument) || Node.isFunctionExpression(argument)) return false;
   const commandName = calleeName.split('.').at(-1) ?? calleeName;
-  return COMMAND_SINK_ARGUMENTS[commandName]?.has(argIndex) ?? true;
+  const positions = COMMAND_SINK_ARGUMENTS[commandName];
+  if (!positions) return true;
+  if (!positions.has(argIndex)) return false;
+  if (isExecutionOptionsArgument(argIndex, argument)) return true;
+  return commandAcceptsArgIndex(call, commandName, argIndex);
 }
 
 export function isBenignCommandInputReference(
@@ -32,7 +39,7 @@ export function isBenignCommandInputReference(
   argument: import('ts-morph').Node,
 ): boolean {
   if (category !== 'command') return false;
-  if (argIndex === 0 || !Node.isObjectLiteralExpression(argument)) return false;
+  if (!isExecutionOptionsArgument(argIndex, argument)) return false;
 
   let current: import('ts-morph').Node | undefined = reference;
   while (current && current !== argument) {
@@ -48,6 +55,10 @@ export function isBenignCommandInputReference(
     current = parent;
   }
   return false;
+}
+
+function isExecutionOptionsArgument(argIndex: number, argument: import('ts-morph').Node): boolean {
+  return argIndex > 0 && Node.isObjectLiteralExpression(argument);
 }
 
 const STDIN_PROGRAM_INTERPRETERS: ReadonlySet<string> = new Set([

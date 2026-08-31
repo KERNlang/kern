@@ -42,6 +42,7 @@ import {
 } from '@kernlang/core/runner';
 import { existsSync, readFileSync, realpathSync } from 'fs';
 import { dirname, relative, resolve, sep } from 'path';
+import { runKirShadowIfRequested } from '../kir-shadow/owner.js';
 import { createCliAsyncFsCapability } from './run-async-fs.js';
 import {
   type CliAsyncOpenAICompatibleLlmCapabilityOptions,
@@ -481,6 +482,7 @@ function cliCryptoSource(): WebCryptoCapabilitySource {
 
 /** `kern run <file.kern>` — execute the KERN-native `fn main` through the reference runner. */
 export async function runRun(args: string[]): Promise<void> {
+  if (await runKirShadowIfRequested('run', args)) return;
   const parsed = parseRunArgs(args);
   if (!parsed) {
     process.stderr.write(`${USAGE}\n`);

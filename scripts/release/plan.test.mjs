@@ -25,7 +25,6 @@ test('stable ReleasePlan v1 is explicit, resolved, and dependency ordered', asyn
   assert.equal(plan.channel, 'stable');
   assert.equal(plan.version, '4.5.0');
   assert.equal(plan.distTag, 'latest');
-  assert.equal(plan.syncsDev, true);
   assert.equal(plan.packages.length, 22);
   assert.equal(Object.isFrozen(plan), true);
   assert.equal(Object.isFrozen(plan.packages), true);
@@ -39,7 +38,7 @@ test('stable ReleasePlan v1 is explicit, resolved, and dependency ordered', asyn
   );
 });
 
-test('canary ReleasePlan v1 is KERN 5, explicit, and never syncs dev', async () => {
+test('canary ReleasePlan v1 is KERN 5 and explicit', async () => {
   const policy = await loadReleasePolicy(policyPath);
   const plan = await createReleasePlan({
     rootDir: repoRoot,
@@ -51,7 +50,6 @@ test('canary ReleasePlan v1 is KERN 5, explicit, and never syncs dev', async () 
 
   assert.equal(plan.version, '5.0.0-canary.81.g01234567');
   assert.equal(plan.distTag, 'canary');
-  assert.equal(plan.syncsDev, false);
   assert.doesNotThrow(() => validateReleasePlan(plan, policy));
 });
 
@@ -85,13 +83,6 @@ test('plan validator kills unsafe release-plan mutations', async () => {
       pattern: /dist-tag/i,
       mutate(plan) {
         delete plan.distTag;
-      },
-    },
-    {
-      name: 'canary syncs dev',
-      pattern: /sync/i,
-      mutate(plan) {
-        plan.syncsDev = true;
       },
     },
     {

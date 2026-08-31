@@ -71,14 +71,12 @@ const policy = {
     stable: {
       versionMode: 'stable-input',
       distTag: 'latest',
-      syncDev: true,
     },
     canary: {
       versionMode: 'canary-run',
       baseVersion: '5.0.0',
       prereleaseId: 'canary',
       distTag: 'canary',
-      syncDev: false,
     },
   },
 };
@@ -97,7 +95,6 @@ test('stable intent preserves plain SemVer and makes latest explicit', () => {
     channel: 'stable',
     version: '4.5.0',
     distTag: 'latest',
-    syncsDev: true,
   });
 });
 
@@ -113,7 +110,6 @@ test('canary intent uses configured KERN 5 base and deterministic run/SHA suffix
     channel: 'canary',
     version: '5.0.0-canary.27.g01234567',
     distTag: 'canary',
-    syncsDev: false,
   });
 });
 
@@ -206,28 +202,16 @@ test('channel modes reject irrelevant version inputs instead of ignoring them', 
   );
 });
 
-test('prerelease channels can never map to latest or sync dev', () => {
+test('prerelease channels can never map to latest', () => {
   const latestCanary = structuredClone(policy);
   latestCanary.channels.canary.distTag = 'latest';
   assert.throws(() => validateReleasePolicy(latestCanary), /latest/i);
-
-  const syncingCanary = structuredClone(policy);
-  syncingCanary.channels.canary.syncDev = true;
-  assert.throws(() => validateReleasePolicy(syncingCanary), /sync/i);
-
-  const missingSync = structuredClone(policy);
-  delete missingSync.channels.canary.syncDev;
-  assert.throws(() => validateReleasePolicy(missingSync), /sync/i);
 });
 
-test('stable policy must make latest explicit and sync dev', () => {
+test('stable policy must make latest explicit', () => {
   const missingTag = structuredClone(policy);
   delete missingTag.channels.stable.distTag;
   assert.throws(() => validateReleasePolicy(missingTag), /dist-tag/i);
-
-  const noSync = structuredClone(policy);
-  noSync.channels.stable.syncDev = false;
-  assert.throws(() => validateReleasePolicy(noSync), /sync/i);
 });
 
 test('policy rejects unsafe or duplicate package roots', () => {
@@ -390,7 +374,6 @@ test('policy validates registry and durable artifact configuration', () => {
 test('policy validates channel modes, tags, and canary version components', () => {
   const invalidCases = [
     ['unsupported mode', (copy) => (copy.channels.canary.versionMode = 'script')],
-    ['non-boolean sync', (copy) => (copy.channels.canary.syncDev = 'false')],
     ['unsafe tag', (copy) => (copy.channels.canary.distTag = 'canary\nlatest')],
     ['SemVer tag', (copy) => (copy.channels.canary.distTag = '5.0.0')],
     ['invalid base', (copy) => (copy.channels.canary.baseVersion = 'v5.0.0')],
@@ -403,7 +386,7 @@ test('policy validates channel modes, tags, and canary version components', () =
     mutate(copy);
     assert.throws(
       () => validateReleasePolicy(copy),
-      /mode|sync|tag|version|base|prerelease/i,
+      /mode|tag|version|base|prerelease/i,
       `policy accepted ${name}`,
     );
   }

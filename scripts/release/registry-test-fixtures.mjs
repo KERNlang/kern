@@ -53,7 +53,7 @@ export const policy = {
     importSmokeExclusions: [],
   },
   channels: {
-    stable: { versionMode: 'stable-input', distTag: 'latest', syncDev: true },
+    stable: { versionMode: 'stable-input', distTag: 'latest' },
   },
 };
 
@@ -63,7 +63,6 @@ export const plan = {
   channel: 'stable',
   version: '5.0.0',
   distTag: 'latest',
-  syncsDev: true,
   packages: [
     { name: '@kernlang/core', path: 'packages/core', dependencies: [] },
     { name: 'kern-lang', path: 'packages/compat', dependencies: ['@kernlang/core'] },

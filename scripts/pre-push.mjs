@@ -69,7 +69,7 @@ export function defaultBranchRef(gitCommand = git) {
   });
   if (upstream) return upstream;
 
-  for (const candidate of ['origin/dev', 'origin/main', 'origin/master']) {
+  for (const candidate of ['origin/main', 'origin/master']) {
     if (gitCommand(['rev-parse', '--verify', '--quiet', candidate], { allowFailure: true })) return candidate;
   }
 
