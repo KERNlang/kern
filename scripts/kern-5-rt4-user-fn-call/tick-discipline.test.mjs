@@ -9,6 +9,7 @@ import {
   entryFn,
   executeJavaScriptChild,
   executeKernKir,
+  linkedProgram,
   moduleSource,
   project,
   provider,
@@ -143,4 +144,54 @@ test('the emitted helper meters its dispatch before it guards its arguments', as
   const dispatch = helper.indexOf('__meter.step()');
   const guard = helper.indexOf('__matches(__f0p0');
   assert.ok(dispatch >= 0 && guard > dispatch, 'the dispatch step precedes the argument tag guard');
+});
+
+test('both emitters fail closed if a capability ever reaches helper emission', async () => {
+  const { emitJavaScriptEsm } = await import('../../packages/core/dist/compiler/kir-js-esm/emitter.js');
+  const { emitPython } = await import('../../packages/core/dist/compiler/kir-python/emitter.js');
+  const source = moduleSource([
+    { body: ['return value="flag"'], name: 'helper', parameters: BOOLEAN_FLAG, returns: 'boolean' },
+    entryFn(['return value="helper(flag)"']),
+  ]);
+  const clean = await linkedProgram(source);
+  const manifestBase = {
+    artifactFormat: 'x',
+    canonicalization: 'x',
+    compilerFormat: 'x',
+    compilerRequestSha256: 'x',
+    entry: clean.entry,
+    hashAlgorithm: 'sha256',
+    hostProfile: 'x',
+    kernelSha256: 'x',
+    linkedProgramSha256: clean.sha256,
+    projectionArtifactSha256: clean.projectionArtifactSha256,
+    runtimeFormat: 'x',
+  };
+  assert.ok(emitJavaScriptEsm(clean, manifestBase).byteLength > 0, 'the clean program still emits');
+  assert.ok(emitPython(clean, manifestBase).byteLength > 0, 'the clean program still emits');
+  const poisoned = {
+    ...clean,
+    helpers: [
+      {
+        handler: {
+          ...clean.helpers[0].handler,
+          statements: [
+            { input: undefined, kind: 'capability', name: 'reply', namespace: 'fixture', operation: 'resolve' },
+            ...clean.helpers[0].handler.statements,
+          ],
+        },
+        name: clean.helpers[0].name,
+      },
+    ],
+  };
+  assert.throws(
+    () => emitJavaScriptEsm(poisoned, manifestBase),
+    /helper must not invoke a capability/u,
+    'the JavaScript emitter must refuse to emit an awaiting helper',
+  );
+  assert.throws(
+    () => emitPython(poisoned, manifestBase),
+    /helper must not invoke a capability/u,
+    'the Python emitter must refuse to emit an awaiting helper',
+  );
 });

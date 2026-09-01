@@ -226,6 +226,9 @@ ${thenSource}${elseSource}`;
 }
 
 function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLocals): string {
+  if (linkedStatementsInvokeCapability(helper.handler.statements)) {
+    throw new Error('a linked helper must not invoke a capability: the emitted helper is synchronous');
+  }
   const scope = new Map<string, string>();
   const parameters = helper.handler.parameters.map((parameter, index) => {
     const name = `${local}p${index.toString(36)}`;

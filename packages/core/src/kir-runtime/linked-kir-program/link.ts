@@ -15,8 +15,11 @@ import {
   requiredText,
 } from '../inspect.js';
 import {
+  createLinkedKirClosureWalk,
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
+  LINKED_KIR_DEFAULT_CALL_POLICY,
+  type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
@@ -127,11 +130,13 @@ interface LinkScope {
 }
 
 interface ModuleContext {
+  readonly closureWalk: ReturnType<typeof createLinkedKirClosureWalk>;
   readonly linked: Map<string, LinkedKernKirHandler>;
   readonly linking: Set<string>;
   readonly meter: RuntimeMeter;
+  readonly policy: LinkedKernKirCallPolicy;
   readonly rootNodes: readonly StructuralKirNode[];
-  functions: ReadonlyMap<string, StructuralKirNode> | undefined;
+  functions: ReadonlyMap<string, StructuralKirNode | 'ambiguous'> | undefined;
 }
 
 function branchScope(scope: LinkScope): LinkScope {
@@ -156,17 +161,18 @@ function bindName(
   else scope.crossCallTypes.set(name, crossCall);
 }
 
-function moduleFunctions(context: ModuleContext): ReadonlyMap<string, StructuralKirNode> {
+const AMBIGUOUS = 'ambiguous' as const;
+
+function moduleFunctions(context: ModuleContext): ReadonlyMap<string, StructuralKirNode | typeof AMBIGUOUS> {
   if (context.functions !== undefined) return context.functions;
-  const functions = new Map<string, StructuralKirNode>();
+  const functions = new Map<string, StructuralKirNode | typeof AMBIGUOUS>();
   for (let index = 0; index < context.rootNodes.length; index += 1) {
     const node = context.rootNodes[index];
     const label = `entry.module.roots[${index}]`;
     context.meter.step();
     if (nodeKind(node, label) !== 'fn') continue;
     const name = propertyText(nodeProperties(node, label), 'name', label, context.meter);
-    if (functions.has(name)) fault('handler-entry-ambiguous', `${label}: duplicate function ${name}`);
-    functions.set(name, node);
+    functions.set(name, functions.has(name) ? AMBIGUOUS : node);
   }
   context.functions = functions;
   return functions;
@@ -178,10 +184,14 @@ function resolveHelper(context: ModuleContext, name: string, label: string): Lin
   if (context.linking.has(name)) fault('handler-entry-unsupported', `${label}: KIR_CALL_RECURSION`);
   const node = moduleFunctions(context).get(name);
   if (node === undefined) fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_UNRESOLVED`);
+  if (node === AMBIGUOUS) fault('handler-entry-ambiguous', `${label}: duplicate function ${name}`);
+  if (context.linking.size > context.policy.maxCallDepth) {
+    fault('handler-entry-unsupported', `${label}: KIR_CALL_DEPTH_EXCEEDED`);
+  }
   context.linking.add(name);
   const handler = compileHandler(node, context, `helper.${name}`, false);
   context.linking.delete(name);
-  if (linkedStatementsInvokeCapability(handler.statements, context.linked)) {
+  if (linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk)) {
     fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_CAPABILITY`);
   }
   context.linked.set(name, handler);
@@ -359,6 +369,7 @@ function selectHandler(
   projection: VerifiedKernProjection,
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
+  policy: LinkedKernKirCallPolicy,
 ): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirHandler } {
   const projected = plainRecord(projection, 'projection');
   exact(projected, ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'], 'projection');
@@ -402,10 +413,12 @@ function selectHandler(
   if (candidates.length === 0) fault('handler-entry-not-found', 'entry function was not found');
   if (candidates.length !== 1) fault('handler-entry-ambiguous', 'entry function is ambiguous');
   const context: ModuleContext = {
+    closureWalk: createLinkedKirClosureWalk(),
     functions: undefined,
     linked: new Map<string, LinkedKernKirHandler>(),
     linking: new Set<string>([entry.handlerName]),
     meter,
+    policy,
     rootNodes: roots,
   };
   const program = compileHandler(candidates[0], context, 'entry.function', true);
@@ -419,9 +432,10 @@ export function linkVerifiedKernKirProgramOrThrow(
   projection: VerifiedKernProjection,
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
+  policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
 ): LinkedKernKirProgram {
   authenticateLinkedKernKirProjectionOrThrow(projection);
-  const { helpers, program } = selectHandler(projection, entry, meter);
+  const { helpers, program } = selectHandler(projection, entry, meter, policy);
   const projectionArtifactSha256 = sha256(projection.bytes);
   const base = Object.freeze({
     format: KERN_LINKED_KIR_PROGRAM_FORMAT,
@@ -437,11 +451,12 @@ export function linkVerifiedKernKirProgram(
   projection: VerifiedKernProjection,
   entry: LinkedKernKirEntry,
   limits: KernKirLimits,
+  policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
 ): LinkKernKirProgramResult {
   try {
     return Object.freeze({
       outcome: 'success',
-      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits)),
+      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits), policy),
     });
   } catch (error) {
     const code =

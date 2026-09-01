@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { linkedStatementsInvokeCapability } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import {
   ENTRY,
   LIMITS,
+  createLinkedKirClosureWalk,
+  helperLadder,
+  linkWithPolicy,
+  linkedProgramHelpers,
+  linkedStatementsInvokeCapability as linkedStatementsInvokeCapability,
   boolArgs,
   compileJavaScript,
   compilePython,
@@ -142,4 +146,44 @@ test('a call-free program still declares no helpers and no capability', async ()
   const program = await linkedProgram(moduleSource([entryFn(['return value="flag"'])]));
   assert.equal(program.helpers, undefined, 'the optional helpers field is absent for a call-free program');
   assert.equal(linkedStatementsInvokeCapability(program.program.statements, undefined), false);
+});
+
+test('the capability closure visits every helper of a DAG exactly once', async () => {
+  const width = 24;
+  const verified = await project(helperLadder(width));
+  assert.ok(verified !== undefined, 'F5 must project the ladder fixture');
+  const linked = linkWithPolicy(verified, { maxCallDepth: width + 1 });
+  assert.equal(linked.outcome, 'success', `ladder link failed: ${linked.code}`);
+  const helpers = linkedProgramHelpers(linked.program.helpers);
+  assert.equal(helpers.size, width, 'every ladder helper is reachable');
+  const walk = createLinkedKirClosureWalk();
+  assert.equal(linkedStatementsInvokeCapability(linked.program.program.statements, helpers, walk), false);
+  assert.equal(
+    walk.visits,
+    width,
+    'RT4_CLOSURE_BUDGET: a helper DAG must be traversed once per helper, never once per path',
+  );
+  const repeated = createLinkedKirClosureWalk();
+  for (const helper of linked.program.helpers) {
+    linkedStatementsInvokeCapability(helper.handler.statements, helpers, repeated);
+  }
+  assert.ok(
+    repeated.visits <= width,
+    `RT4_CLOSURE_BUDGET: a shared walk must stay linear across helpers, observed ${repeated.visits}`,
+  );
+});
+
+test('a cycle is never memoized, so the closure answer stays exact', () => {
+  const statements = [{ arguments: [], handlerName: 'a', kind: 'user-call' }].map((value) => ({
+    kind: 'return',
+    value,
+  }));
+  const helpers = new Map([
+    ['a', { parameters: [], returnType: { kind: 'boolean' }, statements: [{ kind: 'return', value: { arguments: [], handlerName: 'b', kind: 'user-call' } }] }],
+    ['b', { parameters: [], returnType: { kind: 'boolean' }, statements: [{ kind: 'return', value: { arguments: [], handlerName: 'a', kind: 'user-call' } }] }],
+  ]);
+  const walk = createLinkedKirClosureWalk();
+  assert.equal(linkedStatementsInvokeCapability(statements, helpers, walk), false);
+  assert.equal(walk.done.has('a'), false, 'a cycle-tainted result must never be cached');
+  assert.equal(walk.done.has('b'), false, 'a cycle-tainted result must never be cached');
 });

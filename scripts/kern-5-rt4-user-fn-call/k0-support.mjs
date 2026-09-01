@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 
 import { projectKernModules, verifyKernProjection } from '../../packages/core/dist/frontend-projection.js';
-import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import {
+  LINKED_KIR_DEFAULT_CALL_POLICY,
+  createLinkedKirClosureWalk,
+  linkVerifiedKernKirProgram,
+  linkedProgramHelpers,
+  linkedStatementsCallDepth,
+  linkedStatementsInvokeCapability,
+} from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import { KERN_KIR_RUNTIME_FORMAT, executeKernKir } from '../../packages/core/dist/runtime-kir.js';
 import {
   ENTRY,
@@ -22,6 +29,11 @@ import {
 export {
   ENTRY,
   LIMITS,
+  LINKED_KIR_DEFAULT_CALL_POLICY,
+  createLinkedKirClosureWalk,
+  linkedProgramHelpers,
+  linkedStatementsCallDepth,
+  linkedStatementsInvokeCapability,
   compileJavaScript,
   compilePython,
   envelopeBytes,
@@ -183,4 +195,39 @@ export async function directStepBudget(source, args, requestId) {
   );
   assert.ok(linkIndex >= 0, 'no step budget in the scanned range linked the metering fixture');
   return { execution: firstSuccess(envelopes, BUDGETS, requestId) - BUDGETS[linkIndex], link: BUDGETS[linkIndex] };
+}
+
+const CHAIN_PARAMETERS = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
+
+export function helperChain(depth) {
+  const helpers = [];
+  for (let index = 0; index < depth; index += 1) {
+    helpers.push({
+      body: [index === 0 ? 'return value="flag"' : `return value="h${index - 1}(flag)"`],
+      name: `h${index}`,
+      parameters: CHAIN_PARAMETERS,
+      returns: 'boolean',
+    });
+  }
+  return moduleSource([...helpers, entryFn([`return value="h${depth - 1}(flag)"`], CHAIN_PARAMETERS)]);
+}
+
+export function helperLadder(width) {
+  const helpers = [];
+  for (let index = 0; index < width; index += 1) {
+    const first = index - 1;
+    const second = index - 2;
+    const body =
+      index === 0
+        ? 'return value="flag"'
+        : index === 1
+          ? 'return value="h0(flag)"'
+          : `return value="h${first}(flag) && h${second}(flag)"`;
+    helpers.push({ body: [body], name: `h${index}`, parameters: CHAIN_PARAMETERS, returns: 'boolean' });
+  }
+  return moduleSource([...helpers, entryFn([`return value="h${width - 1}(flag)"`], CHAIN_PARAMETERS)]);
+}
+
+export function linkWithPolicy(verified, policy) {
+  return linkVerifiedKernKirProgram(verified, ENTRY, LIMITS, policy);
 }

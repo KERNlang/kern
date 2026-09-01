@@ -2,7 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { LINKED_KIR_CROSS_CALL_TYPES } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
-import { HELPER_IDENTITY, admission, assertLinkRejected, callProgram, entryFn, moduleSource } from './k0-support.mjs';
+import {
+  HELPER_IDENTITY,
+  LINKED_KIR_DEFAULT_CALL_POLICY,
+  admission,
+  assertLinkRejected,
+  callProgram,
+  entryFn,
+  helperChain,
+  linkWithPolicy,
+  linkedProgramHelpers,
+  linkedStatementsCallDepth,
+  moduleSource,
+  project,
+} from './k0-support.mjs';
 
 const TEXT_PARAMETERS = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);
 
@@ -188,4 +201,52 @@ test('an integer signature never reaches the linker because F5 rejects it first'
     ]),
   );
   assert.equal(row.projection, 'not-projected', 'F5_AUTHORITY_DRIFT is the only integer-signature gate available');
+});
+
+test('the call-depth policy admits a chain at the limit and rejects the next one identically on all three legs', async () => {
+  const limit = LINKED_KIR_DEFAULT_CALL_POLICY.maxCallDepth;
+  const atLimit = await admission(helperChain(limit));
+  assert.equal(atLimit.projection, 'projected');
+  assert.equal(atLimit.rt1, 'admitted', `a chain of ${limit} helpers must link`);
+  assert.equal(atLimit.javascript, 'admitted');
+  assert.equal(atLimit.python, 'admitted');
+  await assertLinkRejected(helperChain(limit + 1), `a chain of ${limit + 1} helpers`);
+});
+
+test('the call-depth policy is configurable rather than a fixed literal', async () => {
+  const deeper = LINKED_KIR_DEFAULT_CALL_POLICY.maxCallDepth + 1;
+  const verified = await project(helperChain(deeper));
+  assert.ok(verified !== undefined);
+  assert.equal(linkWithPolicy(verified, LINKED_KIR_DEFAULT_CALL_POLICY).outcome, 'failure');
+  const raised = linkWithPolicy(verified, { maxCallDepth: deeper });
+  assert.equal(raised.outcome, 'success', 'a host may raise the bound for its own stack budget');
+  assert.equal(linkedStatementsCallDepth(raised.program.program.statements, linkedProgramHelpers(raised.program.helpers)), deeper);
+  const lowered = linkWithPolicy(await project(helperChain(4)), { maxCallDepth: 3 });
+  assert.equal(lowered.outcome, 'failure', 'a host may lower the bound below the default');
+  assert.equal(lowered.code, 'handler-entry-unsupported');
+});
+
+test('a duplicate function name is a frontend rejection, so the linker rule can never widen it', async () => {
+  const duplicate = moduleSource([
+    { body: ['return value="true"'], name: 'spare', parameters: [], returns: 'boolean' },
+    { body: ['return value="false"'], name: 'spare', parameters: [], returns: 'boolean' },
+    HELPER_IDENTITY,
+    entryFn(['return value="helper(flag)"'], HELPER_IDENTITY.parameters),
+  ]);
+  const row = await admission(duplicate);
+  assert.equal(
+    row.projection,
+    'not-projected',
+    'F5 rejects any module declaring a duplicate function name, reachable or not',
+  );
+  const clean = await admission(
+    moduleSource([
+      { body: ['return value="true"'], name: 'spare', parameters: [], returns: 'boolean' },
+      HELPER_IDENTITY,
+      entryFn(['return value="helper(flag)"'], HELPER_IDENTITY.parameters),
+    ]),
+  );
+  assert.equal(clean.rt1, 'admitted', 'an unreachable sibling function must not widen rejection');
+  assert.equal(clean.javascript, 'admitted');
+  assert.equal(clean.python, 'admitted');
 });
