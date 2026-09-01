@@ -1,0 +1,12 @@
+{
+  "directEnvelopeSha256": "f7dbd870ef909909cc3a09b5cb0e28319b53bc6494614416b5a0c014a695404b",
+  "javascriptArtifactSha256": "59a3f201154963c42455beef0230c5d672dccf11337751794192c60150804d29",
+  "javascriptEnvelopeSha256": "f7dbd870ef909909cc3a09b5cb0e28319b53bc6494614416b5a0c014a695404b",
+  "linkedProgramSha256": "ba6a9ffca1073befc8d7365ac21d72c2ac7fab96c95ab6a0d27978943f8c864f",
+  "linkedReturnType": {
+    "kind": "void"
+  },
+  "projectionArtifactSha256": "8bbbd28fc319f9b1639048a0b59e5e21f0ebbb333436a87cabf7598e0de35d95",
+  "pythonArtifactSha256": "d7c6ad1b0e7018f43ed342d7af047382e51145afb488339ce5080bb3bfe2a4bd",
+  "pythonEnvelopeSha256": "f7dbd870ef909909cc3a09b5cb0e28319b53bc6494614416b5a0c014a695404b"
+}
