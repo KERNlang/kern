@@ -1,9 +1,12 @@
 # KERN 5 RT-5: Asynchronous same-module user function calls
 
-**Status:** IN PROGRESS
+**Status:** IMPLEMENTED
 **Date:** 2026-09-01
 **Base:** `5e359bb6` (RT-4 same-module synchronous user calls)
-**Confidence:** 0.88
+**Implemented at:** `54721dfc` (spec and probe matrix), `e2ec057d` (classification and
+position gate), `a20780a6` (the shared walk and the suspending driver), `5fa14e61`
+(both emitters), `69f2587f` (oracle suite)
+**Confidence:** 0.91
 
 ## Executive Summary
 
@@ -228,29 +231,131 @@ both emitted artifacts and both manifests. If it cannot hold, the slice stops.
 | `scripts/kern-5-rt5-async-user-fn-call/*` | Added | Probe matrix, classification golden, position gate, behavior, provider propagation, cancellation, metering, emission structure, compatibility, K0 divergence. |
 | `package.json` | Modified | Root `test:kern-5-rt5-async-user-fn-call` script. |
 
-Eight production files. No `packages/core/src` file is added or removed, so the
+Eight production files, 215 net production lines, inside the ten-file and
+700-line budget. No `packages/core/src` file is added or removed, so the
 canonicalizer historical-transition gate does not apply.
 
 ## Acceptance Criteria
 
-- [ ] A capability inside a directly called callee and inside a transitively
+- [x] A capability inside a directly called callee and inside a transitively
   reached callee is admitted in `let`, `print` and `return` position at any block
   depth, and agrees byte-identically on RT-1, emitted JavaScript and emitted
   CPython.
-- [ ] Every other position fails closed at link on all three legs with
+- [x] Every other position fails closed at link on all three legs with
   `KIR_ASYNC_CALL_EXPRESSION_POSITION` and the retained
   `KIR_CALL_CALLEE_CAPABILITY` label.
-- [ ] The classification fixed point is transitive and order-independent, and is
+- [x] The classification fixed point is transitive and order-independent, and is
   serialized only when true.
-- [ ] The entry requires a provider when any reachable callee is async, checked
+- [x] The entry requires a provider when any reachable callee is async, checked
   before any event is committed.
-- [ ] The four cancellation fixtures agree on all three legs at the KERN
+- [x] The four cancellation fixtures agree on all three legs at the KERN
   checkpoint, with full envelope parity where Contract A promises it.
-- [ ] Metering is RT-4's formula; a paired call costs exactly twice.
-- [ ] No emitted synchronous helper contains `await`; every async call site does.
-- [ ] Every RT-4 call-free and helper-bearing digest is byte-identical.
-- [ ] RT-4 (50/50), RT-3 (142/142), RT-2 (35/35) and the neighborhood (83/83)
+- [x] Metering is RT-4's formula; a paired call costs exactly twice.
+- [x] No emitted synchronous helper contains `await`; every async call site does.
+- [x] Every RT-4 call-free and helper-bearing digest is byte-identical.
+- [x] RT-4 (50/50), RT-3 (142/142), RT-2 (35/35) and the neighborhood (83/83)
   stay green.
+
+## RED Oracle
+
+At base `5e359bb6` every async position projects and is refused by all three
+legs; the sequencing commit records that table verbatim and the implementation
+commits flip it, so the `probe-matrix.json` diff in this branch *is* the RED
+evidence. Nine of the eleven probed positions moved from
+`handler-entry-unsupported` to `admitted` on RT-1, the JavaScript compiler and
+the Python compiler at once; `binary-operand`, `if-condition`,
+`list-literal-argument` and `nested-argument` stayed refused by design.
+
+| Suite | Tests | Failing at base |
+| --- | --- | --- |
+| `probe-matrix.test.mjs` | 4 | 0 (it records the base, then the implementation moves it) |
+| `classification.test.mjs` | 6 | 6 |
+| `behavior.test.mjs` | 18 | 18 |
+| `position-gate.test.mjs` | 6 | 2 |
+| `provider-propagation.test.mjs` | 4 | 3 |
+| `cancellation.test.mjs` | 8 | 6 |
+| `metering.test.mjs` | 5 | 5 |
+| `emission-structure.test.mjs` | 9 | 8 |
+| `compatibility.test.mjs` | 5 | 1 |
+| `k0-divergence.test.mjs` | 9 | 9 |
+
+`compatibility.test.mjs` is green at base by construction: it pins the byte
+identity that must survive the change, so those rows are a regression fence.
+
+## Verified Result
+
+| Gate | Result |
+| --- | --- |
+| `pnpm test:kern-5-rt5-async-user-fn-call` | 74/74 |
+| `pnpm test:kern-5-rt4-user-fn-call` | 50/50 |
+| `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
+| `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
+| kern-5 r1 / r2 / c-py-1 / cli-shadow neighborhood | 83/83 |
+| `packages/core` KIR unit tests | exit 0 |
+| `pnpm test:kern-canonicalizer` | green, receipts refreshed |
+| `biome check` | clean on every touched file |
+| RT-4 byte identity | all twelve digests unchanged; pristine-restore re-diff empty |
+
+The byte-identity claim was measured twice. The compatibility suite pins all
+twelve RT-4 digests to values recorded on the base before any production file
+moved. Independently, the eight production files were restored from `5e359bb6`,
+the package rebuilt, every helper-bearing digest recorded, the slice restored,
+rebuilt and recorded again: the diff is empty.
+
+## Mutation Battery
+
+Twenty-two mutants, applied as per-file backup copies and restored from those
+copies, never by `git checkout`. All twenty-two are killed.
+
+| Mutant | Killed by |
+| --- | --- |
+| `sync-callee-made-async` | classification |
+| `await-dropped-at-async-call-site` (JavaScript) | behavior (three-leg envelope) |
+| `await-dropped-at-async-call-site` (Python) | behavior (three-leg envelope) |
+| `js-helper-not-async` | behavior |
+| `python-helper-not-async` | behavior |
+| `provider-check-entry-only` (RT-1) | provider-propagation |
+| `provider-check-entry-only` (JavaScript) | provider-propagation |
+| `provider-check-entry-only` (Python) | provider-propagation |
+| `provider-check-made-lazy` | provider-propagation |
+| `abort-swallowed-during-await` | cancellation |
+| `post-await-checkabort-dropped` (JavaScript) | cancellation |
+| `post-await-checkabort-dropped` (Python, first) | emission-structure |
+| `post-await-checkabort-dropped` (Python, both) | emission-structure |
+| `capability-event-committed-after-abort` | cancellation |
+| `resume-double-metered` | metering |
+| `classification-not-propagated-transitively` | classification |
+| `classification-order-dependent` | classification |
+| `async-flag-serialized-when-false` | compatibility |
+| `expression-position-async-admitted` | position-gate |
+| `walker-divergence` (if/else in a callee) | behavior |
+| RT-4 `depth-policy-disabled` | RT-4 type-gate |
+| RT-4 `closure-memo-removed` | RT-4 effects |
+
+Two findings came out of the first pass.
+
+- **`walker-divergence` survived** the first battery. Every callee-branch fixture
+  in the suite took its *then* side, so a walker that ignored the condition
+  inside a helper agreed with the real one everywhere. Two fixtures close it: a
+  callee that takes its else side and a callee that falls through an untaken
+  branch, both asserted on the events they commit and on the provider never being
+  reached.
+- **The Python post-await checkpoint is behaviourally redundant.** Removing both
+  of its occurrences changed no envelope on any fixture, because the Python
+  kernel's `_invoke_capability` — RT-2-era, untouched here — already fails closed
+  on an abort or a timeout before it returns. The checkpoint is therefore pinned
+  *structurally* rather than behaviourally: the emission suite asserts it follows
+  the provider await and counts the helper's checkpoints exactly. Both variants
+  die on that pin.
+
+## Corrections Log
+
+| Original Claim | Reality | Impact |
+| --- | --- | --- |
+| The entry's return value can be handed back from the driver and turned into an envelope after the await. | `await runFrames()` yields to the microtask queue, so a queued abort gets a checkpoint RT-1 has and the emitted JavaScript does not. RT-2 and RT-3 tick fixtures caught it immediately. | The envelope is built inside the driver loop, exactly where RT-4 built it, and the await stays after the envelope exists. |
+| An abort can be delivered between committing a capability event and entering the next statement. | The only suspension point any leg has is the provider call, and `events.push` through the next checkpoint is synchronous on all three legs, so nothing can interleave. | The commit-boundary fixture uses two capabilities: the abort lands inside the second provider await, so the first event is committed and the second never is. |
+| RT-4's blanket `KIR_CALL_CALLEE_CAPABILITY` can simply be deleted. | The tribunal required it retained as a narrowing. | It is emitted alongside `KIR_ASYNC_CALL_EXPRESSION_POSITION`, and the position-gate suite pins both labels so deleting either fails. |
+| A capability result can be passed as an argument to an async callee. | RT-4's cross-call type rule gives a capability result no static type, so such an argument was already inadmissible. | The mixed entry-capability fixture passes a parameter instead; the rule is RT-4's and is untouched. |
 
 ## Out of Scope
 
