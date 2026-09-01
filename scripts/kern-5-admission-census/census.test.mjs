@@ -102,7 +102,7 @@ test('the sweep records a hard per-file timeout, logs progress, and writes after
     const files = [RT7_BIRTH, ...sample.rejected.slice(0, 2).map((row) => row.file)];
     const lines = [];
     const completedAtEachLine = [];
-    const final = sweep({ files, out, timeoutMs: 1, update: false }, (line) => {
+    const final = await sweep({ files, jobs: 1, out, timeoutMs: 1, update: false }, (line) => {
       lines.push(line);
       completedAtEachLine.push(JSON.parse(readFileSync(out, 'utf8')).completed);
     });
@@ -129,16 +129,37 @@ test('the sweep leaves every tracked .kern file untouched', async () => {
   const before = await corpusDigest(files);
   const directory = await mkdtemp(join(tmpdir(), 'kern-5-census-'));
   try {
-    sweep({ files: files.slice(0, 3), out: join(directory, 'admission.json'), timeoutMs: 1, update: false }, () => {});
+    await sweep(
+      { files: files.slice(0, 3), jobs: 2, out: join(directory, 'admission.json'), timeoutMs: 1, update: false },
+      () => {},
+    );
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
   assert.equal(await corpusDigest(files), before, 'the census must not modify the corpus it measures');
 });
 
+test('a concurrent sweep still reports its results in corpus order', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kern-5-census-'));
+  try {
+    const files = trackedKernFiles().slice(0, 8);
+    const out = join(directory, 'admission.json');
+    const final = await sweep({ files, jobs: 4, out, timeoutMs: 1, update: false });
+    assert.deepEqual(
+      final.results.map((row) => row.file),
+      files,
+      'concurrency may not reorder the report',
+    );
+    assert.equal(final.completed, files.length);
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
 test('--update rewrites the ratchet only from a complete tracked sweep', () => {
   assert.equal(parseArguments([]).update, false, 'the ratchet is never rewritten implicitly');
   assert.equal(parseArguments(['--update']).update, true);
+  assert.throws(() => parseArguments(['--jobs', '0']), /--jobs must be a positive integer/u);
   assert.throws(() => parseArguments(['--update', '--files', RT7_BIRTH]), /complete tracked sweep/u);
 });
 

@@ -85,9 +85,10 @@ function runtimeRequest(requestId, entry) {
   };
 }
 
-async function admitEntry(verified, entry, timings) {
+async function admitEntry(verified, entry, marks) {
+  const mark = (stage) => marks.push([stage, process.hrtime.bigint()]);
   const linked = linkVerifiedKernKirProgram(verified, entry, CENSUS_LIMITS);
-  timings.link = process.hrtime.bigint();
+  mark('link');
   if (linked.outcome !== 'success') return rejection('link', linked.code, undefined);
 
   const javascript = compileKernKirToJavaScriptEsm(verified, {
@@ -95,7 +96,7 @@ async function admitEntry(verified, entry, timings) {
     format: KERN_KIR_JS_ESM_COMPILER_FORMAT,
     limits: CENSUS_LIMITS,
   });
-  timings.javascriptCompile = process.hrtime.bigint();
+  mark('javascriptCompile');
   if (javascript.outcome !== 'success') return rejection('javascript-compile', javascript.code, undefined);
 
   const python = compileKernKirToPython(verified, {
@@ -103,12 +104,12 @@ async function admitEntry(verified, entry, timings) {
     format: KERN_KIR_PYTHON_COMPILER_FORMAT,
     limits: CENSUS_LIMITS,
   });
-  timings.pythonCompile = process.hrtime.bigint();
+  mark('pythonCompile');
   if (python.outcome !== 'success') return rejection('python-compile', python.code, undefined);
 
   const request = runtimeRequest('kern-5-admission-census', entry);
   const rt1 = await executeKernKir(verified, request);
-  timings.rt1 = process.hrtime.bigint();
+  mark('rt1');
   if (rt1.outcome !== 'success') return rejection('rt1', firstDiagnosticCode(rt1.diagnostics), rt1.outcome);
 
   let javascriptRun;
@@ -117,7 +118,7 @@ async function admitEntry(verified, entry, timings) {
   } catch (error) {
     return rejection('javascript-run', 'child-execution-failed', String(error?.message ?? error));
   }
-  timings.javascriptRun = process.hrtime.bigint();
+  mark('javascriptRun');
   if (javascriptRun.envelope.outcome !== 'success') {
     return rejection('javascript-run', firstDiagnosticCode(javascriptRun.envelope.diagnostics), undefined);
   }
@@ -128,7 +129,7 @@ async function admitEntry(verified, entry, timings) {
   } catch (error) {
     return rejection('python-run', 'child-execution-failed', String(error?.message ?? error));
   }
-  timings.pythonRun = process.hrtime.bigint();
+  mark('pythonRun');
   if (pythonRun.envelope.outcome !== 'success') {
     return rejection('python-run', firstDiagnosticCode(pythonRun.envelope.diagnostics), undefined);
   }
@@ -154,15 +155,14 @@ async function admitEntry(verified, entry, timings) {
 
 export async function admitFile(file) {
   const started = process.hrtime.bigint();
-  const timings = {};
   const source = await readFile(resolve(ROOT, file), 'utf8');
   const projection = await projectFile(file, source);
-  timings.projection = process.hrtime.bigint();
+  const projected = [['projection', process.hrtime.bigint()]];
   if (projection.status !== 'projected') {
     return {
       ...rejection('projection', projection.code, projection.detail),
       file,
-      timingsMs: elapsed(started, timings),
+      timingsMs: elapsed(started, projected),
     };
   }
   const module = projection.verified.artifact.modules[0];
@@ -172,14 +172,16 @@ export async function admitFile(file) {
       ...rejection('entry-selection', 'no-exported-entry', undefined),
       file,
       rootCount: module.roots.length,
-      timingsMs: elapsed(started, timings),
+      timingsMs: elapsed(started, projected),
     };
   }
   const attempts = [];
+  let marks = projected;
   for (const handlerName of candidates) {
-    const attempt = await admitEntry(projection.verified, { handlerName, moduleId: file }, timings);
+    marks = [...projected];
+    const attempt = await admitEntry(projection.verified, { handlerName, moduleId: file }, marks);
     if (attempt.admitted) {
-      return { ...attempt, candidates, file, timingsMs: elapsed(started, timings) };
+      return { ...attempt, candidates, file, timingsMs: elapsed(started, marks) };
     }
     attempts.push({ code: attempt.code, detail: attempt.detail, handlerName, stage: attempt.stage });
   }
@@ -190,14 +192,14 @@ export async function admitFile(file) {
     code: attempts[0].code,
     file,
     stage: attempts[0].stage,
-    timingsMs: elapsed(started, timings),
+    timingsMs: elapsed(started, marks),
   };
 }
 
-function elapsed(started, timings) {
+function elapsed(started, marks) {
   const ordered = {};
   let previous = started;
-  for (const [stage, at] of Object.entries(timings)) {
+  for (const [stage, at] of marks) {
     ordered[stage] = Number((at - previous) / 1_000n) / 1_000;
     previous = at;
   }
