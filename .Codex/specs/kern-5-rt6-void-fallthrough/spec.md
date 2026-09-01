@@ -5,7 +5,10 @@
 **Base:** `0733e51d` (RT-4 merged; contains RT-2 boolean `if`, RT-3 binary expressions, RT-4 user calls)
 **Implemented at:** `5ea4ebc9` (probe matrix), `f63b2c01` (linked program and RT-1),
 `d7f2f551` (both emitters), `b39b13b1` (oracle suite), `38f85feb` (mutation-driven hardening)
-**Confidence:** 0.93
+**Reviewed at:** `529b42ea` (tick-discipline fix), `573ea84b` (closed type table and golden split),
+`2dd752dd` (await-path effects and gate-label pinning)
+**Confidence:** 0.95 (raised from 0.93 after the high-risk review found and fixed a real
+tick-discipline divergence the original suite did not cover)
 
 ## Executive Summary
 
@@ -116,6 +119,17 @@ statement, producing `result: {presence:'absent'}` with `completion: {kind:'retu
   (`Object.freeze({presence:'absent'})` / `{"presence": "absent"}`). JavaScript
   `undefined` and Python `None` never enter the result slot on any leg.
 
+### Tick discipline
+
+The void completion is built **inside** the frame walker, at the point the frame stack drains —
+the same place relative to await boundaries as a value `return`. This is load-bearing, not
+incidental: RT-1's walker is `async`, so awaiting its promise always yields at least one
+microtask even when no provider was awaited. Completing *after* that await gives RT-1 a
+cancellation checkpoint the emitted targets do not have, and an abort queued on the resolving
+microtask flips RT-1 to `execution-cancelled` — with stdout already committed — while the
+emitted JavaScript succeeds. The void path therefore adds **no await point the non-void path
+lacks**; the only `await` in the walker remains the one that awaits a real capability provider.
+
 ### Meter and tick
 
 The void completion consumes **zero** execution steps: RT-1 reaches it after the
@@ -125,6 +139,17 @@ exactly 2 steps and a value `return` costs exactly 2 — the same 2 the void tai
 does not charge. Both tails check cancellation on both sides of the envelope
 measurement, exactly as the value-return path does, and a capability-free void
 handler emits no `await` on either target.
+
+### The type gate is one closed table
+
+Both linker type gates read `LINKED_KIR_TYPE_ADMISSION`, a frozen
+`satisfies Record<LinkedKernKirTypeKind, LinkedKernKirTypeAdmission>` table with a
+`parameter` / `return` / `scalar` column per kind, rather than two hand-written literal lists
+that could drift apart. `void` is the single **return-only** row, and `handlerReturnType`
+recognises it precisely by that asymmetry — a kind admitted in return position and refused in
+parameter position. Flipping `void.parameter` to `true` therefore does not quietly admit a void
+parameter; it breaks the void return itself, so the mutation is caught by behaviour rather than
+by a source scan.
 
 ### Format compatibility
 
@@ -147,11 +172,11 @@ those goldens recompute.
 | `packages/core/src/kir-runtime/execute.ts` | Modified | One shared success-envelope tail, the void completion, and the defense-in-depth refusal of a value return in a void handler. |
 | `packages/core/src/compiler/kir-js-esm/emitter.ts` | Modified | Void completion tail in the specialized source; `specializedSource` now reads the linked program. |
 | `packages/core/src/compiler/kir-python/emitter.ts` | Modified | The Python twin of the same tail. |
-| `scripts/kern-5-rt6-void-fallthrough/*` | Added | Probe matrix, K0 golden, compatibility, behavior, type gate, tick discipline, shared harness. |
+| `scripts/kern-5-rt6-void-fallthrough/*` | Added | Probe matrix, split K0 goldens, compatibility, behavior, effects, divergence, type gate, tick discipline, shared harness. |
 | `package.json` | Modified | Root `test:kern-5-rt6-void-fallthrough` script mirroring the RT-4 script. |
 
-Five production files, **75 net production lines** (121 added, 46 removed); 547 lines
-of evidence code plus two generated goldens. No
+Five production files, **116 net production lines** (162 added, 46 removed) after the
+review fixes; 854 lines of evidence code plus three generated goldens. No
 `packages/core/src` file is added or removed, so the canonicalizer
 historical-transition gate does not apply. `kir-runtime/expression.ts` and
 `linked-kir-program/{expression,index}.ts` are untouched.
@@ -183,6 +208,8 @@ the built package exports.
 
 | Suite | Tests | Failing at base |
 | --- | --- | --- |
+| `divergence.test.mjs` | 16 | 2 (the queued-abort divergence at depth 0) |
+| `effects.test.mjs` | 6 | 6 |
 | `probe-matrix.test.mjs` | 5 | 1 (the matrix file did not exist) |
 | `compatibility.test.mjs` | 4 | 1 (the void K0 golden did not exist) |
 | `behavior.test.mjs` | 5 | 5 |
@@ -197,7 +224,7 @@ The type gate is largely green at base by construction: it pins negatives that m
 
 | Gate | Result |
 | --- | --- |
-| `pnpm test:kern-5-rt6-void-fallthrough` | 27/27 |
+| `pnpm test:kern-5-rt6-void-fallthrough` | 52/52 |
 | `pnpm test:kern-5-rt4-user-fn-call` | 50/50 |
 | `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
 | `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
@@ -207,7 +234,7 @@ The type gate is largely green at base by construction: it pins negatives that m
 
 Canonicalizer receipts recipe, run last and in order: build core and CLI, run
 `check-kern-canonicalizer-coverage --write`, re-pin `coverage-prerequisite.test.mjs`'s
-`compiledCoreDigest` literal from `fc7393d9…` to `ea1d3181…`, then `--write` again.
+`compiledCoreDigest` literal to `6fd1471b…`, then `--write` again.
 Only the digest moved; the coverage frontier is unchanged at 112/112 base-complete
 with zero legacy-parameter blockers.
 | `biome check` | clean on every touched file |
@@ -231,12 +258,31 @@ Twelve mutants, applied one at a time to a per-file backup copy and never throug
 | 10 | K0 golden copied instead of recomputed | KILLED | K0 golden recompute |
 | 11 | any unknown return kind becomes void | KILLED | K0 golden: `handlerReturnType` literal inventory |
 | 12 | value-return-in-void admitted | KILLED | type gate: top-level and both branches |
+| 13 | void completion moved back after the walker's `await` | KILLED | divergence: queued abort at depth 0 |
+| 14 | an extra `await` inserted before the void completion | KILLED | divergence: queued abort at depth 0 |
+| 1b | `void.parameter` flipped to `true` in the closed table | KILLED | behaviour golden **and** the void fixture itself |
+| 11b | the return gate drops its `admits(kind,'return')` conjunct | **EQUIVALENT** | F5-shielded, see below |
+| 15 | void tail skips its pre-measure `checkAbort` | **EQUIVALENT** | synchronous window, see below |
+
+Mutants 13 and 14 are the review's required regression guard: both reintroduce the blocking
+divergence and both now die at microtask depth 0.
 
 Mutants 1 and 11 survived the first pass. F5 is fatal on every return or parameter
 kind outside its own closed set, so **no projection can reach either linker type
 gate** — the gates are real, but unreachable from a projection-driven fixture. The
 K0 golden now recomputes the comparison literals each gate is built from, which is
 what moves when either widens. Both then died.
+
+Mutant 11b is the residue of 11 after the table rewrite, and is **equivalent under F5's
+authority**: dropping the conjunct only changes the answer for a return kind that is absent from
+the closed table, and F5 is fatal on every such kind, so no projection reaches it. The table's
+shape is pinned instead — the suite asserts it has exactly one return-only row, which is the
+property the gate reads.
+
+Mutant 15 is **equivalent**: the skipped `checkAbort` sits between the frame loop draining and the
+envelope measurement, with no await in between, so no abort can be delivered in that window; the
+per-event `check` callback and the post-measure check both still run. The emitted tails are
+separately asserted to carry both checks.
 
 Mutant 2 is **equivalent, not a gap**. `compileHandler` runs
 `propertySet(properties, ['export','name','returns'], [], label)` before
@@ -246,6 +292,13 @@ optional list: the suite kills it immediately on the new
 `a handler with no returns at all projects and is still rejected on every leg`
 fixture. A `returns`-less `fn` does project at F5, so that fixture is real coverage
 of the no-inference rule rather than a vacuous one.
+
+## Follow-ups
+
+- `coverage-prerequisite.test.mjs` compares `coverageImplementationDigest` against itself, so that
+  row can never fail. Pre-existing and out of scope for RT-6; flagged here so it is not mistaken
+  for coverage.
+- The bare `return` early exit, with the F5 fact recorded above.
 
 ## Out of Scope
 
