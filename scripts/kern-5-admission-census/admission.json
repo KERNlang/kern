@@ -1,0 +1,2535 @@
+{
+  "admitted": [
+    "examples/kern-5-preview-app/ui.kern"
+  ],
+  "admittedCount": 1,
+  "completed": 240,
+  "format": "kern.5.admission-census.v1",
+  "generatedBy": "scripts/kern-5-admission-census/sweep.mjs",
+  "limits": {
+    "maxBytes": 1000000,
+    "maxCollectionLength": 1000,
+    "maxDepth": 40,
+    "maxDiagnostics": 10,
+    "maxEvents": 256,
+    "maxSteps": 200000,
+    "maxStringBytes": 100000
+  },
+  "results": [
+    {
+      "admitted": false,
+      "code": "no-exported-entry",
+      "stage": "entry-selection",
+      "file": "examples/agon-engine-islands.kern",
+      "rootCount": 1,
+      "timingsMs": {
+        "projection": 3863.119,
+        "total": 3863.193
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/agon-plan.kern",
+      "timingsMs": {
+        "projection": 4612.233,
+        "total": 4612.275
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/agon-pty-session.kern",
+      "timingsMs": {
+        "projection": 1952.748,
+        "total": 1952.789
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/agon-terminal.kern",
+      "timingsMs": {
+        "projection": 2588.435,
+        "total": 2588.475
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/agon.kern",
+      "timingsMs": {
+        "projection": 2588.368,
+        "total": 2588.408
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/ai-buddies-api.kern",
+      "timingsMs": {
+        "projection": 1829.978,
+        "total": 1830.018
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/api-routes.kern",
+      "timingsMs": {
+        "projection": 1601.546,
+        "total": 1601.591
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/audio-settings.kern",
+      "timingsMs": {
+        "projection": 6389.958,
+        "total": 6390.002
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/audiofacets-toast.kern",
+      "timingsMs": {
+        "projection": 2137.373,
+        "total": 2137.416
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/capstone-assertion-engine/compare.kern",
+      "timingsMs": {
+        "projection": 12145.117,
+        "total": 12145.159
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/capstone-assertion-engine/diag.kern",
+      "timingsMs": {
+        "projection": 3961.834,
+        "total": 3961.879
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-rejected",
+      "stage": "projection",
+      "file": "examples/capstone-assertion-engine/main.kern",
+      "timingsMs": {
+        "projection": 54951.168,
+        "total": 54951.212
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/capstone-assertion-engine/sort.kern",
+      "timingsMs": {
+        "projection": 5204.491,
+        "total": 5204.536
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/checker-entry.kern",
+      "timingsMs": {
+        "projection": 36961.046,
+        "total": 36961.089
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/checker-while.kern",
+      "timingsMs": {
+        "projection": 37391.887,
+        "total": 37391.926
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/checker.composed.kern",
+      "timingsMs": {
+        "projection": 57704.517,
+        "total": 57704.563
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/checker.kern",
+      "timingsMs": {
+        "projection": 70498.989,
+        "total": 70499.03
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-request-invalid",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/main.kern",
+      "timingsMs": {
+        "projection": 34.56,
+        "total": 34.611
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-rejected",
+      "stage": "projection",
+      "file": "examples/capstone-checker-subset/numeric-main.kern",
+      "timingsMs": {
+        "projection": 3780.531,
+        "total": 3780.572
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/dashboard.kern",
+      "timingsMs": {
+        "projection": 2710.715,
+        "total": 2710.755
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/drift-showcase/app.kern",
+      "timingsMs": {
+        "projection": 2637.581,
+        "total": 2637.623
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/interactive.kern",
+      "timingsMs": {
+        "projection": 2225.683,
+        "total": 2225.721
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/kern-5-preview-app/answer-route.kern",
+      "timingsMs": {
+        "projection": 3220.466,
+        "total": 3220.507
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/kern-5-preview-app/app.kern",
+      "timingsMs": {
+        "projection": 1894.28,
+        "total": 1894.323
+      }
+    },
+    {
+      "admitted": true,
+      "completion": {
+        "kind": "return"
+      },
+      "envelopeDigest": "30f791df12c1532aabe238c97f7f301b52971314bdf0a0380584d2110540ff7f",
+      "eventCount": 23,
+      "events": [
+        {
+          "op": "stdout",
+          "text": "<!doctype html>"
+        },
+        {
+          "op": "stdout",
+          "text": "<html lang=\"en\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<head>"
+        },
+        {
+          "op": "stdout",
+          "text": "<meta charset=\"utf-8\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<title>KERN 5 Preview App</title>"
+        },
+        {
+          "op": "stdout",
+          "text": "<style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f7f8fb;color:#141820}.shell{max-width:860px;margin:0 auto;padding:32px 20px}.panel{background:#fff;border:1px solid #d9dee8;border-radius:8px;padding:20px;box-shadow:0 1px 3px #0001}label{display:block;font-weight:650;margin-bottom:8px}textarea{box-sizing:border-box;width:100%;min-height:88px;border:1px solid #b9c1d0;border-radius:6px;padding:10px;font:inherit}button{margin-top:12px;border:0;border-radius:6px;background:#135cc8;color:white;padding:10px 14px;font-weight:650;cursor:pointer}pre{white-space:pre-wrap;background:#101723;color:#eff5ff;border-radius:6px;padding:14px;min-height:120px}small{color:#596274}</style>"
+        },
+        {
+          "op": "stdout",
+          "text": "</head>"
+        },
+        {
+          "op": "stdout",
+          "text": "<body data-kern-ui=\"native-runner-preview\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<main class=\"shell\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<h1>KERN 5 Preview App</h1>"
+        },
+        {
+          "op": "stdout",
+          "text": "<p>This refund-support browser UI, backend route, RAG query, and grounding guard are authored in .kern and run through the native runner preview.</p>"
+        },
+        {
+          "op": "stdout",
+          "text": "<section class=\"panel\">"
+        },
+        {
+          "op": "stdout",
+          "text": "<label for=\"question\">Refund question</label>"
+        },
+        {
+          "op": "stdout",
+          "text": "<textarea id=\"question\">refund policy receipt</textarea>"
+        },
+        {
+          "op": "stdout",
+          "text": "<button id=\"ask\" type=\"button\">Ask KERN</button>"
+        },
+        {
+          "op": "stdout",
+          "text": "<small id=\"status\">Ready</small>"
+        },
+        {
+          "op": "stdout",
+          "text": "<pre id=\"answer\"></pre>"
+        },
+        {
+          "op": "stdout",
+          "text": "</section>"
+        },
+        {
+          "op": "stdout",
+          "text": "</main>"
+        },
+        {
+          "op": "stdout",
+          "text": "<script type=\"module\">const q=document.getElementById('question');const a=document.getElementById('answer');const s=document.getElementById('status');const nl=String.fromCharCode(10);document.getElementById('ask').addEventListener('click',async()=>{s.textContent='Running native runner preview';a.textContent='';try{const r=await fetch('/api/answer?question='+encodeURIComponent(q.value));const data=await r.json();if(!r.ok){s.textContent='Failed';a.textContent=data.error||'Request failed';return;}s.textContent='Grounding: '+data.status;a.textContent=data.answer+nl+nl+'source: '+data.source+nl+'chunks: '+data.chunkCount;}catch{s.textContent='Failed';a.textContent='Request failed';}});</script>"
+        },
+        {
+          "op": "stdout",
+          "text": "</body>"
+        },
+        {
+          "op": "stdout",
+          "text": "</html>"
+        }
+      ],
+      "handlerName": "renderHome",
+      "linkedProgramSha256": "53ddd3c1e543227c632bea2536fb0f285900f512dc0f3a4b9b874428b6e1b486",
+      "projectionArtifactSha256": "cb291c30a38ab49179a893cdeeebdbeef3d7cadff00985883deea8f1a56ee6d5",
+      "resultPresence": "absent",
+      "candidates": [
+        "renderHome"
+      ],
+      "file": "examples/kern-5-preview-app/ui.kern",
+      "timingsMs": {
+        "projection": 5157.301,
+        "link": 20.737,
+        "javascriptCompile": 9.678,
+        "pythonCompile": 7.995,
+        "rt1": 14.284,
+        "javascriptRun": 72.832,
+        "pythonRun": 122.334,
+        "total": 5405.61
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+      "timingsMs": {
+        "projection": 42704.751,
+        "total": 42704.794
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+      "timingsMs": {
+        "projection": 47389.658,
+        "total": 47389.699
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-canonicalizer/canonicalizer.composed.kern",
+      "timingsMs": {
+        "projection": 58227.683,
+        "total": 58227.731
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-canonicalizer/canonicalizer.kern",
+      "timingsMs": {
+        "projection": 57508.099,
+        "total": 57508.147
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-formatter/formatter.composed.kern",
+      "timingsMs": {
+        "projection": 56063.605,
+        "total": 56063.65
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-formatter/formatter.kern",
+      "timingsMs": {
+        "projection": 18270.071,
+        "total": 18270.112
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-formatter/source-tape-helpers.kern",
+      "timingsMs": {
+        "projection": 14477.669,
+        "total": 14477.709
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-formatter/source-tape.kern",
+      "timingsMs": {
+        "projection": 16940.023,
+        "total": 16940.061
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/builtin-node-type-attestation.kern",
+      "timingsMs": {
+        "projection": 37323.898,
+        "total": 37323.938
+      }
+    },
+    {
+      "admitted": false,
+      "code": "no-exported-entry",
+      "stage": "entry-selection",
+      "file": "examples/kern-frontend/builtin-node-types.generated.kern",
+      "rootCount": 1,
+      "timingsMs": {
+        "projection": 55343.838,
+        "total": 55343.923
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/comment-boundaries.kern",
+      "timingsMs": {
+        "projection": 9376.852,
+        "total": 9376.894
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/evolved-hints-helpers.kern",
+      "timingsMs": {
+        "projection": 6531.423,
+        "total": 6531.465
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/evolved-hints.kern",
+      "timingsMs": {
+        "projection": 42466.724,
+        "total": 42466.765
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-frontend/expression-probe-helpers.kern",
+      "timingsMs": {
+        "projection": 11912.111,
+        "total": 11912.158
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f1-output-transport-probe.kern",
+      "timingsMs": {
+        "projection": 11130.805,
+        "total": 11130.845
+      }
+    },
+    {
+      "admitted": false,
+      "code": "no-exported-entry",
+      "stage": "entry-selection",
+      "file": "examples/kern-frontend/f1-scan-catalog.kern",
+      "rootCount": 11,
+      "timingsMs": {
+        "projection": 8225.023,
+        "total": 8225.124
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f1-scan-main.kern",
+      "timingsMs": {
+        "projection": 50496.363,
+        "total": 50496.402
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f1-scan-token.kern",
+      "timingsMs": {
+        "projection": 10423.559,
+        "total": 10423.605
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f1-transport.kern",
+      "timingsMs": {
+        "projection": 5397.632,
+        "total": 5397.672
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f2-batch-main.kern",
+      "timingsMs": {
+        "projection": 38837.261,
+        "total": 38837.302
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f2-expression-catalog.kern",
+      "timingsMs": {
+        "projection": 24827.941,
+        "total": 24827.982
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f2-expression-main.kern",
+      "timingsMs": {
+        "projection": 2769.915,
+        "total": 2769.955
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f3-line-tree-collection-helpers.kern",
+      "timingsMs": {
+        "projection": 14364.019,
+        "total": 14364.061
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f3-line-tree-main.kern",
+      "timingsMs": {
+        "projection": 67830.363,
+        "total": 67830.403
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-attachment-closure.kern",
+      "timingsMs": {
+        "projection": 28363.739,
+        "total": 28363.782
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-request-invalid",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-authority.generated.kern",
+      "timingsMs": {
+        "projection": 20.424,
+        "total": 20.465
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-declarations-helpers.kern",
+      "timingsMs": {
+        "projection": 59273.413,
+        "total": 59273.453
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-declarations-main.kern",
+      "timingsMs": {
+        "projection": 120012.658,
+        "total": 120012.708
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-declarations-semantic.kern",
+      "timingsMs": {
+        "projection": 72910.766,
+        "total": 72910.818
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-fatal",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-diagnostic-merge.kern",
+      "timingsMs": {
+        "projection": 75870.868,
+        "total": 75870.912
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-expression-evidence.kern",
+      "timingsMs": {
+        "projection": 75459.125,
+        "total": 75459.165
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-expression-spans.kern",
+      "timingsMs": {
+        "projection": 7220.975,
+        "total": 7221.019
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-global-facts.kern",
+      "timingsMs": {
+        "projection": 7489.205,
+        "total": 7489.248
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-keyword-normalization.kern",
+      "timingsMs": {
+        "projection": 39706.058,
+        "total": 39706.098
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-line-eligibility.kern",
+      "timingsMs": {
+        "projection": 69370.945,
+        "total": 69370.987
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-closure.kern",
+      "timingsMs": {
+        "projection": 63362.631,
+        "total": 63362.675
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-f2-helpers.kern",
+      "timingsMs": {
+        "projection": 4362.348,
+        "total": 4362.392
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-graph.kern",
+      "timingsMs": {
+        "projection": 60326.496,
+        "total": 60326.536
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-main.kern",
+      "timingsMs": {
+        "projection": 20926.326,
+        "total": 20926.366
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-order.kern",
+      "timingsMs": {
+        "projection": 29372.477,
+        "total": 29372.52
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-output.kern",
+      "timingsMs": {
+        "projection": 22610.745,
+        "total": 22610.786
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-module-set-prefix.kern",
+      "timingsMs": {
+        "projection": 22433.213,
+        "total": 22433.255
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-path-contract.kern",
+      "timingsMs": {
+        "projection": 28083.557,
+        "total": 28083.599
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f4-prerequisite-envelope.kern",
+      "timingsMs": {
+        "projection": 26382.593,
+        "total": 26382.646
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-canonical-instructions.kern",
+      "timingsMs": {
+        "projection": 10820.911,
+        "total": 10820.951
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-charged-sort.kern",
+      "timingsMs": {
+        "projection": 6302.7,
+        "total": 6302.746
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_INVALID_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-composite-instructions.kern",
+      "timingsMs": {
+        "projection": 15272.725,
+        "total": 15272.772
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-expression-projection.kern",
+      "timingsMs": {
+        "projection": 27616.413,
+        "total": 27616.453
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-framing.kern",
+      "timingsMs": {
+        "projection": 16994.803,
+        "total": 16994.846
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-leaf-instructions.kern",
+      "timingsMs": {
+        "projection": 4828.371,
+        "total": 4828.42
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-module-projection.kern",
+      "timingsMs": {
+        "projection": 33777.225,
+        "total": 33777.264
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_INVALID_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-ordinal-composites.kern",
+      "timingsMs": {
+        "projection": 41822.847,
+        "total": 41822.89
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-projection-main.kern",
+      "timingsMs": {
+        "projection": 27928.843,
+        "total": 27928.884
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-property-projection.kern",
+      "timingsMs": {
+        "projection": 18799.247,
+        "total": 18799.287
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-result-frame.kern",
+      "timingsMs": {
+        "projection": 12743.591,
+        "total": 12743.632
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/f5-tree-projection.kern",
+      "timingsMs": {
+        "projection": 32426.697,
+        "total": 32426.739
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-admission.kern",
+      "timingsMs": {
+        "projection": 27956.153,
+        "total": 27956.194
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-loop.kern",
+      "timingsMs": {
+        "projection": 49793.179,
+        "total": 49793.224
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-style-theme-diagnostic-predecessor.kern",
+      "timingsMs": {
+        "projection": 42631.847,
+        "total": 42631.887
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-style-theme-diagnostic-projection.kern",
+      "timingsMs": {
+        "projection": 25518.762,
+        "total": 25518.803
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-style-theme-diagnostics.kern",
+      "timingsMs": {
+        "projection": 42270.188,
+        "total": 42270.23
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-style-theme-replay.kern",
+      "timingsMs": {
+        "projection": 58402.488,
+        "total": 58402.528
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-style-theme.kern",
+      "timingsMs": {
+        "projection": 31279.479,
+        "total": 31279.52
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/generic-property-theme-refs.kern",
+      "timingsMs": {
+        "projection": 45841.76,
+        "total": 45841.8
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/indentation.kern",
+      "timingsMs": {
+        "projection": 8388.628,
+        "total": 8388.667
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handler-normalization.kern",
+      "timingsMs": {
+        "projection": 51769.916,
+        "total": 51769.957
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-composed.kern",
+      "timingsMs": {
+        "projection": 44765.126,
+        "total": 44765.171
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-envelope.kern",
+      "timingsMs": {
+        "projection": 16688.807,
+        "total": 16688.85
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-simple.kern",
+      "timingsMs": {
+        "projection": 10505.413,
+        "total": 10505.452
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-structured-declarations.kern",
+      "timingsMs": {
+        "projection": 16919.961,
+        "total": 16920.001
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-structured-scanner.kern",
+      "timingsMs": {
+        "projection": 56743.735,
+        "total": 56743.779
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/keyword-handlers-structured.kern",
+      "timingsMs": {
+        "projection": 36006.535,
+        "total": 36006.577
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/known-node-warning.kern",
+      "timingsMs": {
+        "projection": 13908.305,
+        "total": 13908.348
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/lexical-checkpoints.kern",
+      "timingsMs": {
+        "projection": 9733.246,
+        "total": 9733.292
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/lexical-scan.kern",
+      "timingsMs": {
+        "projection": 7558.831,
+        "total": 7558.873
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/mutable-node-type-registry-snapshot.kern",
+      "timingsMs": {
+        "projection": 19672.15,
+        "total": 19672.191
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/node-type-token-admission.kern",
+      "timingsMs": {
+        "projection": 43754.367,
+        "total": 43754.409
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/retained-token-stream.kern",
+      "timingsMs": {
+        "projection": 25208.87,
+        "total": 25208.919
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/runtime-rewrite-gate0.kern",
+      "timingsMs": {
+        "projection": 3504.207,
+        "total": 3504.248
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/scalar-tape-probe.kern",
+      "timingsMs": {
+        "projection": 9951.969,
+        "total": 9952.015
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/stitcher-helpers.kern",
+      "timingsMs": {
+        "projection": 14115.967,
+        "total": 14116.008
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/stitcher.kern",
+      "timingsMs": {
+        "projection": 18315.905,
+        "total": 18315.947
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/style-block-helpers.kern",
+      "timingsMs": {
+        "projection": 80268.193,
+        "total": 80268.237
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/successful-line-composition.kern",
+      "timingsMs": {
+        "projection": 47893.911,
+        "total": 47893.951
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/text-cache-probe.kern",
+      "timingsMs": {
+        "projection": 2305.452,
+        "total": 2305.5
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/tokenizer-helpers.kern",
+      "timingsMs": {
+        "projection": 10372.257,
+        "total": 10372.307
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/tokenizer.kern",
+      "timingsMs": {
+        "projection": 31882.935,
+        "total": 31882.975
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/kern-frontend/whitespace-trim.kern",
+      "timingsMs": {
+        "projection": 10841.573,
+        "total": 10841.613
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/mcp-api-gateway.kern",
+      "timingsMs": {
+        "projection": 2628.512,
+        "total": 2628.553
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/mcp-database.kern",
+      "timingsMs": {
+        "projection": 2515.486,
+        "total": 2515.529
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/mcp-server.kern",
+      "timingsMs": {
+        "projection": 2230.113,
+        "total": 2230.161
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_INVALID_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/native-multifile/main.kern",
+      "timingsMs": {
+        "projection": 1946.897,
+        "total": 1946.937
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_TYPE",
+      "stage": "projection",
+      "file": "examples/native-multifile/math.kern",
+      "timingsMs": {
+        "projection": 1907.628,
+        "total": 1907.668
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/native-runtime-async-fs-preview.kern",
+      "timingsMs": {
+        "projection": 2129.93,
+        "total": 2129.976
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/native-runtime-async-host-preview.kern",
+      "timingsMs": {
+        "projection": 2048.893,
+        "total": 2048.934
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/native-runtime-smoke.kern",
+      "timingsMs": {
+        "projection": 3921.072,
+        "total": 3921.117
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-arrays.kern",
+      "timingsMs": {
+        "projection": 5649.049,
+        "total": 5649.091
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-arrays.test.kern",
+      "timingsMs": {
+        "projection": 5049.961,
+        "total": 5050.003
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-bad-cases.kern",
+      "timingsMs": {
+        "projection": 3816.45,
+        "total": 3816.489
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-bad-cases.test.kern",
+      "timingsMs": {
+        "projection": 4499.183,
+        "total": 4499.503
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-classes.kern",
+      "timingsMs": {
+        "projection": 1751.646,
+        "total": 1751.686
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-classes.test.kern",
+      "timingsMs": {
+        "projection": 1756.152,
+        "total": 1756.196
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-collections.kern",
+      "timingsMs": {
+        "projection": 2887.719,
+        "total": 2887.764
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-collections.test.kern",
+      "timingsMs": {
+        "projection": 3349.027,
+        "total": 3349.071
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-control-flow.kern",
+      "timingsMs": {
+        "projection": 3660.46,
+        "total": 3660.505
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-control-flow.test.kern",
+      "timingsMs": {
+        "projection": 3341.242,
+        "total": 3341.286
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-data-advanced.kern",
+      "timingsMs": {
+        "projection": 4395.189,
+        "total": 4395.233
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-data-advanced.test.kern",
+      "timingsMs": {
+        "projection": 7231.791,
+        "total": 7231.835
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-effects.kern",
+      "timingsMs": {
+        "projection": 2768.613,
+        "total": 2768.657
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-effects.test.kern",
+      "timingsMs": {
+        "projection": 2457.856,
+        "total": 2457.902
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-guards.kern",
+      "timingsMs": {
+        "projection": 2495.165,
+        "total": 2495.207
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-guards.test.kern",
+      "timingsMs": {
+        "projection": 2535.068,
+        "total": 2535.112
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mcp-rag-bad-cases.kern",
+      "timingsMs": {
+        "projection": 4491.194,
+        "total": 4491.238
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mcp-rag-bad-cases.test.kern",
+      "timingsMs": {
+        "projection": 3408.794,
+        "total": 3408.838
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mcp-rag.kern",
+      "timingsMs": {
+        "projection": 2876.711,
+        "total": 2876.751
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mcp-rag.test.kern",
+      "timingsMs": {
+        "projection": 1926.336,
+        "total": 1926.378
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mocks.kern",
+      "timingsMs": {
+        "projection": 1899.906,
+        "total": 1899.95
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-mocks.test.kern",
+      "timingsMs": {
+        "projection": 2661.393,
+        "total": 2661.436
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-native-handlers.kern",
+      "timingsMs": {
+        "projection": 2588.366,
+        "total": 2588.41
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-rag-bad-cases.kern",
+      "timingsMs": {
+        "projection": 3442.793,
+        "total": 3442.839
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-rag-bad-cases.test.kern",
+      "timingsMs": {
+        "projection": 4321.111,
+        "total": 4321.157
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-rag.kern",
+      "timingsMs": {
+        "projection": 2500.25,
+        "total": 2500.293
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-rag.test.kern",
+      "timingsMs": {
+        "projection": 2537.623,
+        "total": 2537.682
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-routes.kern",
+      "timingsMs": {
+        "projection": 3545.295,
+        "total": 3545.337
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-routes.test.kern",
+      "timingsMs": {
+        "projection": 3426.905,
+        "total": 3426.95
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-tools.kern",
+      "timingsMs": {
+        "projection": 2645.069,
+        "total": 2645.11
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/conformance-tools.test.kern",
+      "timingsMs": {
+        "projection": 2260.893,
+        "total": 2260.938
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "examples/native-test/language-surface.kern",
+      "timingsMs": {
+        "projection": 4473.087,
+        "total": 4473.139
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/language-surface.test.kern",
+      "timingsMs": {
+        "projection": 3206.694,
+        "total": 3206.738
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/mcp.kern",
+      "timingsMs": {
+        "projection": 2037.299,
+        "total": 2037.341
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/mcp.test.kern",
+      "timingsMs": {
+        "projection": 2096.487,
+        "total": 2096.527
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/order.kern",
+      "timingsMs": {
+        "projection": 2085.407,
+        "total": 2085.448
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/order.test.kern",
+      "timingsMs": {
+        "projection": 2207.443,
+        "total": 2207.486
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/native-test/permission-tool.kern",
+      "timingsMs": {
+        "projection": 1697.721,
+        "total": 1697.76
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/permission-tool.test.kern",
+      "timingsMs": {
+        "projection": 1751.557,
+        "total": 1751.6
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/native-test/runtime-functions.kern",
+      "timingsMs": {
+        "projection": 2843.792,
+        "total": 2843.835
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/native-test/runtime-functions.test.kern",
+      "timingsMs": {
+        "projection": 2367.681,
+        "total": 2367.722
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/nextjs-landing.kern",
+      "timingsMs": {
+        "projection": 3112.136,
+        "total": 3112.179
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/eval-ci.kern",
+      "timingsMs": {
+        "projection": 2925.185,
+        "total": 2925.225
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/local-only.kern",
+      "timingsMs": {
+        "projection": 2513.009,
+        "total": 2513.051
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/local-persistent.kern",
+      "timingsMs": {
+        "projection": 2441.092,
+        "total": 2441.131
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/openai.kern",
+      "timingsMs": {
+        "projection": 2479.891,
+        "total": 2479.935
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/runtime-answer-async-retrieve-preview.kern",
+      "timingsMs": {
+        "projection": 3352.468,
+        "total": 3352.51
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/runtime-answer-capability-preview.kern",
+      "timingsMs": {
+        "projection": 3289.439,
+        "total": 3289.479
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/runtime-answer-preview.kern",
+      "timingsMs": {
+        "projection": 3359.87,
+        "total": 3359.91
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/rag-starter/runtime-run.kern",
+      "timingsMs": {
+        "projection": 2942.349,
+        "total": 2942.393
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/route-v3.kern",
+      "timingsMs": {
+        "projection": 1588.936,
+        "total": 1588.977
+      }
+    },
+    {
+      "admitted": false,
+      "code": "projection-request-invalid",
+      "stage": "projection",
+      "file": "examples/selfhost-validator/main.kern",
+      "timingsMs": {
+        "projection": 27.002,
+        "total": 27.047
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "examples/selfhost-validator/validator.kern",
+      "timingsMs": {
+        "projection": 64399.713,
+        "total": 64399.75
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "examples/starter/api.kern",
+      "timingsMs": {
+        "projection": 1521.879,
+        "total": 1521.919
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/starter/mcp.kern",
+      "timingsMs": {
+        "projection": 2361.81,
+        "total": 2361.855
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/starter/models.kern",
+      "timingsMs": {
+        "projection": 2419.303,
+        "total": 2419.345
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/template-usage.kern",
+      "timingsMs": {
+        "projection": 1995.261,
+        "total": 1995.314
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/templates/arrow-fn.kern",
+      "timingsMs": {
+        "projection": 1855.515,
+        "total": 1855.556
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/templates/swr-hook.kern",
+      "timingsMs": {
+        "projection": 1937.404,
+        "total": 1937.448
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/templates/zustand-selector.kern",
+      "timingsMs": {
+        "projection": 1788.448,
+        "total": 1788.489
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "examples/templates/zustand-store.kern",
+      "timingsMs": {
+        "projection": 1878.765,
+        "total": 1878.808
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "examples/with-primitive.kern",
+      "timingsMs": {
+        "projection": 2082.745,
+        "total": 2082.789
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "packages/compat/src/compat.kern",
+      "timingsMs": {
+        "projection": 1907.281,
+        "total": 1907.326
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-bad-cases.kern",
+      "timingsMs": {
+        "projection": 2114.87,
+        "total": 2114.917
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-bad-cases.test.kern",
+      "timingsMs": {
+        "projection": 1895.324,
+        "total": 1895.369
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-contracts.kern",
+      "timingsMs": {
+        "projection": 5892.242,
+        "total": 5892.284
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-contracts.test.kern",
+      "timingsMs": {
+        "projection": 4568.055,
+        "total": 4568.096
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-codegen.kern",
+      "timingsMs": {
+        "projection": 3933.621,
+        "total": 3933.666
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-codegen.test.kern",
+      "timingsMs": {
+        "projection": 2806.196,
+        "total": 2806.238
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-migrate-literals.kern",
+      "timingsMs": {
+        "projection": 3967.348,
+        "total": 3967.391
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-migrate-literals.test.kern",
+      "timingsMs": {
+        "projection": 2214.961,
+        "total": 2215.005
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-version-detect.kern",
+      "timingsMs": {
+        "projection": 4914.449,
+        "total": 4914.497
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-core-version-detect.test.kern",
+      "timingsMs": {
+        "projection": 2185.561,
+        "total": 2185.603
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-import-surface.test.kern",
+      "timingsMs": {
+        "projection": 3375.029,
+        "total": 3375.071
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-language-surface.kern",
+      "timingsMs": {
+        "projection": 6896.575,
+        "total": 6896.621
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-language-surface.test.kern",
+      "timingsMs": {
+        "projection": 1868.135,
+        "total": 1868.175
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-rag-contracts.kern",
+      "timingsMs": {
+        "projection": 2625.354,
+        "total": 2625.396
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-rag-contracts.test.kern",
+      "timingsMs": {
+        "projection": 2132.336,
+        "total": 2132.377
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-roundtrip.kern",
+      "timingsMs": {
+        "projection": 2384.204,
+        "total": 2384.245
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-roundtrip.test.kern",
+      "timingsMs": {
+        "projection": 2622.773,
+        "total": 2622.818
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-schema-bad.kern",
+      "timingsMs": {
+        "projection": 1639,
+        "total": 1639.044
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-schema-bad.test.kern",
+      "timingsMs": {
+        "projection": 1779.741,
+        "total": 1779.784
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-typescript-surface.kern",
+      "timingsMs": {
+        "projection": 5511.467,
+        "total": 5511.508
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/native-test/kernlang-typescript-surface.test.kern",
+      "timingsMs": {
+        "projection": 7182.13,
+        "total": 7182.173
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/assignment-operators.kern",
+      "timingsMs": {
+        "projection": 2407.555,
+        "total": 2407.603
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/ecosystem-signatures.kern",
+      "timingsMs": {
+        "projection": 2617.058,
+        "total": 2617.1
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/external-boundary-utils.kern",
+      "timingsMs": {
+        "projection": 7619.623,
+        "total": 7619.671
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/external-symbol-utils.kern",
+      "timingsMs": {
+        "projection": 2900.805,
+        "total": 2900.845
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_AUTHORITY_DRIFT",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/import-metadata.kern",
+      "timingsMs": {
+        "projection": 5611.087,
+        "total": 5611.134
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/migrate-literals.kern",
+      "timingsMs": {
+        "projection": 3631.966,
+        "total": 3632.008
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_INVALID_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/python-sidecar.kern",
+      "timingsMs": {
+        "projection": 3111.408,
+        "total": 3111.45
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+      "stage": "projection",
+      "file": "packages/core/src/kern/utils/version-detect.kern",
+      "timingsMs": {
+        "projection": 4886.646,
+        "total": 4886.686
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/tests/fixtures/rag-answer-contracts/full-grounded.kern",
+      "timingsMs": {
+        "projection": 2634.694,
+        "total": 2634.74
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/tests/fixtures/rag-answer-contracts/multi-span-grounded.kern",
+      "timingsMs": {
+        "projection": 2365.82,
+        "total": 2365.876
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/core/tests/fixtures/rag-answer-contracts/unknown-chunk.kern",
+      "timingsMs": {
+        "projection": 2287.31,
+        "total": 2287.35
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp01-command-injection.kern",
+      "timingsMs": {
+        "projection": 2568.882,
+        "total": 2568.925
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp02-path-traversal.kern",
+      "timingsMs": {
+        "projection": 2410.178,
+        "total": 2410.221
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp03-tool-poisoning.kern",
+      "timingsMs": {
+        "projection": 5806.354,
+        "total": 5806.394
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp04-secrets-exposure.kern",
+      "timingsMs": {
+        "projection": 2722.229,
+        "total": 2722.274
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp05-unsanitized-response.kern",
+      "timingsMs": {
+        "projection": 2720.614,
+        "total": 2720.659
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp06-missing-validation.kern",
+      "timingsMs": {
+        "projection": 2376.591,
+        "total": 2376.634
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp07-missing-auth.kern",
+      "timingsMs": {
+        "projection": 2509.685,
+        "total": 2509.735
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp08-typosquatting.kern",
+      "timingsMs": {
+        "projection": 1651.101,
+        "total": 1651.143
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp09-data-injection.kern",
+      "timingsMs": {
+        "projection": 2582.712,
+        "total": 2582.754
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp10-ssrf.kern",
+      "timingsMs": {
+        "projection": 3157.148,
+        "total": 3157.192
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp11-secret-leakage.kern",
+      "timingsMs": {
+        "projection": 5032.832,
+        "total": 5032.875
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp12-rug-pull.kern",
+      "timingsMs": {
+        "projection": 3523.5,
+        "total": 3523.544
+      }
+    },
+    {
+      "admitted": false,
+      "code": "UNEXPECTED_TOKEN",
+      "stage": "projection",
+      "file": "packages/review-mcp/rules/mcp13-insufficient-logging.kern",
+      "timingsMs": {
+        "projection": 2489.893,
+        "total": 2489.942
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/async-without-await.kern",
+      "timingsMs": {
+        "projection": 1721.262,
+        "total": 1721.307
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/boundary-mutation-global.kern",
+      "timingsMs": {
+        "projection": 1695.546,
+        "total": 1695.588
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/boundary-mutation-shared.kern",
+      "timingsMs": {
+        "projection": 1692.513,
+        "total": 1692.557
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/expect-range-inverted.kern",
+      "timingsMs": {
+        "projection": 1745.237,
+        "total": 1745.277
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/guard-without-else.kern",
+      "timingsMs": {
+        "projection": 1742.899,
+        "total": 1742.94
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/ignored-error.kern",
+      "timingsMs": {
+        "projection": 1798.567,
+        "total": 1798.611
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/illegal-dependency.kern",
+      "timingsMs": {
+        "projection": 1677.978,
+        "total": 1678.02
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/reason-without-basis.kern",
+      "timingsMs": {
+        "projection": 1710.142,
+        "total": 1710.185
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/unguarded-effect.kern",
+      "timingsMs": {
+        "projection": 1743.713,
+        "total": 1743.753
+      }
+    },
+    {
+      "admitted": false,
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "stage": "projection",
+      "file": "packages/review/src/rules/native/unrecovered-effect.kern",
+      "timingsMs": {
+        "projection": 1752.814,
+        "total": 1752.86
+      }
+    },
+    {
+      "admitted": false,
+      "code": "F4_F2B_DRIFT",
+      "stage": "projection",
+      "file": "packages/test/src/kern/safety-checks.kern",
+      "timingsMs": {
+        "projection": 1298.092,
+        "total": 1298.139
+      }
+    }
+  ],
+  "timeoutMs": 300000,
+  "total": 240
+}
