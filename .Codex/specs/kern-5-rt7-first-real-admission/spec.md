@@ -1,13 +1,14 @@
 # KERN 5 RT-7: The first real repository file runs on the owned pipeline
 
-**Status:** BLOCKED AT THE CANONICALIZER (amendment implemented and proved; it cannot
-land until `dist/runner.js` has a canonicalizer historical transition — see **Second blocker**)
+**Status:** IMPLEMENTED
 **Date:** 2026-09-01
 **Base:** `55e92de8` (RT-6 merged; contains RT-2 boolean `if`, RT-3 binary expressions,
 RT-4 same-module user calls, RT-6 void fall-through)
-**Implemented at:** `92883a84` (census runner), `f0105d47` (the one repository `.kern` edit),
-`9a6ac9c1` (ratchet, pinned rejection sample, fast test, root script),
-`3b886e42` (concurrent sweep), plus the ratified legacy-oracle amendment below
+**Implemented at** (rebased onto `06d82f84`, RT-5 merged): `a9ec617f` (census runner),
+`5a485119` (the one repository `.kern` edit), `8ced1ad6` (ratchet, pinned rejection sample,
+fast test, root script), `b41e50c9` (concurrent sweep), `00883c46` (census record),
+`eaa03304` (legacy-oracle amendment and its tests), `257abc41` (canonicalizer transition),
+`9892dc46` (receipts repinned onto the RT-5 base)
 **Confidence:** 0.93
 
 ## Executive Summary
@@ -82,9 +83,14 @@ regression fences), the amendment followed, and the exception is recorded here.
 | malformed export names | `fn name=9bad export=true returns=void` is **not** fatal today and was not before: `isPortableBindingName` skips it *before* the binding lookup. The brief expected a fatal. | Pre-existing behaviour, unchanged by the amendment. Pinned as fail-closed — never exported, never fatal — rather than mis-pinned as fatal. |
 | `returns=void` as a callable | Still has no binding and still cannot be called or imported. | Unchanged and deliberate; the skip only removes a link abort, it never creates a symbol. |
 
-## Second blocker — `runner.js` is inside the canonicalizer's frozen measurement closure
+## Second blocker (resolved) — `runner.js` is inside the canonicalizer's frozen measurement closure
 
-The amendment is correct and fully proved, but it **cannot land on this branch**.
+*Historical record — what the first canonicalizer run found, kept because the
+constraint it documents is permanent. The **Resolution** below is the current
+state.*
+
+The amendment was correct and fully proved, but at that point it **could not land
+on this branch**.
 
 `pnpm test:kern-canonicalizer` goes from **872/872 pass** at base to **810 pass /
 62 fail** with the ten-line amendment, and the documented receipts recipe cannot
@@ -128,11 +134,53 @@ for `dist/runner.js`**, in the shape of the existing
 structural and runtime-headroom authentication. That is an authenticated
 canonicalizer milestone, not a receipts refresh, and it is not RT-7's to invent.
 
-RT-7 stops here a second time rather than fabricate a milestone or push a branch
-that fails a declared gate. Everything else in the amendment is green and
-committed, so the follow-up slice starts from proved ground.
+The paragraph above is kept as the record of what was found. The conclusion it
+drew — that this needed an authenticated milestone of its own — was **wrong in one
+respect**, and the scoping pass that followed established why.
 
-## Current State / Root Cause## Current State / Root Cause
+### Resolution — a content-reconstruction transition, no measurement re-run
+
+`r1-runtime-owner-historical-transition.mjs` and the C-PY-1 layer reconstruct
+**added** paths: they restore a predecessor *inventory* by filtering added files
+out. `runner.js` is not an added file, it is a **changed** one, so that shape does
+not apply. The right precedent is the content-reconstruction chain inside
+`m4145CompiledCoreJavaScriptPaths()`: a frozen
+`{path, expectedDigest, replacements[]}` array fed through
+`reconstructHistoricalSource`, which rewrites current compiled bytes back to their
+archived form and refuses unless the result hashes to the archived digest.
+
+| Fact | Value |
+| --- | --- |
+| Predecessor (archived) `dist/runner.js` | `4ca61336834ca11a719b53add12211081392fe3dfa440098247b9faf7633ae95` |
+| Successor (amended) `dist/runner.js` | `db648ccf76dda1d353118cdc2d40f2fd710849f34f267d3e035a064b69491fda` |
+| Replacements | 2, each verified to occur **exactly once** |
+| Hand-authored size | 45 lines (33-line data module + 12-line wiring) |
+
+The amendment's entire compiled footprint is two contiguous insertions — the
+`isEntryOnlyVoidFunction` predicate and its two-line guard — so the predecessor is
+recovered by deleting both.
+
+**No measurement is re-run, and no floor moves.** Because the reconstruction
+reproduces the pre-amendment core *exactly*, `digestPreM4135CompiledCoreJavaScript()`
+and `digestM4145CompiledCoreJavaScript()` return their unchanged frozen values, so
+the M4.106, M4.127 and M4.145 runtime identities validate untouched. This binds
+history; it does not authenticate new headroom. That is what makes it a bounded
+transition layer rather than a milestone.
+
+Placement and blast radius: the layer runs **first** in the chain, ahead of
+runner-call-cache, because it is the most recent change. No other reconstruction
+targets `runner.js`, and `SCALAR_HELPER_HISTORY_INVENTORY` is a path inventory
+that a content change does not disturb, so nothing downstream is affected. The
+closest precedent, `branch-path-structural-target.mjs`, carries no dedicated test,
+and this layer matches it.
+
+The rebase onto RT-5 confirmed the scoping: the transition needed **no** change,
+because RT-5's `kir-runtime` work lands in paths the R1 runtime-owner transition
+already excludes from the historical inventories. Only the current-state
+`compiledCoreDigest` moved. `pnpm test:kern-canonicalizer` is **872/872** with the
+amendment in place, both before and after the rebase.
+
+## Current State / Root Cause
 
 `examples/kern-5-preview-app/ui.kern` declares `fn name=renderHome returns=void`
 with a handler whose body is twenty-three ordered `print` statements and nothing
@@ -379,12 +427,17 @@ each of those would need its own three-leg verification.
 | `scripts/kern-5-admission-census/admission.json` | Added | The 240-file sweep record. Evidence, not a golden: no test reads it. |
 | `package.json` | Modified | `test:kern-5-admission-census`, `sweep:kern-5-admission-census`. |
 | `packages/core/src/runner.ts` | Modified | The legacy-oracle amendment: one predicate plus one `continue`. 10 lines, native source runner only. |
-| `packages/core/tests/runner-source-executor.test.ts` | Modified | Seven tests: the descriptor-entry smoke path, the import fail-closed proof, and five regression fences. |
+| `packages/core/tests/runner-source-executor.test.ts` | Modified | Eight tests: the descriptor-entry smoke path, the import fail-closed proof, the export-map absence probe, and five regression fences. |
+| `scripts/kern-canonicalizer/runner-export-amendment-target.mjs` | Added | The `runner.js` content-reconstruction transition. 33 lines. |
+| `scripts/kern-canonicalizer/coverage-dependencies.mjs` | Modified | Wires that layer in first, ahead of runner-call-cache. 12 lines. |
+| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` | Modified | The `compiledCoreDigest` literal, repinned. |
+| `scripts/kern-canonicalizer/coverage-{summary,prerequisite-summary}.json` | Modified | Receipts, regenerated last. |
 
 **One production file**, `packages/core/src/runner.ts`, +10 lines, confined to the
-native source runner. No `packages/core/src` file is added or removed, so the
-canonicalizer historical-transition gate does not apply; the compiled-core digest
-does move, so the receipts recipe is run. `runner-runtime-scope.ts`, every
+native source runner. No `packages/core/src` file is added or removed. The
+compiled-core digest does move, which the receipts recipe repins, **and** the
+changed bytes require the content-reconstruction transition above — the receipts
+recipe alone cannot repair a changed file that sits in the frozen closure. `runner-runtime-scope.ts`, every
 F0-F5 / KIR / emitter file, `scripts/check-kern-5-preview-app.mjs`, `ci.yml` and
 every census digest are untouched.
 
@@ -408,8 +461,11 @@ every census digest are untouched.
   complete tracked sweep.
 - [x] The census does not modify any repository file it measures.
 - [x] No runtime, linker, emitter, F0-F5 or ledger source changed.
-- [x] RT-6 (52/52), RT-4 (50/50), RT-3 (142/142), RT-2 (35/35) and the
-  r1/r2/c-py-1/cli-shadow neighborhood (83/83) stay green.
+- [x] RT-6 (52/52), RT-4 (50/50), RT-3 (142/142), RT-2 (35/35), the merged RT-5
+  (86/86) and the r1/r2/c-py-1/cli-shadow neighborhood (83/83) stay green.
+- [x] `pnpm test:kern-canonicalizer` stays at 872/872, before and after the rebase
+  onto RT-5, with the `runner.js` transition carrying the changed compiled bytes
+  and no runtime measurement re-run.
 - [x] `pnpm test:runner-smoke` stays green on the **unmodified** smoke gate.
 - [x] A skipped void export stays unimportable and fails closed before any stdout.
 - [x] Every other unbound export keeps its existing fatal diagnostic.
@@ -503,6 +559,14 @@ None blocking.
 
 ## Follow-ups
 
+- **No transition generator is checked into the repository.** Every existing
+  `*-historical-transition.mjs` carries the header *"Generated authenticated
+  transition data; regenerate only from the two pinned commits"*, but the tool that
+  generates it is absent. This layer's data was hand-authored and then verified
+  mechanically: both replacement texts were asserted to occur exactly once, and the
+  reconstruction was asserted to hash to the archived predecessor digest before the
+  module was written. A checked-in generator would make the next such transition
+  reproducible rather than artisanal.
 - The five pinned rejections are all `projection` or `entry-selection` stage
   because the full sweep found **no** file that projects, exports an `fn`, and
   then fails at link. When one appears, pin it: the sample would then cover the
