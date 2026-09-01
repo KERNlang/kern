@@ -1,62 +1,76 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const AMENDMENTS = fileURLToPath(new URL('./amendments/', import.meta.url));
-const LEDGER = 'scripts/kern-frontend-closure/closure-ledger.json';
-const PINS = { 'scripts/kern-frontend-f5-projection/policy.json': 'composition' };
+import { PINS, checkLedger, checkStructure, fail } from './amend-record.mjs';
+
+const FLAG = process.argv.indexOf('--root');
+const ROOT = resolve(process.env.KERN_AMEND_ROOT
+  ?? (FLAG >= 0 ? process.argv[FLAG + 1] : fileURLToPath(new URL('../../', import.meta.url))));
+const HERE = 'scripts/kern-frontend-closure';
+const LEDGER = `${HERE}/closure-ledger.json`;
+const ANCHOR = `${HERE}/amendments/chain-anchor.json`;
 
 const digest = (path) => createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex');
 const load = (path) => JSON.parse(readFileSync(resolve(ROOT, path), 'utf8'));
 
-function fail(detail) {
-  throw new Error(`KERN frontend closure amendment: ${detail}`);
-}
-
-function checkAmendment(amendment, ledger) {
-  if (amendment.format !== 'kern.frontend.closure-amendment.1') fail(`${amendment.id} format`);
-  if (amendment.change !== 'additive') fail(`${amendment.id} is not an additive amendment`);
-  if (amendment.parentClosureLedgerSha256 !== digest(LEDGER)) fail(`${amendment.id} parent ledger digest`);
-  if (amendment.counts.nodes !== ledger.nodeClosure.count) fail(`${amendment.id} node count changed`);
-  if (amendment.counts.properties !== ledger.propertyClosure.count) fail(`${amendment.id} property count changed`);
-  const tally = new Map();
-  for (const row of amendment.rows) {
-    if (!(row.disposition in ledger.propertyClosure.dispositions)) fail(`${amendment.id} row ${row.stableKey}`);
-    tally.set(row.disposition, (tally.get(row.disposition) ?? 0) + 1);
+function walk(path, edges, genesis) {
+  let cursor = genesis;
+  const visited = new Set();
+  let pending;
+  for (;;) {
+    const matches = edges.filter((edge) => edge.parentDigest === cursor && !visited.has(edge));
+    if (matches.length === 0) break;
+    if (matches.length > 1) fail(`${path} chain forks at ${cursor}`);
+    visited.add(matches[0]);
+    if (matches[0].resultDigest === undefined) { pending = matches[0]; break; }
+    cursor = matches[0].resultDigest;
   }
-  for (const [disposition, count] of tally) {
-    if (count > ledger.propertyClosure.dispositions[disposition]) fail(`${amendment.id} claims unknown ${disposition} rows`);
-  }
-  if (new Set(amendment.rows.map((row) => row.stableKey)).size !== amendment.rows.length) fail(`${amendment.id} duplicate rows`);
+  if (visited.size !== edges.length) fail(`${path} carries an orphaned amendment edge`);
+  return { cursor, pending };
 }
 
 export function plan() {
   const ledger = load(LEDGER);
-  const claims = new Map();
-  for (const name of readdirSync(AMENDMENTS).filter((entry) => entry.endsWith('.json'))) {
-    const amendment = JSON.parse(readFileSync(resolve(AMENDMENTS, name), 'utf8'));
-    checkAmendment(amendment, ledger);
-    for (const entry of amendment.repin) {
-      if (!(entry.pin in PINS)) fail(`${amendment.id} names unsupported pin ${entry.pin}`);
-      if (claims.has(entry.path)) fail(`${entry.path} is claimed by more than one amendment`);
-      claims.set(entry.path, { ...entry, id: amendment.id });
+  const anchor = existsSync(resolve(ROOT, ANCHOR)) ? load(ANCHOR) : {};
+  const dir = `${HERE}/amendments`;
+  const seen = new Set();
+  const byPath = new Map();
+  for (const name of readdirSync(resolve(ROOT, dir)).sort()) {
+    if (!name.endsWith('.json') || name === 'chain-anchor.json') continue;
+    const record = load(`${dir}/${name}`);
+    checkStructure(record, ledger, seen);
+    for (const entry of record.repin) {
+      byPath.set(entry.path, [...(byPath.get(entry.path) ?? []), { ...entry, file: `${dir}/${name}`, record }]);
     }
   }
   const actions = [];
   for (const [pin, section] of Object.entries(PINS)) {
-    for (const descriptor of load(pin)[section]) {
-      const actual = digest(descriptor.path);
-      if (actual === descriptor.sha256) continue;
-      const claim = claims.get(descriptor.path);
-      if (claim === undefined) fail(`${descriptor.path} drifted with no amendment naming it`);
-      if (claim.pin !== pin) fail(`${claim.id} names ${descriptor.path} under a different pin`);
-      if (claim.parentDigest !== descriptor.sha256) fail(`${claim.id} parent digest for ${descriptor.path} is stale`);
-      actions.push({ actual, id: claim.id, path: descriptor.path, pin, section });
+    for (const { path, sha256 } of load(pin)[section]) {
+      const edges = (byPath.get(path) ?? []).filter((edge) => edge.pin === pin);
+      const actual = digest(path);
+      if (!Object.hasOwn(anchor, path)) {
+        if (edges.length > 0) fail(`${path} carries an unanchored amendment edge`);
+        if (actual !== sha256) fail(`${path} drifted with no amendment naming it`);
+        continue;
+      }
+      const { cursor, pending } = walk(path, edges, anchor[path]);
+      if (cursor !== sha256) fail(`${path} chain does not reach the current pin`);
+      if (pending === undefined && actual !== sha256) fail(`${path} drifted with no amendment naming it`);
+      if (pending !== undefined && actual !== sha256) {
+        checkLedger(pending.record, ledger, digest(LEDGER));
+        actions.push({ actual, edge: pending, pin });
+      }
     }
   }
   return actions;
+}
+
+function substitute(file, find, replace) {
+  const text = readFileSync(resolve(ROOT, file), 'utf8');
+  if (text.split(find).length !== 2) fail(`${file} is not uniquely rewritable`);
+  writeFileSync(resolve(ROOT, file), text.replace(find, replace));
 }
 
 function main() {
@@ -65,14 +79,12 @@ function main() {
     console.log(`KERN frontend closure amendment: chain verified, ${actions.length} pending re-pin(s).`);
     return;
   }
-  for (const pin of new Set(actions.map((action) => action.pin))) {
-    let text = readFileSync(resolve(ROOT, pin), 'utf8');
-    for (const action of actions.filter((candidate) => candidate.pin === pin)) {
-      const previous = load(pin)[action.section].find(({ path }) => path === action.path).sha256;
-      if (text.split(`"${previous}"`).length !== 2) fail(`${action.path} digest is not uniquely replaceable`);
-      text = text.replace(`"${previous}"`, `"${action.actual}"`);
-    }
-    writeFileSync(resolve(ROOT, pin), text);
+  for (const { actual, edge, pin } of actions) {
+    const anchored = `"parentDigest": "${edge.parentDigest}"`;
+    const indent = readFileSync(resolve(ROOT, edge.file), 'utf8').match(new RegExp(`([ \\t]*)${anchored}`, 'u'))?.[1];
+    if (indent === undefined) fail(`${edge.record.id} parent digest is not rewritable`);
+    substitute(pin, `"${edge.parentDigest}"`, `"${actual}"`);
+    substitute(edge.file, anchored, `${anchored},\n${indent}"resultDigest": "${actual}"`);
   }
   console.log(`KERN frontend closure amendment: re-pinned ${actions.length} entr(ies).`);
 }

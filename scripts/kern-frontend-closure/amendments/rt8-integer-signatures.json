@@ -33,7 +33,8 @@
     {
       "path": "examples/kern-frontend/f5-property-projection.kern",
       "pin": "scripts/kern-frontend-f5-projection/policy.json",
-      "parentDigest": "2db601683ecb9a09756f0a3bbd14ad1cae81ade17d75638d3b67ed2ba9724a0c"
+      "parentDigest": "2db601683ecb9a09756f0a3bbd14ad1cae81ade17d75638d3b67ed2ba9724a0c",
+      "resultDigest": "5b9c7ee66be8af03272d006b1b9fc7ef6c8588beaa43731ee7c0307a6ec86fb2"
     }
   ]
 }
