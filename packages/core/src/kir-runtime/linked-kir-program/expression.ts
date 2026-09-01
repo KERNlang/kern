@@ -106,7 +106,7 @@ export function crossCallExpressionType(
 // a nested async call straight past the position gate. The never binding makes adding one a tsc
 // error here first, so the variant cannot be admitted before this walk learns to look inside it.
 function asyncCallVariantUnhandled(expression: never): never {
-  unsupported(`unhandled linked expression variant ${JSON.stringify(expression)}`);
+  unsupported(`unhandled linked expression variant ${(expression as { readonly kind: string }).kind}`);
 }
 
 export function containsAsyncCall(expression: LinkedKernKirExpression, scope: LinkedKernKirTypeScope): boolean {

@@ -19,7 +19,6 @@ import {
   type ExpressionRuntime,
   HELPER_WALK_POLICY,
   matchesType,
-  type StatementStep,
   WALK_SEED,
   walkStatements,
 } from './expression.js';
