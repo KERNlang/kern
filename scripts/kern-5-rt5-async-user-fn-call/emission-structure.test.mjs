@@ -132,8 +132,21 @@ test('the async call chain still emits exactly one checkpoint per callee stateme
     /await __invokeCapability\([^;]*\);\s*\}\s*catch\(error\)[\s\S]*?__checkAbort\(\);/u.test(javascript),
     'RT5_POST_AWAIT_CHECKABORT_DROPPED: a checkpoint must follow the provider await',
   );
+  // The Python kernel's _invoke_capability already fails closed on an abort or a timeout before it
+  // returns, so removing this checkpoint is behaviourally equivalent on every fixture the suite can
+  // build. It is pinned structurally instead, so it cannot vanish unnoticed.
   const python = pythonHelperRegion(bytes.python, '_f0');
-  assert.ok(python.includes('_check_abort()'), 'the Python twin keeps its checkpoints');
+  assert.ok(
+    /await _invoke_capability\([\s\S]*?raise _Fault\("capability-error", "execution"\)\n\s+_check_abort\(\)/u.test(
+      python,
+    ),
+    'RT5_POST_AWAIT_CHECKABORT_DROPPED: a checkpoint must follow the Python provider await',
+  );
+  assert.equal(
+    (python.match(/_check_abort\(\)/gu) ?? []).length,
+    5,
+    'the Python helper keeps its checkpoints: two around the capability plus its extra pre-commit one, and one each for the let and the return',
+  );
 });
 
 test('both emitters still refuse a capability inside a helper that is not classified async', async () => {

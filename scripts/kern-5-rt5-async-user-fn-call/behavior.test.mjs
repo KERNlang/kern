@@ -43,6 +43,35 @@ const BRANCHING_ASYNC = Object.freeze({
   returns: 'string',
 });
 
+// The false side of a callee branch: without it a walker that always took the then-branch would
+// agree with the real one on every other fixture.
+const ELSE_TAKING_ASYNC = Object.freeze({
+  body: Object.freeze([
+    'if cond="flag"',
+    `  ${CAPABILITY_LINE}`,
+    '  print value="reply"',
+    'else',
+    '  print value="\\"else-side\\""',
+    'return value="\\"done\\""',
+  ]),
+  name: 'chooser',
+  parameters: BOOLEAN_FLAG,
+  returns: 'string',
+});
+
+const FALLTHROUGH_ASYNC = Object.freeze({
+  body: Object.freeze([
+    'if cond="flag"',
+    '  print value="\\"taken\\""',
+    CAPABILITY_LINE,
+    'print value="reply"',
+    'return value="\\"after\\""',
+  ]),
+  name: 'faller',
+  parameters: BOOLEAN_FLAG,
+  returns: 'string',
+});
+
 const ASYNC_LIST = Object.freeze({
   body: Object.freeze([CAPABILITY_LINE, 'return value="xs"']),
   name: 'pick',
@@ -66,6 +95,14 @@ const FIXTURES = Object.freeze({
   'async-callee-branching-internally': {
     args: () => textArgs('branch'),
     source: moduleSource([BRANCHING_ASYNC, entryFn(['return value="branchy(t)"'], TEXT_INPUT, 'string')]),
+  },
+  'async-callee-falling-through-an-untaken-branch': {
+    args: () => boolArgs({ flag: false }),
+    source: moduleSource([FALLTHROUGH_ASYNC, entryFn(['return value="faller(flag)"'], BOOLEAN_FLAG, 'string')]),
+  },
+  'async-callee-taking-the-else-side': {
+    args: () => boolArgs({ flag: false }),
+    source: moduleSource([ELSE_TAKING_ASYNC, entryFn(['return value="chooser(flag)"'], BOOLEAN_FLAG, 'string')]),
   },
   'async-callee-in-a-nested-block': {
     args: () => boolArgs({ flag: true }),
@@ -171,6 +208,43 @@ test('a callee capability commits its event into the caller buffer in dispatch o
     ],
     'the callee print, capability and caller print share one ordered buffer',
   );
+});
+
+const CAPABILITY_EVENT = Object.freeze({
+  input: { presence: 'absent' },
+  namespace: 'fixture',
+  op: 'capability',
+  operation: 'resolve',
+  result: { presence: 'value', value: { tag: 'text', value: 'reply-value' } },
+});
+
+test('an untaken callee branch runs its else side and reaches no capability', async () => {
+  const { legs } = await threeLegBytes(
+    FIXTURES['async-callee-taking-the-else-side'].source,
+    runtimeRequest('rt5-behavior-else-side', boolArgs({ flag: false })),
+  );
+  assert.deepEqual([...legs.direct.envelope.events], [{ op: 'stdout', text: 'else-side' }]);
+  assert.equal(legs.direct.calls.length, 0, 'the capability lives on the untaken side');
+  assert.equal(legs.javascript.calls.length, 0);
+  assert.equal(legs.python.calls.length, 0);
+});
+
+test('the same callee takes its then side when the condition holds', async () => {
+  const { legs } = await threeLegBytes(
+    FIXTURES['async-callee-taking-the-else-side'].source,
+    runtimeRequest('rt5-behavior-then-side', boolArgs({ flag: true })),
+  );
+  assert.deepEqual([...legs.direct.envelope.events], [CAPABILITY_EVENT, { op: 'stdout', text: 'reply-value' }]);
+  assert.equal(legs.direct.calls.length, 1, 'the then-side capability dispatches exactly once');
+});
+
+test('a callee falls through an untaken branch without running it', async () => {
+  const { legs } = await threeLegBytes(
+    FIXTURES['async-callee-falling-through-an-untaken-branch'].source,
+    runtimeRequest('rt5-behavior-fallthrough', boolArgs({ flag: false })),
+  );
+  assert.deepEqual([...legs.direct.envelope.events], [CAPABILITY_EVENT, { op: 'stdout', text: 'reply-value' }]);
+  assert.deepEqual(legs.direct.envelope.result.value, { tag: 'text', value: 'after' });
 });
 
 test('a callee dispatches exactly once per occurrence and the provider sees every call', async () => {

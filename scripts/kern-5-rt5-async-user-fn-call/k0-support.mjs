@@ -305,12 +305,13 @@ export function pythonHelperRegion(bytes, local) {
   const asyncStart = text.indexOf(`    async def ${local}(`);
   const from = start >= 0 ? start : asyncStart;
   assert.ok(from >= 0, `the emitted Python must define ${local}`);
-  const candidates = [text.indexOf('    def _f', from + 1), text.indexOf('    async def _f', from + 1)].filter(
-    (index) => index > from,
-  );
-  const end = candidates.length === 0 ? text.indexOf('    try:', from) : Math.min(...candidates);
-  assert.ok(end > from, 'helper definitions must precede the handler body');
-  return text.slice(from, end);
+  const candidates = [
+    text.indexOf('\n    def _f', from + 1),
+    text.indexOf('\n    async def _f', from + 1),
+    text.indexOf('\n    try:', from + 1),
+  ].filter((index) => index > from);
+  assert.ok(candidates.length > 0, 'helper definitions must precede the handler body');
+  return text.slice(from, Math.min(...candidates));
 }
 
 export function asyncEntryProgram(body, { helpers, parameters = TEXT_INPUT, returns = 'string' } = {}) {
