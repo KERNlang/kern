@@ -60,8 +60,11 @@ export.
 ### The amendment (ratified, `kern5-rt7-unblock` 4/4)
 
 `collectExplicitRunnerExports` now `continue`s past a missing binding **only**
-when the node is explicitly `returns === 'void'`, not `async`, not `stream`, and
-carries exactly one KERN handler. Every other unbound export keeps the existing
+when the node is explicitly `returns === 'void'`, not `async`, not `stream`,
+**declares no parameters in either spelling** (`params=` or `param` children), and
+carries exactly one KERN handler. The parameter guard mirrors
+`assertVoidRunnerEntry`: a descriptor entry may not take parameters, so a
+parameterized void export is not the entry-only shape the skip exists for. Every other unbound export keeps the existing
 fatal diagnostic, byte-for-byte. Absent and empty `returns` are deliberately
 **not** skippable — treating them as void would conceal a malformed export.
 
@@ -280,14 +283,36 @@ Three properties are gated:
   the gate red. Widening is `sweep.mjs --update`, run on purpose, never a silent
   side effect.
 
-### The fast test never sweeps
+### Two gates: a sampled fence and the corpus-wide invariant
 
-The full sweep is measured in hours, so it is a separate documented script
-(`pnpm sweep:kern-5-admission-census`). The default gate
-(`pnpm test:kern-5-admission-census`) resolves the whitelist plus five pinned
-known-rejected files with their expected first diagnostic, and exercises the
-sweep's timeout, progress-log and incremental-write behaviour against a
-one-millisecond budget. It runs in about nineteen seconds.
+These are different guarantees and the spec names them separately, because the
+fast one cannot prove what the slow one proves.
+
+**The sampled fence** — `pnpm test:kern-5-admission-census`, wired into
+`test:infra:contracts`, the root script CI's *Infrastructure contracts* lane runs.
+It resolves the whitelist plus **seven** pinned known-rejected files with their
+expected first diagnostic, and exercises the sweep's timeout, progress-log,
+incremental-write, atomic-write, `--update` refusal and corpus-invariant logic.
+The seven include all three files that clear F5 and stop only at the missing
+`export=true` — the nearest thing the corpus has to an accidental admission, and
+therefore the fence that matters most. It is a **sample**: it can prove that these
+files still fail closed, and it cannot prove that no *other* file started
+admitting.
+
+**The corpus-wide invariant** — `pnpm census:sweep`. It walks all 240 tracked
+files and asserts the real invariant: the admitted set equals the whitelist
+exactly, with no extra admissions and no regressions, exiting non-zero otherwise.
+This is the only place the whole admitted set is knowable. Measured: **543 s
+(9.1 min) at `--jobs 8`, exit 0, 1/240 admitted**. Serially it is hours — the
+first attempt was abandoned at 40/240.
+
+Running the fence costs about 77 seconds, of which roughly 51 are one file —
+`examples/kern-frontend/builtin-node-types.generated.kern` is large and slow to
+project. That single file is most of the fence's cost and is kept deliberately,
+because it is one of the three near-admissions.
+
+A CI lane for the full sweep is a **follow-up, not this slice**: nine minutes of
+wall time needs its own budget decision.
 
 ### The sweep may not lose or disturb its work
 
@@ -425,7 +450,7 @@ each of those would need its own three-leg verification.
 | `scripts/kern-5-admission-census/rejected-sample.json` | Added | Five pinned rejections with their first diagnostic. |
 | `scripts/kern-5-admission-census/census.test.mjs` | Added | The fast gate. |
 | `scripts/kern-5-admission-census/admission.json` | Added | The 240-file sweep record. Evidence, not a golden: no test reads it. |
-| `package.json` | Modified | `test:kern-5-admission-census`, `sweep:kern-5-admission-census`. |
+| `package.json` | Modified | `test:kern-5-admission-census` (also wired into `test:infra:contracts`), `census:sweep`, `sweep:kern-5-admission-census`. |
 | `packages/core/src/runner.ts` | Modified | The legacy-oracle amendment: one predicate plus one `continue`. 10 lines, native source runner only. |
 | `packages/core/tests/runner-source-executor.test.ts` | Modified | Eight tests: the descriptor-entry smoke path, the import fail-closed proof, the export-map absence probe, and five regression fences. |
 | `scripts/kern-canonicalizer/runner-export-amendment-target.mjs` | Added | The `runner.js` content-reconstruction transition. 33 lines. |
