@@ -2,7 +2,6 @@ import type { KernKirValue } from '../../kir-runtime/contracts.js';
 import { sha256 } from '../../kir-runtime/digest.js';
 import type {
   LinkedKernKirExpression,
-  LinkedKernKirHandler,
   LinkedKernKirHelper,
   LinkedKernKirParameterType,
   LinkedKernKirProgram,
@@ -229,6 +228,7 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
   if (linkedStatementsInvokeCapability(helper.handler.statements)) {
     throw new Error('a linked helper must not invoke a capability: the emitted helper is synchronous');
   }
+  const { returnType } = helper.handler;
   const scope = new Map<string, string>();
   const parameters = helper.handler.parameters.map((parameter, index) => {
     const name = `${local}p${index.toString(36)}`;
@@ -248,7 +248,7 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
   };
   const returnSource = (value: string): string => `        _check_abort()
         ${local}r = ${value}
-        if not _matches(${local}r, ${typeSource(helper.handler.returnType)}):
+        if not _matches(${local}r, ${typeSource(returnType)}):
             raise _Fault("unsupported-runtime-input", "execution")
         return ${local}r
 `;
@@ -260,11 +260,9 @@ ${guards.join('')}${body}        raise _Fault("handler-entry-unsupported", "exec
 `;
 }
 
-function specializedSource(
-  handler: LinkedKernKirHandler,
-  entry: LinkedKernKirProgram['entry'],
-  helpers: readonly LinkedKernKirHelper[] | undefined,
-): string {
+function specializedSource(linked: LinkedKernKirProgram): string {
+  const { entry, helpers } = linked;
+  const handler = linked.program;
   const calls = new Map<string, string>(
     (helpers ?? []).map((helper, index) => [helper.name, `_f${index.toString(36)}`]),
   );
@@ -284,10 +282,13 @@ function specializedSource(
     statementLocals.push(local);
     return local;
   };
-  const returnSource = (value: string): string => `        _meter.step()
+  const { returnType } = handler;
+  const returnSource = (value: string): string => {
+    if (returnType.kind === 'void') throw new Error('a void handler must not carry a return statement');
+    return `        _meter.step()
         _check_abort()
         _returned = ${value}
-        if not _matches(_returned, ${typeSource(handler.returnType)}):
+        if not _matches(_returned, ${typeSource(returnType)}):
             raise _Fault("invalid-handler-result", "execution")
         _result = {"presence": "value", "value": _returned}
         _check_abort()
@@ -296,6 +297,16 @@ function specializedSource(
         _check_abort()
         return {"completion": {"kind": "return"}, "diagnostics": [], "events": _events, "format": format, "outcome": "success", "requestId": _request["requestId"], "result": _result}
 `;
+  };
+  const tail =
+    returnType.kind === 'void'
+      ? `        _check_abort()
+        _result = {"presence": "absent"}
+        if _success_bytes(_request["requestId"], _events, _result, _check_abort) > _request["limits"]["maxBytes"]:
+            raise _Fault("runtime-limit-exceeded", "execution")
+        _check_abort()
+        return {"completion": {"kind": "return"}, "diagnostics": [], "events": _events, "format": format, "outcome": "success", "requestId": _request["requestId"], "result": _result}`
+      : `        raise _Fault("handler-entry-unsupported", "execution")`;
   const body = blockSource(handler.statements, bindings, calls, nextLocal, returnSource);
   const hasCapability = linkedStatementsInvokeCapability(handler.statements, linkedProgramHelpers(helpers));
   return `
@@ -330,7 +341,7 @@ ${parameterLines.join('\n')}
 
     _watcher = None if _external is None else asyncio.create_task(_watch_external())
 ${helperSources.join('')}    try:
-${body}        raise _Fault("handler-entry-unsupported", "execution")
+${body}${tail}
     finally:
         if _watcher is not None and not _watcher.done():
             _watcher.cancel()
@@ -367,7 +378,7 @@ function dataSource(value: unknown): string {
 }
 
 export function emitPython(program: LinkedKernKirProgram, manifestBase: TargetManifestBase): Uint8Array {
-  const source = `${KERNEL_SOURCE}${specializedSource(program.program, program.entry, program.helpers)}
+  const source = `${KERNEL_SOURCE}${specializedSource(program)}
 _manifest_base = ${dataSource(manifestBase)}
 with open(__file__, "rb") as _artifact_file:
     _artifact_sha256 = hashlib.sha256(_artifact_file.read()).hexdigest()
