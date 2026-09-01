@@ -4661,6 +4661,25 @@ describe('@kernlang/core/runner explicit void exports', () => {
     }
   });
 
+  // A descriptor entry may not take parameters, so a parameterized void export is not the
+  // entry-only shape the skip exists for and must keep failing closed.
+  test('a parameterized void export still fails closed, in both parameter spellings', () => {
+    const paramChild = [
+      'fn name=renderHome export=true returns=void',
+      '  param name=flag type=boolean',
+      '  handler lang="kern"',
+      '    print value="\\"home\\""',
+    ];
+    const legacyParams = [
+      'fn name=renderHome export=true returns=void params="flag:boolean"',
+      '  handler lang="kern"',
+      '    print value="\\"home\\""',
+    ];
+    for (const lines of [paramChild, legacyParams]) {
+      expect(() => executeKernSource(voidExport(lines))).toThrow(NATIVE_FATAL);
+    }
+  });
+
   test('an exported void main keeps its fatal, because main is unbound for a reason other than void', () => {
     expect(() =>
       executeKernSource(

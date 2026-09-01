@@ -282,6 +282,8 @@ function assertNoMainInImportedModule(root: IRNode, path: string): void {
 function isEntryOnlyVoidFunction(node: IRNode): boolean {
   if (node.props?.returns !== 'void' || node.props?.name === 'main') return false;
   if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream)) return false;
+  if (typeof node.props?.params === 'string' && node.props.params.trim() !== '') return false;
+  if ((node.children ?? []).some((child) => child.type === 'param')) return false;
   return (node.children ?? []).filter((child) => child.type === 'handler' && child.props?.lang === 'kern').length === 1;
 }
 
