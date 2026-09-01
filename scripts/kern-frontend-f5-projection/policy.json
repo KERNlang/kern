@@ -25,7 +25,7 @@
     { "path": "examples/kern-frontend/f5-charged-sort.kern", "sha256": "d480eef0ce7991b483987d677b53de6652f958040f9f7f765b60a89054d91149" },
     { "path": "examples/kern-frontend/f5-ordinal-composites.kern", "sha256": "952fe785cc1c50cf4d96dc862f0e930b83798341f3ce05c982f987b7c92da3e5" },
     { "path": "examples/kern-frontend/f5-expression-projection.kern", "sha256": "f913efd53270b0b5bf31c5344c56eae00d64a214cae46d0b88b49ddd81196a3e" },
-    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "2db601683ecb9a09756f0a3bbd14ad1cae81ade17d75638d3b67ed2ba9724a0c" },
+    { "path": "examples/kern-frontend/f5-property-projection.kern", "sha256": "5b9c7ee66be8af03272d006b1b9fc7ef6c8588beaa43731ee7c0307a6ec86fb2" },
     { "path": "examples/kern-frontend/f5-tree-projection.kern", "sha256": "7a887a4aa2e641f8a4a3d020d20cd70488500db938ff0b53bfbdd89e705d373d" },
     { "path": "examples/kern-frontend/f5-module-projection.kern", "sha256": "5ffd53e7986243da2cb9fcddbb81fab2d620d5a36c5794acda53a4c1e00eaa87" },
     { "path": "examples/kern-frontend/f5-projection-main.kern", "sha256": "155f1019dab32c15c975855e30c327ed5a7abfdf345d720fc95cd3b096be612c" }

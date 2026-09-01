@@ -15,12 +15,6 @@
         "FRONTEND_EXCLUDED_HOST_EXPRESSION"
       ],
       "status": "rejected"
-    },
-    "integer-signature": {
-      "diagnostics": [
-        "F5_AUTHORITY_DRIFT"
-      ],
-      "status": "fatal"
     }
   },
   "positions": {
