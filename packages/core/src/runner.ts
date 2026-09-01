@@ -276,6 +276,15 @@ function assertNoMainInImportedModule(root: IRNode, path: string): void {
   }
 }
 
+// A sync void `fn` with one KERN handler never has a callable binding, yet it is a legal
+// descriptor-selected entry. It stays out of the export map instead of aborting its module.
+// `main` is excluded from the binding map by name, not by its return type, so it keeps the fatal.
+function isEntryOnlyVoidFunction(node: IRNode): boolean {
+  if (node.props?.returns !== 'void' || node.props?.name === 'main') return false;
+  if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream)) return false;
+  return (node.children ?? []).filter((child) => child.type === 'handler' && child.props?.lang === 'kern').length === 1;
+}
+
 function collectExplicitRunnerExports(
   functions: ReadonlyMap<string, RunnerFunctionBinding>,
   classes: ReadonlyMap<string, RunnerClassBinding>,
@@ -290,6 +299,7 @@ function collectExplicitRunnerExports(
     if (node.type === 'fn') {
       const binding = functions.get(name);
       if (!binding) {
+        if (isEntryOnlyVoidFunction(node)) continue;
         throw new KernRunnerError(
           `link error: exported function '${name}' in '${path}' is unsupported by the native runner`,
         );
