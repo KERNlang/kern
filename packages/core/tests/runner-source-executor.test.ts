@@ -4566,3 +4566,121 @@ describe('@kernlang/core/runner module linking', () => {
     ).toBe(true);
   });
 });
+
+describe('@kernlang/core/runner explicit void exports', () => {
+  const NATIVE_FATAL = /is unsupported by the native runner/u;
+
+  function voidExport(lines: string[]): string {
+    return lines.join('\n');
+  }
+
+  test('an explicit sync void export does not poison descriptor-selected entry execution', () => {
+    const source = voidExport([
+      'fn name=renderHome export=true returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"home\\""',
+    ]);
+    expect(executeKernEntrySource(source, { kind: 'view', name: 'Home', handler: 'renderHome' })).toBe('home\n');
+  });
+
+  test('a skipped void export is not importable and rejects before stdout', () => {
+    const root = [
+      'use path="./ui"',
+      '  from name=renderHome kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({
+          '/app/ui.kern': voidExport([
+            'fn name=renderHome export=true returns=void',
+            '  handler lang="kern"',
+            '    print value="\\"home\\""',
+          ]),
+        }),
+      }),
+    ).toThrow(/does not export 'renderHome'/u);
+  });
+
+  // A kind-mismatched import reads the export map itself: a symbol present under the wrong kind
+  // reports the mismatch, so 'does not export' proves the skip never fabricated an export entry.
+  test('a skipped void export is absent from the export map, not merely unusable', () => {
+    const root = [
+      'use path="./ui"',
+      '  from name=renderHome kind=class',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({
+          '/app/ui.kern': voidExport([
+            'fn name=renderHome export=true returns=void',
+            '  handler lang="kern"',
+            '    print value="\\"home\\""',
+          ]),
+        }),
+      }),
+    ).toThrow(/does not export 'renderHome'/u);
+  });
+
+  test('an unbound non-void export still fails closed', () => {
+    for (const returns of ['number', 'string']) {
+      expect(() => executeKernSource(voidExport([`fn name=r export=true returns=${returns}`]))).toThrow(NATIVE_FATAL);
+    }
+  });
+
+  test('an absent or empty returns is never treated as void', () => {
+    for (const header of ['fn name=r export=true', 'fn name=r export=true returns=""']) {
+      expect(() =>
+        executeKernSource(voidExport([header, '  handler lang="kern"', '    print value="\\"x\\""'])),
+      ).toThrow(NATIVE_FATAL);
+    }
+  });
+
+  test('async, stream, handlerless and multi-handler void exports still fail closed', () => {
+    const fatal = [
+      ['fn name=r export=true async=true returns=void', '  handler lang="kern"', '    print value="\\"x\\""'],
+      ['fn name=r export=true stream=true returns=void', '  handler lang="kern"', '    print value="\\"x\\""'],
+      ['fn name=r export=true returns=void'],
+      [
+        'fn name=r export=true returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"x\\""',
+        '  handler lang="kern"',
+        '    print value="\\"y\\""',
+      ],
+    ];
+    for (const lines of fatal) {
+      expect(() => executeKernSource(voidExport(lines))).toThrow(NATIVE_FATAL);
+    }
+  });
+
+  test('an exported void main keeps its fatal, because main is unbound for a reason other than void', () => {
+    expect(() =>
+      executeKernSource(
+        voidExport(['fn name=main export=true returns=void', '  handler lang="kern"', '    print value="\\"x\\""']),
+      ),
+    ).toThrow(NATIVE_FATAL);
+  });
+
+  test('a malformed export name stays fail-closed: never exported, never fatal', () => {
+    const helper = voidExport([
+      'fn name=9bad export=true returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"x\\""',
+    ]);
+    expect(executeKernSource(`${helper}\n${mainProgram(['print value="\\"ok\\""'])}`)).toBe('ok\n');
+    expect(() =>
+      executeKernSource(
+        ['use path="./ui"', '  from name=9bad kind=fn', mainProgram(['print value="\\"unreached\\""'])].join('\n'),
+        { sourcePath: '/app/main.kern', moduleLoader: memoryModuleLoader({ '/app/ui.kern': helper }) },
+      ),
+    ).toThrow();
+  });
+});
