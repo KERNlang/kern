@@ -1,0 +1,70 @@
+{
+  "positions": {
+    "async-callee-of-async-callee": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "binary-operand": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "if-condition": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "let-value": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "list-literal-argument": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "nested-argument": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "nested-block-let-value": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "print-value": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "return-value": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "sync-callee-control": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "transitive-async-callee": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    }
+  }
+}
