@@ -216,13 +216,12 @@ async function run(
         return finish(Object.freeze({ presence: 'value', value }));
       }
     }
-    return undefined;
+    return returnType.kind === 'void' ? finish(Object.freeze({ presence: 'absent' })) : undefined;
   };
   try {
     frames.push({ statements: handler.statements, index: 0 });
     const returned = await runFrames();
     if (returned !== undefined) return returned;
-    if (returnType.kind === 'void') return finish(Object.freeze({ presence: 'absent' }));
     throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
   } finally {
     if (timer !== undefined) clearTimeout(timer);
