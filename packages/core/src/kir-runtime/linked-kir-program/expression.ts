@@ -102,8 +102,18 @@ export function crossCallExpressionType(
   return undefined;
 }
 
+// Exhaustive on purpose: a `default` that answered false would let a future expression variant carry
+// a nested async call straight past the position gate. The never binding makes adding one a tsc
+// error here first, so the variant cannot be admitted before this walk learns to look inside it.
+function asyncCallVariantUnhandled(expression: never): never {
+  unsupported(`unhandled linked expression variant ${JSON.stringify(expression)}`);
+}
+
 export function containsAsyncCall(expression: LinkedKernKirExpression, scope: LinkedKernKirTypeScope): boolean {
   switch (expression.kind) {
+    case 'literal':
+    case 'identifier':
+      return false;
     case 'user-call':
       return (
         scope.calls?.isAsync(expression.handlerName) === true ||
@@ -120,7 +130,7 @@ export function containsAsyncCall(expression: LinkedKernKirExpression, scope: Li
     case 'json-call':
       return containsAsyncCall(expression.argument, scope);
     default:
-      return false;
+      return asyncCallVariantUnhandled(expression);
   }
 }
 

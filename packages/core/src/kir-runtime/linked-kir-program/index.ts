@@ -31,6 +31,7 @@ export {
   linkedStatementsCallDepth,
   linkedStatementsInvokeCapability,
 } from './contracts.js';
+export { containsAsyncCall } from './expression.js';
 export {
   authenticateLinkedKernKirProjectionOrThrow,
   linkVerifiedKernKirProgram,

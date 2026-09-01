@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { RuntimeMeter } from '../../packages/core/dist/kir-runtime/inspect.js';
 import {
   LINKED_KIR_DEFAULT_CALL_POLICY,
+  containsAsyncCall,
   createLinkedKirClosureWalk,
   linkVerifiedKernKirProgram,
   linkVerifiedKernKirProgramOrThrow,
@@ -54,6 +55,7 @@ export {
   canonicalJson,
   compileJavaScript,
   compilePython,
+  containsAsyncCall,
   createLinkedKirClosureWalk,
   entryFn,
   envelopeBytes,
