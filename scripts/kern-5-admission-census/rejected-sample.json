@@ -1,0 +1,35 @@
+{
+  "format": "kern.5.admission-census.v1",
+  "rejected": [
+    {
+      "code": "no-exported-entry",
+      "file": "examples/agon-engine-islands.kern",
+      "stage": "entry-selection",
+      "wall": "the linker selects entries only from module.exports and this module exports nothing"
+    },
+    {
+      "code": "F4_F2B_DRIFT",
+      "file": "examples/api-routes.kern",
+      "stage": "projection",
+      "wall": "unquoted property values do not project"
+    },
+    {
+      "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+      "file": "examples/agon-pty-session.kern",
+      "stage": "projection",
+      "wall": "the module root is not an fn"
+    },
+    {
+      "code": "F4_AUTHORITY_DRIFT",
+      "file": "examples/audiofacets-toast.kern",
+      "stage": "projection",
+      "wall": "a node or property outside the projected authority"
+    },
+    {
+      "code": "UNEXPECTED_TOKEN",
+      "file": "examples/capstone-assertion-engine/sort.kern",
+      "stage": "projection",
+      "wall": "source the projection lexer does not accept"
+    }
+  ]
+}

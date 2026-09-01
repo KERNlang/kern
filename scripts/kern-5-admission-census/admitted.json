@@ -1,0 +1,23 @@
+{
+  "admitted": [
+    {
+      "envelopeDigest": "30f791df12c1532aabe238c97f7f301b52971314bdf0a0380584d2110540ff7f",
+      "eventCount": 23,
+      "file": "examples/kern-5-preview-app/ui.kern",
+      "handlerName": "renderHome",
+      "linkedProgramSha256": "53ddd3c1e543227c632bea2536fb0f285900f512dc0f3a4b9b874428b6e1b486",
+      "projectionArtifactSha256": "cb291c30a38ab49179a893cdeeebdbeef3d7cadff00985883deea8f1a56ee6d5",
+      "resultPresence": "absent"
+    }
+  ],
+  "format": "kern.5.admission-census.v1",
+  "limits": {
+    "maxBytes": 1000000,
+    "maxCollectionLength": 1000,
+    "maxDepth": 40,
+    "maxDiagnostics": 10,
+    "maxEvents": 256,
+    "maxSteps": 200000,
+    "maxStringBytes": 100000
+  }
+}
