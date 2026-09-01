@@ -1,4 +1,4 @@
-fn name=renderHome returns=void
+fn name=renderHome export=true returns=void
   handler lang="kern"
     print value="\"<!doctype html>\""
     print value="\"<html lang=\\\"en\\\">\""
