@@ -231,8 +231,7 @@ both emitted artifacts and both manifests. If it cannot hold, the slice stops.
 | `scripts/kern-5-rt5-async-user-fn-call/*` | Added | Probe matrix, classification golden, position gate, behavior, provider propagation, cancellation, metering, emission structure, compatibility, K0 divergence. |
 | `package.json` | Modified | Root `test:kern-5-rt5-async-user-fn-call` script. |
 
-Eight production files, 215 net production lines, inside the ten-file and
-700-line budget. No `packages/core/src` file is added or removed, so the
+Eight production files, inside the ten-file and 700-line budget. No `packages/core/src` file is added or removed, so the
 canonicalizer historical-transition gate does not apply.
 
 ## Acceptance Criteria
@@ -286,7 +285,8 @@ identity that must survive the change, so those rows are a regression fence.
 
 | Gate | Result |
 | --- | --- |
-| `pnpm test:kern-5-rt5-async-user-fn-call` | 74/74 |
+| `pnpm test:kern-5-rt5-async-user-fn-call` | 86/86 |
+| `pnpm test:kern-5-rt6-void-fallthrough` | 52/52 |
 | `pnpm test:kern-5-rt4-user-fn-call` | 50/50 |
 | `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
 | `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
@@ -301,6 +301,64 @@ twelve RT-4 digests to values recorded on the base before any production file
 moved. Independently, the eight production files were restored from `5e359bb6`,
 the package rebuilt, every helper-bearing digest recorded, the slice restored,
 rebuilt and recorded again: the diff is empty.
+
+## Review Round (PR #573, high-risk roster)
+
+Six of six reviewers returned ok with zero verified blockers and three
+needs-check items. All three were addressed.
+
+1. **Quadratic classification (verified, fixed).** The shared walk memoized a
+   helper reached *through* a call but not the helper a question was asked
+   *about*, so every nested call position rescanned its callee's whole statement
+   tree. `helperIsAsync` now caches its root in the same `done` map under the
+   same cycle-taint rule and counts the scan; the linker takes an optional walk
+   so the budget is directly observable. A nested-probe graph of `2n+1` helpers
+   costs exactly `2n+1` scans and doubling it adds exactly one scan per added
+   helper. Without the cache the same graph costs 41 scans for 17 helpers and
+   grows superlinearly.
+2. **Non-exhaustive position walk (fixed).** `containsAsyncCall` ended in a
+   `default` that answered false, so a future expression variant carrying
+   sub-expressions would have admitted a nested async call silently. It is now
+   exhaustive with a `never` binding; adding a variant was tried and is a `tsc`
+   error at exactly this call. The coverage table is checked against the
+   recomputed expression-kind inventory, so a new variant fails the table too.
+3. **Return-position nesting (verified sound, fixtures added).** `return` was
+   already gated: binary operands, an equality operand, a `Json` argument, a
+   list item, a record entry, an argument of a sync callee, an argument of an
+   async callee, and a form two calls deep inside a callee were each already
+   rejected on RT-1, emitted JavaScript and emitted CPython with the position
+   label, while an async call that is the whole return value stayed admitted.
+   All eight are now pinned as fixtures rather than left to inference.
+
+Ten further mutants cover the fixes; all ten die.
+
+| Mutant | Killed by |
+| --- | --- |
+| `helper-root-memo-removed` | link-budget |
+| `helper-root-not-counted` | link-budget |
+| `helper-root-cache-poisoned` | classification |
+| `containsAsyncCall` blind to binary / list / record / member / json-call / call arguments (six) | variant-coverage |
+| `return-position-ungated` | variant-coverage |
+
+## Integrating RT-6
+
+RT-6 (void fall-through) merged first and shares `execute.ts` and both emitters.
+The merge produced two findings.
+
+- **The shared walk now reports how it ended.** RT-6 completes a void handler at
+  the point the frame stack drains, which RT-5's core previously treated as an
+  error. The core returns `returned` or `drained`, so one walker still serves a
+  value-returning entry, a void entry and a helper, and both completions are
+  built inside the driver loop — no completion path crosses an `await` the
+  others do not.
+- **The capability step must stay inlined.** Delegating it to an `async` helper
+  added one microtask hop on RT-1 that no emitted leg has, and RT-6's tick fence
+  caught it: a void completion after a real await disagreed with the emitted
+  JavaScript at queue depth 3. Inlining removes the extra async frame.
+
+A third, smaller finding: the exhaustiveness diagnostic originally serialized the
+variant it rejected, which the R2 semantic closure forbids anywhere the
+compiler's lowering can reach. It names the variant kind instead.
 
 ## Mutation Battery
 
