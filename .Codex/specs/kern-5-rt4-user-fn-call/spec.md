@@ -4,8 +4,8 @@
 **Date:** 2026-09-01
 **Base:** `1324f54a` (RT-3 merged; contains RT-2 boolean `if` and RT-3 binary expressions)
 **Implemented at:** `c03e11cc` (probe matrix), `af34092f` (linked program and RT-1),
-`a4cd6fa0` (both emitters), `b0a89a55` (oracle suite)
-**Confidence:** 0.93
+`a4cd6fa0` (both emitters), `b0a89a55` (oracle suite), plus the review-fix commit below
+**Confidence:** 0.94
 
 ## Executive Summary
 
@@ -124,6 +124,34 @@ link and defensively by tag at run time on all three legs.
 RT-3's `LinkedKernKirStaticType` is deliberately left as `boolean | integer`.
 A separate resolver answers the cross-call question, so admitting text across a
 call boundary does not silently admit `text == text` into the RT-3 binary gate.
+
+### Call depth is a bounded, configurable policy
+
+Every leg dispatches a call on its own host stack, so the reachable chain is
+bounded once at the single admission edge; no leg ever executes a chain another
+leg could overflow on. `LINKED_KIR_DEFAULT_CALL_POLICY` declares the default
+`maxCallDepth` of 16 and is threaded through `linkVerifiedKernKirProgram` and
+`linkVerifiedKernKirProgramOrThrow` as an optional argument, so a host may raise
+or lower it. Exceeding it fails closed at link with `KIR_CALL_DEPTH_EXCEEDED`
+under the existing closed code.
+
+- **Measured basis for the default.** F5 stops projecting a helper chain
+  somewhere between 33 and 40 functions; a 33-deep chain projects and a 32-deep
+  chain executes cleanly on RT-1, emitted JavaScript, and emitted CPython. The
+  default of 16 leaves roughly a 2x margin under the deepest chain measured good
+  on every leg while staying inside the projectable range, so the gate is
+  exercised by real fixtures rather than being theoretical.
+
+### The closure traversal is linear
+
+The capability closure is a memoized post-order walk: each helper is visited at
+most once per walk, tracked in a `done` map alongside the active-path set that
+still detects cycles exactly. A result computed while any cycle was touched is
+never cached, so the answer stays exact even for a hand-built cyclic map. The
+linker threads one shared walk across the whole link, so the closure check is
+linear in the size of the reachable closure rather than in the number of paths
+through it. `visits` is exposed on the walk so the oracle can assert the budget
+directly instead of relying on wall clock.
 
 ### Recursion and the capability closure
 
@@ -276,9 +304,9 @@ rather than a RED gate.
 | `scripts/kern-5-rt4-user-fn-call/probe-matrix.test.mjs` | 4/4 |
 | `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs` | 6/6 |
 | `scripts/kern-5-rt4-user-fn-call/behavior.test.mjs` | 8/8 |
-| `scripts/kern-5-rt4-user-fn-call/type-gate.test.mjs` | 8/8 |
-| `scripts/kern-5-rt4-user-fn-call/effects.test.mjs` | 5/5 |
-| `scripts/kern-5-rt4-user-fn-call/tick-discipline.test.mjs` | 5/5 |
+| `scripts/kern-5-rt4-user-fn-call/type-gate.test.mjs` | 11/11 |
+| `scripts/kern-5-rt4-user-fn-call/effects.test.mjs` | 7/7 |
+| `scripts/kern-5-rt4-user-fn-call/tick-discipline.test.mjs` | 7/7 |
 | `scripts/kern-5-rt4-user-fn-call/k0-divergence.test.mjs` | 7/7 |
 | `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
 | `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
@@ -327,4 +355,8 @@ unsupported; it must never fall back to source or host semantics.
 | A capability anywhere in the reachable closure is executed and merely requires a provider. | A user call is a synchronous expression and RT-1's evaluator is synchronous, so an awaiting callee cannot exist without reintroducing the RT-2 microtask divergence. | A callee capability is rejected at link; the post-order closure traversal is both the rejecting mechanism and the entry's `hasCapability` computation. |
 | The RT-3 K0 golden can stay byte-identical. | Its `linkedExpressionKinds` is recomputed from the `LinkedKernKirExpression` union, which the FORM clause requires to gain `user-call`. | The golden changes additively by exactly one element, and the compatibility suite proves it by reconstructing the pre-slice bytes rather than pinning an opaque new hash. |
 | Helper-order invariance can be asserted on `LinkedKernKirProgram.sha256`. | That digest also covers `projectionArtifactSha256`, which legitimately tracks the source text, so reordering declarations changes it. | Invariance is asserted on the linked shape the slice owns, with a companion assertion that the two fixtures really are different source texts. |
+| The capability closure traversal was linear. | It cycle-guarded with an active-path set deleted after each path, so a capability-free helper DAG was re-traversed once per path - exponential, unmetered and non-interruptible at link time. Found by high-risk review. | The walk is memoized with an exact cycle-taint rule, the linker shares one walk, and a 24-helper diamond ladder asserts exactly 24 visits. |
+| An acyclic chain was safe because cycles are rejected. | A deep acyclic chain still recurses on the host stack in RT-1, the linker, and both emitted targets, so legs could diverge on where they overflow. Found by high-risk review. | A configurable link-time `maxCallDepth` policy rejects deeper reachable chains before any leg runs one. |
+| A capability could never reach helper emission. | Link rejects it, but `helperSource` still routed a capability statement through `capabilitySource`, an invalid-code emission path that would have written `await` into a synchronous helper. Found by high-risk review. | Both emitters throw before emitting such a helper, which the compilers map to the closed `artifact-emission-failure` code. |
+| Any duplicate function name in the module is ambiguous. | That widened rejection beyond the reachable closure. F5 in fact rejects a duplicate function name outright, so no such projection exists, but the linker rule was still wrong. Found by high-risk review. | Duplicates are recorded as ambiguous and only fault when a call actually resolves to one; the frontend fact is pinned as a fixture. |
 | `matchesType` belongs to `execute.ts`. | The callee frame walker needs it too. | It moved to `kir-runtime/expression.ts` and `execute.ts` imports it, keeping one definition. |
