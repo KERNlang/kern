@@ -9,6 +9,7 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
+import { POST_RUNNER_EXPORT_AMENDMENT_COMPILED_RECONSTRUCTIONS } from './runner-export-amendment-target.mjs';
 import {
   DECIMAL_ADMISSION_ISOLATION_HISTORICAL_TRANSITION,
   POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
@@ -473,6 +474,17 @@ function m4145CompiledCoreJavaScriptPaths() {
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = scalarHelperHistoryOverrides(canonicalRoot, runnerCallCachePaths, historicalPaths);
+  for (const reconstruction of POST_RUNNER_EXPORT_AMENDMENT_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-runner-export-amendment compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(reconstruction.path, reconstructHistoricalSource({
+      currentSource: overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-runner-export-amendment compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    }));
+  }
   for (const identity of RUNNER_CALL_CACHE_TYPE_ONLY_COMPILED_IDENTITIES) {
     if (!runnerCallCachePaths.includes(identity.path)) {
       fail(`runner-call-cache type-only path is absent from its predecessor: ${identity.path}`);
