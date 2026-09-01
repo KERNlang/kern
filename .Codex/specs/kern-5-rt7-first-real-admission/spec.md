@@ -1,6 +1,7 @@
 # KERN 5 RT-7: The first real repository file runs on the owned pipeline
 
-**Status:** IMPLEMENTED
+**Status:** BLOCKED (admission proved on all three legs; the one allowed `.kern` edit
+regresses a neighbouring repository gate — see **Blocker** below)
 **Date:** 2026-09-01
 **Base:** `55e92de8` (RT-6 merged; contains RT-2 boolean `if`, RT-3 binary expressions,
 RT-4 same-module user calls, RT-6 void fall-through)
@@ -19,6 +20,58 @@ projects, links, compiles to both targets, and executes on RT-1, the emitted
 JavaScript ESM and the emitted Python with byte-identical envelopes. A monotone
 admission census is born at **1 of 240**, so the next slice cannot claim progress
 it did not make and cannot lose the ground this one took.
+
+## Blocker — STOP, do not widen
+
+The KIR admission works exactly as specified: `ui.kern` projects, links, compiles
+to both targets and runs to byte-identical envelopes on all three legs. **The
+single allowed edit nevertheless breaks a different consumer of the same file.**
+
+`pnpm test:runner-smoke` runs `scripts/check-kern-5-preview-app.mjs`, which
+renders the home view through the **native source runner**
+(`executeKernEntrySource`), not through the KIR pipeline. That runner refuses the
+edited file:
+
+```
+link error: exported function 'renderHome' in '<entry>' is unsupported by the native runner
+UI route returned 500
+```
+
+Measured both ways on this branch, with nothing else changed:
+
+| `ui.kern` line 1 | `check-kern-5-preview-app.mjs` |
+| --- | --- |
+| `fn name=renderHome returns=void` | `kern 5 preview app smoke passed` |
+| `fn name=renderHome export=true returns=void` | link error, UI route 500 |
+
+Root cause, two files, both frozen for this slice:
+
+- `packages/core/src/runner-runtime-scope.ts`, `runnerFunctionBinding`:
+  `if (node.props?.returns === undefined || node.props.returns === '' || node.props.returns === 'void') return undefined;`
+  — the native runner **excludes every `returns=void` function** from its binding
+  map.
+- `packages/core/src/runner.ts`, `collectExplicitRunnerExports`: an `export=true`
+  `fn` with no binding is a **fatal** link error, not a skip.
+
+So in the native source runner `export=true` and `returns=void` are mutually
+exclusive: an unexported void `fn` is silently ignored, an exported one is fatal.
+The KIR linker requires the export; the native runner forbids it on a void
+handler. `ui.kern` cannot satisfy both today.
+
+`pnpm test:runner-smoke` is a CI gate (`.github/workflows/ci.yml`), so this
+branch is CI-red as it stands.
+
+Every fix crosses this slice's freeze and belongs to a separate, tribunal-scoped
+slice:
+
+| Option | Change | Why it is not RT-7 |
+| --- | --- | --- |
+| A | bind `returns=void` functions in the native runner | changes reference-runner semantics for every void `fn` in the repository |
+| B | make an unbindable exported `fn` a skip instead of a link error | turns a fail-closed gate into silence |
+| C | move the preview server off the native source runner | a production change to `examples/kern-5-preview-app/server.mjs` and its manifest |
+
+RT-7 stops here rather than take any of them. The census, the ratchet and the
+three-leg evidence stand on their own and are unaffected by the choice.
 
 ## Current State / Root Cause
 
@@ -293,6 +346,8 @@ does not apply and its receipts do not move.
 - [x] No runtime, linker, emitter, F0-F5 or ledger source changed.
 - [x] RT-6 (52/52), RT-4 (50/50), RT-3 (142/142), RT-2 (35/35) and the
   r1/r2/c-py-1/cli-shadow neighborhood (83/83) stay green.
+- [ ] **`pnpm test:runner-smoke` stays green.** It does not: the native source
+  runner refuses an exported void `fn`. See **Blocker**.
 
 ## RED Oracle
 
