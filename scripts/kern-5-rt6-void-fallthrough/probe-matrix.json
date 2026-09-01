@@ -1,0 +1,50 @@
+{
+  "bareReturnStatement": {
+    "keys": [],
+    "kind": "return"
+  },
+  "projection": {
+    "bareReturnInVoidHandler": {
+      "status": "projected"
+    },
+    "nonVoidFallthrough": {
+      "status": "projected"
+    },
+    "voidEntryFallthrough": {
+      "status": "projected"
+    },
+    "voidHelperDeclared": {
+      "status": "projected"
+    },
+    "voidHelperInCallPosition": {
+      "status": "projected"
+    },
+    "voidHelperStatementCall": {
+      "diagnostics": [
+        "F4_AUTHORITY_DRIFT"
+      ],
+      "status": "rejected"
+    },
+    "voidParameterType": {
+      "diagnostics": [
+        "F5_AUTHORITY_DRIFT"
+      ],
+      "status": "rejected"
+    },
+    "voidValueReturn": {
+      "status": "projected"
+    }
+  },
+  "voidReturnsProperty": {
+    "tag": "record",
+    "value": [
+      {
+        "key": "kind",
+        "value": {
+          "tag": "text",
+          "value": "void"
+        }
+      }
+    ]
+  }
+}
