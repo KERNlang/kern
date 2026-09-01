@@ -1,10 +1,10 @@
 {
   "positions": {
     "async-callee-of-async-callee": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "binary-operand": {
       "javascript": "handler-entry-unsupported",
@@ -19,10 +19,10 @@
       "rt1": "handler-entry-unsupported"
     },
     "let-value": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "list-literal-argument": {
       "javascript": "handler-entry-unsupported",
@@ -37,22 +37,22 @@
       "rt1": "handler-entry-unsupported"
     },
     "nested-block-let-value": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "print-value": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "return-value": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "sync-callee-control": {
       "javascript": "admitted",
@@ -61,10 +61,10 @@
       "rt1": "admitted"
     },
     "transitive-async-callee": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     }
   }
 }

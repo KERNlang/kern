@@ -14,13 +14,13 @@ import {
 import { createExecutionDeadline, type ExecutionDeadline } from './deadline.js';
 import { failureEnvelope, successEnvelopeBytes } from './envelope.js';
 import {
+  calleeBindings,
   ENTRY_WALK_POLICY,
   type ExpressionRuntime,
   HELPER_WALK_POLICY,
+  matchesType,
   type StatementStep,
   WALK_SEED,
-  calleeBindings,
-  matchesType,
   walkStatements,
 } from './expression.js';
 import { inspectRequest, inspectSlot, plainRecord, type RuntimeMeter } from './inspect.js';

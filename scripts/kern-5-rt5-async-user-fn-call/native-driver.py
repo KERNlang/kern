@@ -29,7 +29,7 @@ async def main(module, payload):
             external.set()
         return {"presence": "value", "value": {"tag": "text", "value": "reply-value"}}
 
-    options = {"invoke": invoke}
+    options = {} if payload.get("omitProvider", False) else {"invoke": invoke}
     if external is not None:
         options["signal"] = external
     envelope = await asyncio.wait_for(module.execute(payload["request"], options), timeout=5)

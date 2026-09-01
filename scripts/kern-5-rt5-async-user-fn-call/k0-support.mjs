@@ -10,6 +10,7 @@ import {
   createLinkedKirClosureWalk,
   linkVerifiedKernKirProgram,
   linkVerifiedKernKirProgramOrThrow,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
 } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
@@ -63,6 +64,7 @@ export {
   linkVerifiedKernKirProgram,
   linkVerifiedKernKirProgramOrThrow,
   linkedProgram,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
   moduleSource,
@@ -140,7 +142,7 @@ export function abortingProvider(controller, invocation, calls = []) {
 
 const CHILD_MAX_BYTES = 200_000;
 
-function javascriptDriver(abortAtInvocation) {
+function javascriptDriver(abortAtInvocation, omitProvider) {
   return [
     "import { readFile, writeFile } from 'node:fs/promises';",
     'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
@@ -158,13 +160,14 @@ function javascriptDriver(abortAtInvocation) {
     '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
     '  },',
     '};',
+    ...(omitProvider === true ? ['delete options.invoke;'] : []),
     'if (abortAt !== undefined) options.signal = controller.signal;',
     'const result = await module.execute(request, options);',
     'await writeFile(outputPath, JSON.stringify({ calls, envelope: result }));',
   ].join('\n');
 }
 
-export async function runJavaScriptChild(bytes, request, { abortAtInvocation } = {}) {
+export async function runJavaScriptChild(bytes, request, { abortAtInvocation, omitProvider } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'kern-rt5-js-')));
   try {
     const entry = join(directory, 'entry.mjs');
@@ -173,7 +176,7 @@ export async function runJavaScriptChild(bytes, request, { abortAtInvocation } =
     const output = join(directory, 'output.json');
     await Promise.all([
       writeFile(entry, bytes),
-      writeFile(driver, javascriptDriver(abortAtInvocation)),
+      writeFile(driver, javascriptDriver(abortAtInvocation, omitProvider)),
       writeFile(input, JSON.stringify(request)),
     ]);
     const node22 = process.env.KERN_NODE22 ?? process.execPath;
@@ -210,7 +213,7 @@ function python312() {
   return executable;
 }
 
-export async function runPythonChild(bytes, request, { abortAtInvocation } = {}) {
+export async function runPythonChild(bytes, request, { abortAtInvocation, omitProvider } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'kern-rt5-py-')));
   try {
     const entry = join(directory, 'entry.py');
@@ -220,7 +223,10 @@ export async function runPythonChild(bytes, request, { abortAtInvocation } = {})
     await Promise.all([
       writeFile(entry, bytes),
       writeFile(driver, await readFile(new URL('./native-driver.py', import.meta.url))),
-      writeFile(input, JSON.stringify({ abortAtInvocation: abortAtInvocation ?? null, request })),
+      writeFile(
+        input,
+        JSON.stringify({ abortAtInvocation: abortAtInvocation ?? null, omitProvider: omitProvider === true, request }),
+      ),
     ]);
     const run = spawnSync(python312(), ['-I', driver, entry, input, output], {
       cwd: directory,

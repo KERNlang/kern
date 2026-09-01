@@ -375,9 +375,7 @@ export function linkedProgramHelpers(
   return new Map(helpers.map((helper) => [helper.name, helper.handler]));
 }
 
-export function linkedProgramAsyncHelpers(
-  helpers: readonly LinkedKernKirHelper[] | undefined,
-): ReadonlySet<string> {
+export function linkedProgramAsyncHelpers(helpers: readonly LinkedKernKirHelper[] | undefined): ReadonlySet<string> {
   return new Set((helpers ?? []).filter((helper) => helper.async === true).map((helper) => helper.name));
 }
 
