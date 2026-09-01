@@ -9,6 +9,7 @@ import type {
 } from '../../kir-runtime/linked-kir-program/index.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
 } from '../../kir-runtime/linked-kir-program/index.js';
@@ -63,7 +64,10 @@ function valueSource(value: KernKirValue): string {
   }
 }
 
-type CallLocals = ReadonlyMap<string, string>;
+interface CallLocals {
+  readonly async: ReadonlySet<string>;
+  readonly locals: ReadonlyMap<string, string>;
+}
 
 function expressionSource(
   expression: LinkedKernKirExpression,
@@ -95,8 +99,11 @@ function expressionSource(
         .join(',')}])})`;
       break;
     case 'user-call': {
-      const helper = calls.get(expression.handlerName);
+      const helper = calls.locals.get(expression.handlerName);
       if (helper === undefined) throw new Error('linked expression references a missing helper');
+      if (calls.async.has(expression.handlerName)) {
+        throw new Error('an async helper is only callable as the whole value of a statement');
+      }
       source = `${helper}(${expression.arguments.map((argument) => expressionSource(argument, bindings, calls)).join(',')})`;
       break;
     }
@@ -123,6 +130,24 @@ function expressionSource(
     }
   }
   return `(__meter.step(),${source})`;
+}
+
+// Python cannot put an await inside the lambda every expression node is wrapped in, so both targets
+// lower an async call at the statement boundary instead. The call node's own meter step is emitted
+// here, keeping the order - call node, then arguments left to right, then dispatch - identical to
+// the synchronous lowering.
+function statementValueSource(
+  expression: LinkedKernKirExpression,
+  bindings: ReadonlyMap<string, string>,
+  calls: CallLocals,
+): string {
+  if (expression.kind !== 'user-call' || !calls.async.has(expression.handlerName)) {
+    return expressionSource(expression, bindings, calls);
+  }
+  const helper = calls.locals.get(expression.handlerName);
+  if (helper === undefined) throw new Error('linked expression references a missing helper');
+  const args = expression.arguments.map((argument) => expressionSource(argument, bindings, calls)).join(',');
+  return `(__meter.step(),await ${helper}(${args}))`;
 }
 
 function typeSource(type: LinkedKernKirParameterType): string {
@@ -175,14 +200,14 @@ function leafSource(
 ): string {
   if (statement.kind === 'capability') return capabilitySource(statement, local, bindings, calls);
   if (statement.kind === 'let') {
-    const value = expressionSource(statement.value, bindings, calls);
+    const value = statementValueSource(statement.value, bindings, calls);
     bindings.set(statement.name, local);
     return `
       __meter.step(); __checkAbort();
       ${local}=${value};`;
   }
   if (statement.kind === 'print') {
-    const value = expressionSource(statement.value, bindings, calls);
+    const value = statementValueSource(statement.value, bindings, calls);
     return `
       __meter.step(); __checkAbort();
       {const __printed=${value};
@@ -202,7 +227,7 @@ function blockSource(
 ): string {
   return statements
     .map((statement) => {
-      if (statement.kind === 'return') return returnSource(expressionSource(statement.value, scope, calls));
+      if (statement.kind === 'return') return returnSource(statementValueSource(statement.value, scope, calls));
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
@@ -227,7 +252,8 @@ function blockSource(
 }
 
 function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLocals): string {
-  if (linkedStatementsInvokeCapability(helper.handler.statements)) {
+  const isAsync = helper.async === true;
+  if (!isAsync && linkedStatementsInvokeCapability(helper.handler.statements)) {
     throw new Error('a linked helper must not invoke a capability: the emitted helper is synchronous');
   }
   const { returnType } = helper.handler;
@@ -254,7 +280,7 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
       return ${local}r;}`;
   const body = blockSource(helper.handler.statements, scope, calls, nextLocal, returnSource);
   const declarations = locals.length === 0 ? '' : `let ${locals.join(',')};`;
-  return `const ${local}=(${parameters.join(',')})=>{
+  return `const ${local}=${isAsync ? 'async' : ''}(${parameters.join(',')})=>{
       __meter.step();
       ${guards.join('')}${declarations}${body}
       throw new __Fault('handler-entry-unsupported','execution');
@@ -265,9 +291,10 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
 function specializedSource(linked: LinkedKernKirProgram): string {
   const { entry, helpers } = linked;
   const handler = linked.program;
-  const calls = new Map<string, string>(
-    (helpers ?? []).map((helper, index) => [helper.name, `__f${index.toString(36)}`]),
-  );
+  const calls: CallLocals = {
+    async: linkedProgramAsyncHelpers(helpers),
+    locals: new Map<string, string>((helpers ?? []).map((helper, index) => [helper.name, `__f${index.toString(36)}`])),
+  };
   const helperSources = (helpers ?? []).map((helper, index) => helperSource(helper, `__f${index.toString(36)}`, calls));
   const bindings = new Map<string, string>();
   const argumentNames = handler.parameters.map((parameter) => encodedText(parameter.name));

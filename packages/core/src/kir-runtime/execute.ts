@@ -13,13 +13,21 @@ import {
 } from './contracts.js';
 import { createExecutionDeadline, type ExecutionDeadline } from './deadline.js';
 import { failureEnvelope, successEnvelopeBytes } from './envelope.js';
-import { type ExpressionRuntime, evaluateExpression, matchesType } from './expression.js';
+import {
+  calleeBindings,
+  ENTRY_WALK_POLICY,
+  type ExpressionRuntime,
+  HELPER_WALK_POLICY,
+  matchesType,
+  WALK_SEED,
+  walkStatements,
+} from './expression.js';
 import { inspectRequest, inspectSlot, plainRecord, type RuntimeMeter } from './inspect.js';
 import {
   authenticateLinkedKernKirProjectionOrThrow,
   type LinkedKernKirHelper,
   type LinkedKernKirProgram,
-  type LinkedKernKirStatement,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
   linkVerifiedKernKirProgramOrThrow,
@@ -123,106 +131,94 @@ async function run(
     });
   };
   const runtime: ExpressionRuntime = {
+    asyncHelpers: linkedProgramAsyncHelpers(helpers),
     checkAbort,
     events,
     helpers: linkedHelpers,
     maxEvents: request.limits.maxEvents,
   };
-  const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [];
-  const runFrames = async (): Promise<KernKirEnvelope | undefined> => {
-    while (frames.length > 0) {
-      const frame = frames[frames.length - 1];
-      if (frame.index >= frame.statements.length) {
-        frames.pop();
+  // Continuation frames: a callee body is a walk pushed onto this stack, never host recursion, so
+  // the only await in a whole call chain is the provider call above. Both completions - a returned
+  // value and a drained void tail - are built inside this loop, so neither path crosses an await the
+  // other does not.
+  const stack = [walkStatements(handler, bindings, meter, runtime, ENTRY_WALK_POLICY)];
+  const runFrames = async (): Promise<KernKirEnvelope> => {
+    let resume = WALK_SEED;
+    for (;;) {
+      const step = stack[stack.length - 1].next(resume);
+      resume = WALK_SEED;
+      if (step.done) {
+        stack.pop();
+        if (stack.length > 0) {
+          if (step.value.kind === 'drained') {
+            throw new KernKirFault('handler-entry-unsupported', 'execution', 'helper did not return');
+          }
+          resume = step.value.value;
+          continue;
+        }
+        if (step.value.kind === 'returned') {
+          return finish(Object.freeze({ presence: 'value', value: step.value.value }));
+        }
+        if (returnType.kind === 'void') return finish(Object.freeze({ presence: 'absent' }));
+        throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
+      }
+      if (step.value.kind === 'call') {
+        meter.step();
+        const callee = step.value.handler;
+        stack.push(
+          walkStatements(callee, calleeBindings(callee, step.value.arguments), meter, runtime, HELPER_WALK_POLICY),
+        );
         continue;
       }
-      const statement = frame.statements[frame.index];
-      frame.index += 1;
-      meter.step();
-      checkAbort();
-      if (statement.kind === 'let') {
-        bindings.set(statement.name, evaluateExpression(statement.value, bindings, meter, runtime));
-      } else if (statement.kind === 'capability') {
-        const input: KernKirSlot =
-          statement.input === undefined
-            ? Object.freeze({ presence: 'absent' })
-            : Object.freeze({
-                presence: 'value',
-                value: evaluateExpression(statement.input, bindings, meter, runtime),
-              });
-        if (events.length + 1 > request.limits.maxEvents) {
-          throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
-        }
-        let rawResult: unknown;
-        try {
-          rawResult = await invokeCapability(
-            options.invoke as NonNullable<KernKirExecutionOptions['invoke']>,
-            {
-              namespace: statement.namespace,
-              operation: statement.operation,
-              input,
-              signal: controller.signal,
-            },
-            () =>
-              new KernKirFault(
-                reason === 'timeout' ? 'execution-timeout' : 'execution-cancelled',
-                'execution',
-                'capability interrupted',
-              ),
-          );
-        } catch (error) {
-          if (error instanceof KernKirFault) throw error;
-          throw new KernKirFault('capability-error', 'execution', 'capability provider failed');
-        }
-        checkAbort();
-        let result: KernKirSlot;
-        try {
-          result = inspectSlot(rawResult, meter, 'capability result');
-        } catch (error) {
-          if (error instanceof KernKirFault && error.code === 'runtime-limit-exceeded') throw error;
-          throw new KernKirFault('invalid-handler-result', 'execution', 'capability result is invalid');
-        }
-        if (result.presence !== 'value')
-          throw new KernKirFault('invalid-handler-result', 'execution', 'capability result is absent');
-        events.push(
-          Object.freeze({
-            input,
+      // Inlined, not delegated to an async helper: awaiting an extra async frame would add a
+      // microtask hop RT-1 has and the emitted legs do not, which is exactly what the tick fences
+      // measure.
+      const { input, statement } = step.value;
+      let rawResult: unknown;
+      try {
+        rawResult = await invokeCapability(
+          options.invoke as NonNullable<KernKirExecutionOptions['invoke']>,
+          {
             namespace: statement.namespace,
-            op: 'capability',
             operation: statement.operation,
-            result,
-          }),
+            input,
+            signal: controller.signal,
+          },
+          () =>
+            new KernKirFault(
+              reason === 'timeout' ? 'execution-timeout' : 'execution-cancelled',
+              'execution',
+              'capability interrupted',
+            ),
         );
-        bindings.set(statement.name, result.value);
-      } else if (statement.kind === 'print') {
-        const value = evaluateExpression(statement.value, bindings, meter, runtime);
-        if (value.tag !== 'text')
-          throw new KernKirFault('unsupported-runtime-input', 'execution', 'print expects text');
-        if (events.length + 1 > request.limits.maxEvents)
-          throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
-        events.push(Object.freeze({ op: 'stdout', text: value.value }));
-      } else if (statement.kind === 'if') {
-        const condition = evaluateExpression(statement.condition, bindings, meter, runtime);
-        if (condition.tag !== 'boolean')
-          throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
-        const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
-        if (branch !== undefined) frames.push({ statements: branch, index: 0 });
-      } else {
-        if (returnType.kind === 'void')
-          throw new KernKirFault('invalid-handler-result', 'execution', 'a void handler must not return a value');
-        const value = evaluateExpression(statement.value, bindings, meter, runtime);
-        if (!matchesType(value, returnType))
-          throw new KernKirFault('invalid-handler-result', 'execution', 'return type mismatch');
-        return finish(Object.freeze({ presence: 'value', value }));
+      } catch (error) {
+        if (error instanceof KernKirFault) throw error;
+        throw new KernKirFault('capability-error', 'execution', 'capability provider failed');
       }
+      checkAbort();
+      let slot: KernKirSlot;
+      try {
+        slot = inspectSlot(rawResult, meter, 'capability result');
+      } catch (error) {
+        if (error instanceof KernKirFault && error.code === 'runtime-limit-exceeded') throw error;
+        throw new KernKirFault('invalid-handler-result', 'execution', 'capability result is invalid');
+      }
+      if (slot.presence !== 'value')
+        throw new KernKirFault('invalid-handler-result', 'execution', 'capability result is absent');
+      events.push(
+        Object.freeze({
+          input,
+          namespace: statement.namespace,
+          op: 'capability',
+          operation: statement.operation,
+          result: slot,
+        }),
+      );
+      resume = slot.value;
     }
-    return returnType.kind === 'void' ? finish(Object.freeze({ presence: 'absent' })) : undefined;
   };
   try {
-    frames.push({ statements: handler.statements, index: 0 });
-    const returned = await runFrames();
-    if (returned !== undefined) return returned;
-    throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
+    return await runFrames();
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     options.signal?.removeEventListener('abort', cancel);

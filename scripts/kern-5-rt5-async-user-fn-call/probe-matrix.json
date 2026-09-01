@@ -1,0 +1,70 @@
+{
+  "positions": {
+    "async-callee-of-async-callee": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "binary-operand": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "if-condition": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "let-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "list-literal-argument": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "nested-argument": {
+      "javascript": "handler-entry-unsupported",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    "nested-block-let-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "print-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "return-value": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "sync-callee-control": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    "transitive-async-callee": {
+      "javascript": "admitted",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    }
+  }
+}

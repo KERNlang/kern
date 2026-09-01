@@ -31,10 +31,10 @@
       "rt1": "admitted"
     },
     "callee-capability": {
-      "javascript": "handler-entry-unsupported",
+      "javascript": "admitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "admitted",
+      "rt1": "admitted"
     },
     "exported-callee": {
       "javascript": "admitted",

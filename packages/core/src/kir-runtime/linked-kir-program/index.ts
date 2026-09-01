@@ -14,6 +14,7 @@ export {
   type LinkedKernKirCrossCallType,
   type LinkedKernKirCrossCallTypeContract,
   type LinkedKernKirEntry,
+  type LinkedKernKirEntryHandler,
   type LinkedKernKirExpression,
   type LinkedKernKirHandler,
   type LinkedKernKirHelper,
@@ -25,10 +26,12 @@ export {
   type LinkKernKirProgramResult,
   linkedKirBinaryOperator,
   linkedKirCrossCallType,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsCallDepth,
   linkedStatementsInvokeCapability,
 } from './contracts.js';
+export { containsAsyncCall } from './expression.js';
 export {
   authenticateLinkedKernKirProjectionOrThrow,
   linkVerifiedKernKirProgram,

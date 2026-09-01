@@ -186,6 +186,7 @@ test('positive admission is green before any negative counts', async () => {
     .sort();
   assert.deepEqual(admitted, [
     'binary-operand',
+    'callee-capability',
     'exported-callee',
     'if-condition',
     'json-intrinsic-control',
@@ -211,7 +212,7 @@ test('every negative position projects first, so it is a link decision and not a
   const rejected = Object.entries(golden.positions).filter(([, row]) => row.rt1 !== 'admitted');
   assert.deepEqual(
     rejected.map(([name]) => name).sort(),
-    ['callee-capability', 'cross-module', 'member-callee', 'optional-call', 'recursion', 'unknown-callee'],
+    ['cross-module', 'member-callee', 'optional-call', 'recursion', 'unknown-callee'],
   );
   for (const [name, row] of rejected) {
     assert.equal(row.projection, 'projected', `${name} must project before the linker rejects it`);

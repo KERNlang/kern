@@ -22,9 +22,11 @@ import {
   LINKED_KIR_VOID_RETURN_TYPE,
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
+  type LinkedKernKirClosureWalk,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
   type LinkedKernKirEntryHandler,
+  type LinkedKernKirExpression,
   type LinkedKernKirHandler,
   type LinkedKernKirHelper,
   type LinkedKernKirParameterType,
@@ -38,7 +40,12 @@ import {
   linkedKirCrossCallType,
   linkedStatementsInvokeCapability,
 } from './contracts.js';
-import { compileLinkedExpression, crossCallExpressionType, staticExpressionType } from './expression.js';
+import {
+  compileLinkedExpression,
+  containsAsyncCall,
+  crossCallExpressionType,
+  staticExpressionType,
+} from './expression.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
@@ -228,15 +235,57 @@ function resolveHelper(context: ModuleContext, name: string, label: string): Lin
   const { returnType } = compiled;
   if (returnType.kind === 'void') fault('handler-entry-unsupported', `${label}: KIR_VOID_HANDLER_NO_CALL_FORM`);
   const handler: LinkedKernKirHandler = Object.freeze({ ...compiled, returnType });
-  if (linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk)) {
-    fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_CAPABILITY`);
-  }
   context.linked.set(name, handler);
   return handler;
 }
 
+// The shared walk memoizes a helper reached through a call, but the helper a classification question
+// is asked *about* is its own root, so without this its whole statement tree would be rescanned once
+// per call site: quadratic, unmetered link work. The root is cached in the same map under the same
+// exact cycle-taint rule, so one scan per helper answers every call site.
+function helperIsAsync(context: ModuleContext, name: string): boolean {
+  const walk = context.closureWalk;
+  const memoized = walk.done.get(name);
+  if (memoized !== undefined) return memoized;
+  const handler = context.linked.get(name);
+  if (handler === undefined) return false;
+  if (walk.active.has(name)) {
+    walk.cycles += 1;
+    return false;
+  }
+  walk.active.add(name);
+  walk.visits += 1;
+  const enclosingCycles = walk.cycles;
+  const invokes = linkedStatementsInvokeCapability(handler.statements, context.linked, walk);
+  walk.active.delete(name);
+  if (walk.cycles === enclosingCycles) walk.done.set(name, invokes);
+  return invokes;
+}
+
 function callScope(context: ModuleContext): LinkedKernKirCallScope {
-  return { linked: context.linked, resolve: (name, label) => resolveHelper(context, name, label) };
+  return {
+    isAsync: (name) => helperIsAsync(context, name),
+    linked: context.linked,
+    resolve: (name, label) => resolveHelper(context, name, label),
+  };
+}
+
+// RT-4 rejected a capability anywhere in the reachable callee closure at every call position. RT-5
+// narrows that to a callee reached from a position with no statement-value continuation, so the
+// retained KIR_CALL_CALLEE_CAPABILITY label still names why the position gate refused.
+const ASYNC_POSITION_LABEL = 'KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)';
+
+function assertAsyncCallPosition(
+  value: LinkedKernKirExpression,
+  scope: LinkScope,
+  label: string,
+  statementValue: boolean,
+): void {
+  const misplaced =
+    statementValue && value.kind === 'user-call'
+      ? value.arguments.some((argument) => containsAsyncCall(argument, scope))
+      : containsAsyncCall(value, scope);
+  if (misplaced) fault('handler-entry-unsupported', `${label}: ${ASYNC_POSITION_LABEL}`);
 }
 
 function compileStatement(
@@ -260,6 +309,7 @@ function compileStatement(
       name,
       value: compileLinkedExpression(value, scope, meter, `${label}.value`),
     });
+    assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
     bindName(scope, name, staticExpressionType(compiled.value, scope), crossCallExpressionType(compiled.value, scope));
     return compiled;
   }
@@ -275,6 +325,7 @@ function compileStatement(
       operation: propertyText(properties, 'operation', label, meter),
       input: input === undefined ? undefined : compileLinkedExpression(input, scope, meter, `${label}.input`),
     });
+    if (compiled.input !== undefined) assertAsyncCallPosition(compiled.input, scope, `${label}.input`, false);
     bindName(scope, name, undefined, undefined);
     return compiled;
   }
@@ -282,7 +333,9 @@ function compileStatement(
     propertySet(properties, ['value'], [], label);
     const value = properties.get('value');
     if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
-    return Object.freeze({ kind, value: compileLinkedExpression(value, scope, meter, `${label}.value`) });
+    const compiled = Object.freeze({ kind, value: compileLinkedExpression(value, scope, meter, `${label}.value`) });
+    assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
+    return compiled;
   }
   fault('handler-entry-unsupported', `${label}: statement kind ${kind} is outside RT-1`);
 }
@@ -311,6 +364,7 @@ function compileIf(
   const cond = properties.get('cond');
   if (cond === undefined) fault('handler-entry-unsupported', `${label}.cond`);
   const condition = compileLinkedExpression(cond, scope, meter, `${label}.cond`);
+  assertAsyncCallPosition(condition, scope, `${label}.cond`, false);
   if (staticExpressionType(condition, scope) !== 'boolean') {
     fault('handler-entry-unsupported', `${label}.cond: KIR_IF_COND_NOT_BOOLEAN`);
   }
@@ -409,6 +463,7 @@ function selectHandler(
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
   policy: LinkedKernKirCallPolicy,
+  walk: LinkedKernKirClosureWalk,
 ): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirEntryHandler } {
   const projected = plainRecord(projection, 'projection');
   exact(projected, ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'], 'projection');
@@ -452,7 +507,7 @@ function selectHandler(
   if (candidates.length === 0) fault('handler-entry-not-found', 'entry function was not found');
   if (candidates.length !== 1) fault('handler-entry-ambiguous', 'entry function is ambiguous');
   const context: ModuleContext = {
-    closureWalk: createLinkedKirClosureWalk(),
+    closureWalk: walk,
     functions: undefined,
     linked: new Map<string, LinkedKernKirHandler>(),
     linking: new Set<string>([entry.handlerName]),
@@ -461,9 +516,13 @@ function selectHandler(
     rootNodes: roots,
   };
   const program = compileHandler(candidates[0], context, 'entry.function', true);
-  const helpers = [...context.linked.keys()]
-    .sort()
-    .map((name) => Object.freeze({ handler: context.linked.get(name) as LinkedKernKirHandler, name }));
+  // The fixed point async(f) = containsCapability(f) or an async callee is asked of the one shared
+  // memoized walk, once, after the whole reachable closure is linked and in name order, so the
+  // answer cannot depend on the order the helpers happened to resolve in.
+  const helpers = [...context.linked.keys()].sort().map((name) => {
+    const handler = context.linked.get(name) as LinkedKernKirHandler;
+    return Object.freeze(helperIsAsync(context, name) ? { async: true as const, handler, name } : { handler, name });
+  });
   return { helpers: Object.freeze(helpers), program };
 }
 
@@ -472,9 +531,10 @@ export function linkVerifiedKernKirProgramOrThrow(
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
   policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
+  walk: LinkedKernKirClosureWalk = createLinkedKirClosureWalk(),
 ): LinkedKernKirProgram {
   authenticateLinkedKernKirProjectionOrThrow(projection);
-  const { helpers, program } = selectHandler(projection, entry, meter, policy);
+  const { helpers, program } = selectHandler(projection, entry, meter, policy, walk);
   const projectionArtifactSha256 = sha256(projection.bytes);
   const base = Object.freeze({
     format: KERN_LINKED_KIR_PROGRAM_FORMAT,
@@ -491,11 +551,12 @@ export function linkVerifiedKernKirProgram(
   entry: LinkedKernKirEntry,
   limits: KernKirLimits,
   policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
+  walk: LinkedKernKirClosureWalk = createLinkedKirClosureWalk(),
 ): LinkKernKirProgramResult {
   try {
     return Object.freeze({
       outcome: 'success',
-      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits), policy),
+      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits), policy, walk),
     });
   } catch (error) {
     const code =
