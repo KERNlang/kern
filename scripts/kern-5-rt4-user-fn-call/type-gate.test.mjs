@@ -169,14 +169,27 @@ test('the closed cross-call type set is one exhaustive contract', () => {
   assert.deepEqual(LINKED_KIR_CROSS_CALL_TYPES['list<text>'], { element: 'text', kind: 'list' });
 });
 
-test('an integer signature never reaches the linker because F5 rejects it first', async () => {
-  const row = await admission(
+test('an integer signature in call position is gated by the closed cross-call type set, not by F5', async () => {
+  const uncalled = await admission(
     moduleSource([
       { body: ['return value="n"'], name: 'inc', parameters: [{ name: 'n', type: 'integer' }], returns: 'integer' },
       entryFn(['return value="true"'], []),
     ]),
   );
-  assert.equal(row.projection, 'not-projected', 'F5_AUTHORITY_DRIFT is the only integer-signature gate available');
+  assert.equal(uncalled.projection, 'projected', 'RT-8 admitted the integer spelling at F5');
+  assert.equal(uncalled.rt1, 'admitted', 'an uncalled integer helper is inert');
+  for (const spelling of ['integer', 'number']) {
+    const called = await admission(
+      moduleSource([
+        { body: ['return value="n"'], name: 'inc', parameters: [{ name: 'n', type: spelling }], returns: spelling },
+        entryFn(['return value="inc(1) == 1"'], []),
+      ]),
+    );
+    assert.equal(called.projection, 'projected', spelling);
+    for (const leg of ['rt1', 'javascript', 'python']) {
+      assert.equal(called[leg], 'handler-entry-unsupported', `${spelling} must stay outside the cross-call set on ${leg}`);
+    }
+  }
 });
 
 test('the call-depth policy admits a chain at the limit and rejects the next one identically on all three legs', async () => {
