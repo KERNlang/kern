@@ -113,6 +113,46 @@ export type LinkedKernKirParameterType =
   | { readonly kind: 'boolean' | 'integer' | 'text' }
   | { readonly kind: 'list'; readonly element: 'boolean' | 'integer' | 'text' };
 
+// `void` is a return position only, and only on the entry: no cross-call row exists for it, so a
+// void handler has no call form and a helper's return type can never widen to it.
+export type LinkedKernKirReturnType = LinkedKernKirParameterType | { readonly kind: 'void' };
+
+export type LinkedKernKirTypeKind = 'boolean' | 'integer' | 'list' | 'text' | 'void';
+
+export interface LinkedKernKirTypeAdmission {
+  readonly parameter: boolean;
+  readonly return: boolean;
+  readonly scalar: boolean;
+}
+
+// The closed table both linker type gates are built from, rather than two hand-written literal
+// lists that could drift apart. `void` is the one return-only row, and that asymmetry is what
+// `handlerReturnType` reads to recognise it.
+export const LINKED_KIR_TYPE_ADMISSION = Object.freeze({
+  boolean: { parameter: true, return: true, scalar: true },
+  integer: { parameter: true, return: true, scalar: true },
+  list: { parameter: true, return: true, scalar: false },
+  text: { parameter: true, return: true, scalar: true },
+  void: { parameter: false, return: true, scalar: false },
+}) satisfies Record<LinkedKernKirTypeKind, LinkedKernKirTypeAdmission>;
+
+export function linkedKirAdmitsType(kind: string, position: 'parameter' | 'return'): boolean {
+  return (
+    Object.hasOwn(LINKED_KIR_TYPE_ADMISSION, kind) && LINKED_KIR_TYPE_ADMISSION[kind as LinkedKernKirTypeKind][position]
+  );
+}
+
+export function linkedKirAdmitsScalar(
+  kind: string,
+  position: 'parameter' | 'return',
+): kind is 'boolean' | 'integer' | 'text' {
+  return linkedKirAdmitsType(kind, position) && LINKED_KIR_TYPE_ADMISSION[kind as LinkedKernKirTypeKind].scalar;
+}
+
+export const LINKED_KIR_VOID_RETURN_TYPE = Object.freeze({
+  kind: 'void' as const,
+}) satisfies LinkedKernKirReturnType;
+
 export type LinkedKernKirStatement =
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
@@ -304,6 +344,12 @@ export interface LinkedKernKirHandler {
   readonly statements: readonly LinkedKernKirStatement[];
 }
 
+export interface LinkedKernKirEntryHandler {
+  readonly parameters: readonly { readonly name: string; readonly type: LinkedKernKirParameterType }[];
+  readonly returnType: LinkedKernKirReturnType;
+  readonly statements: readonly LinkedKernKirStatement[];
+}
+
 export interface LinkedKernKirHelper {
   readonly handler: LinkedKernKirHandler;
   readonly name: string;
@@ -313,7 +359,7 @@ export interface LinkedKernKirProgram {
   readonly format: typeof KERN_LINKED_KIR_PROGRAM_FORMAT;
   readonly entry: { readonly moduleId: string; readonly handlerName: string };
   readonly helpers?: readonly LinkedKernKirHelper[];
-  readonly program: LinkedKernKirHandler;
+  readonly program: LinkedKernKirEntryHandler;
   readonly projectionArtifactSha256: string;
   readonly sha256: string;
 }

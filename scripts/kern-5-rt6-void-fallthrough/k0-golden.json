@@ -1,0 +1,33 @@
+{
+  "envelopeText": "{\"completion\":{\"kind\":\"return\"},\"diagnostics\":[],\"events\":[{\"op\":\"stdout\",\"text\":\"first\"},{\"op\":\"stdout\",\"text\":\"second\"}],\"format\":\"kern.runtime.kir.v1\",\"outcome\":\"success\",\"requestId\":\"rt6-k0\",\"result\":{\"presence\":\"absent\"}}",
+  "linkedReturnType": {
+    "kind": "void"
+  },
+  "typeAdmission": {
+    "boolean": {
+      "parameter": true,
+      "return": true,
+      "scalar": true
+    },
+    "integer": {
+      "parameter": true,
+      "return": true,
+      "scalar": true
+    },
+    "list": {
+      "parameter": true,
+      "return": true,
+      "scalar": false
+    },
+    "text": {
+      "parameter": true,
+      "return": true,
+      "scalar": true
+    },
+    "void": {
+      "parameter": false,
+      "return": true,
+      "scalar": false
+    }
+  }
+}

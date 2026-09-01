@@ -2,7 +2,6 @@ import type { KernKirValue } from '../../kir-runtime/contracts.js';
 import { canonicalJson, sha256 } from '../../kir-runtime/digest.js';
 import type {
   LinkedKernKirExpression,
-  LinkedKernKirHandler,
   LinkedKernKirHelper,
   LinkedKernKirParameterType,
   LinkedKernKirProgram,
@@ -231,6 +230,7 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
   if (linkedStatementsInvokeCapability(helper.handler.statements)) {
     throw new Error('a linked helper must not invoke a capability: the emitted helper is synchronous');
   }
+  const { returnType } = helper.handler;
   const scope = new Map<string, string>();
   const parameters = helper.handler.parameters.map((parameter, index) => {
     const name = `${local}p${index.toString(36)}`;
@@ -250,7 +250,7 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
   const returnSource = (value: string): string => `
       __checkAbort();
       {const ${local}r=${value};
-      if(!__matches(${local}r,${typeSource(helper.handler.returnType)}))throw new __Fault('unsupported-runtime-input','execution');
+      if(!__matches(${local}r,${typeSource(returnType)}))throw new __Fault('unsupported-runtime-input','execution');
       return ${local}r;}`;
   const body = blockSource(helper.handler.statements, scope, calls, nextLocal, returnSource);
   const declarations = locals.length === 0 ? '' : `let ${locals.join(',')};`;
@@ -262,11 +262,9 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
     `;
 }
 
-function specializedSource(
-  handler: LinkedKernKirHandler,
-  entry: LinkedKernKirProgram['entry'],
-  helpers: readonly LinkedKernKirHelper[] | undefined,
-): string {
+function specializedSource(linked: LinkedKernKirProgram): string {
+  const { entry, helpers } = linked;
+  const handler = linked.program;
   const calls = new Map<string, string>(
     (helpers ?? []).map((helper, index) => [helper.name, `__f${index.toString(36)}`]),
   );
@@ -284,15 +282,27 @@ function specializedSource(
     statementLocals.push(local);
     return local;
   };
-  const returnSource = (value: string): string => `
+  const { returnType } = handler;
+  const returnSource = (value: string): string => {
+    if (returnType.kind === 'void') throw new Error('a void handler must not carry a return statement');
+    return `
       __meter.step(); __checkAbort();
       {const __returned=${value};
-      if(!__matches(__returned,${typeSource(handler.returnType)}))throw new __Fault('invalid-handler-result','execution');
+      if(!__matches(__returned,${typeSource(returnType)}))throw new __Fault('invalid-handler-result','execution');
       const __result=Object.freeze({presence:'value',value:__returned});
       __checkAbort();
       if(__successBytes(__request.requestId,__events,__result,__checkAbort)>__request.limits.maxBytes)throw new __Fault('runtime-limit-exceeded','execution');
       __checkAbort();
       return Object.freeze({completion:Object.freeze({kind:'return'}),diagnostics:Object.freeze([]),events:Object.freeze(__events),format:__runtimeFormat,outcome:'success',requestId:__request.requestId,result:__result});}`;
+  };
+  const tail =
+    returnType.kind === 'void'
+      ? `__checkAbort();
+      {const __result=Object.freeze({presence:'absent'});
+      if(__successBytes(__request.requestId,__events,__result,__checkAbort)>__request.limits.maxBytes)throw new __Fault('runtime-limit-exceeded','execution');
+      __checkAbort();
+      return Object.freeze({completion:Object.freeze({kind:'return'}),diagnostics:Object.freeze([]),events:Object.freeze(__events),format:__runtimeFormat,outcome:'success',requestId:__request.requestId,result:__result});}`
+      : `throw new __Fault('handler-entry-unsupported','execution');`;
   const body = blockSource(handler.statements, bindings, calls, nextLocal, returnSource);
   const declarations = statementLocals.length === 0 ? '' : `let ${statementLocals.join(',')};`;
   const hasCapability = linkedStatementsInvokeCapability(handler.statements, linkedProgramHelpers(helpers));
@@ -314,7 +324,7 @@ function specializedSource(
     const __timer=__remaining===null?undefined:setTimeout(()=>{__reason='timeout';__controller.abort();},__remaining);
     const __checkAbort=()=>{__deadline.check();if(__controller.signal.aborted)throw new __Fault(__reason==='timeout'?'execution-timeout':'execution-cancelled','execution');};
     ${helperSources.join('')}try {${body}
-      throw new __Fault('handler-entry-unsupported','execution');
+      ${tail}
     } finally {
       if(__timer!==undefined)clearTimeout(__timer);
       if(__options.signal)__options.signal.removeEventListener('abort',__cancel);
@@ -356,7 +366,7 @@ export const execute=__exports.execute;
 
 export function emitJavaScriptEsm(program: LinkedKernKirProgram, manifestBase: TargetManifestBase): Uint8Array {
   const manifestWithoutArtifact = dataSource(manifestBase);
-  const source = `function __module() {${KERNEL_SOURCE}${specializedSource(program.program, program.entry, program.helpers)}
+  const source = `function __module() {${KERNEL_SOURCE}${specializedSource(program)}
   const __suffix=${jsString(MODULE_SUFFIX)};
   const __artifactSha256=__sha256(new TextEncoder().encode(__module.toString()+__suffix));
   const __base=${manifestWithoutArtifact};
