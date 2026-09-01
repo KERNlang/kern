@@ -5,8 +5,10 @@ import {
   ENTRY,
   LIMITS,
   VOID_FALLTHROUGH,
+  between,
   emittedArtifacts,
   entryOf,
+  lastBetween,
   executeKernKir,
   linkVerifiedKernKirProgram,
   project,
@@ -57,17 +59,16 @@ test('the void completion itself consumes no execution step', async () => {
 
 test('neither emitted target meters the void tail', async () => {
   const { javascript, python } = await emittedArtifacts(VOID_FALLTHROUGH);
-  const javascriptTail = javascript.slice(javascript.lastIndexOf(`presence:'absent'`));
-  const pythonTail = python.slice(python.lastIndexOf('{"presence": "absent"}'));
+  const javascriptTail = lastBetween(javascript, `{const __result=Object.freeze({presence:'absent'})`, '} finally {', 'JS void tail');
+  const pythonTail = lastBetween(python, '_result = {"presence": "absent"}', '\n    finally:', 'Python void tail');
   assert.ok(!javascriptTail.includes('__meter.step()'), 'the emitted JS void tail must not charge a statement step');
   assert.ok(!pythonTail.includes('_meter.step()'), 'the emitted Python void tail must not charge a statement step');
 });
 
 test('the void tail checks cancellation both before and after measuring the envelope', async () => {
   const { javascript, python } = await emittedArtifacts(VOID_FALLTHROUGH);
-  const push = javascript.lastIndexOf('__events.push');
-  const javascriptTail = javascript.slice(push, javascript.indexOf('} finally {', push));
-  const pythonTail = python.slice(python.lastIndexOf('_events.append'), python.lastIndexOf('\n    finally:'));
+  const javascriptTail = lastBetween(javascript, '__events.push', '} finally {', 'JS void tail');
+  const pythonTail = lastBetween(python, '_events.append', '\n    finally:', 'Python void tail');
   assert.equal(
     (javascriptTail.match(/__checkAbort\(\)/gu) ?? []).length,
     2,
@@ -89,12 +90,8 @@ test('a void run that exceeds the event budget fails closed identically on all t
 
 test('a void handler emits no await on either target, so no microtask boundary is crossed', async () => {
   const { javascript, python } = await emittedArtifacts(VOID_FALLTHROUGH);
-  const start = javascript.indexOf('const __checkAbort=');
-  const javascriptBody = javascript.slice(start, javascript.indexOf('} finally {', start));
-  const pythonBody = python.slice(
-    python.lastIndexOf('_watcher = None if _external is None'),
-    python.lastIndexOf('\n    finally:'),
-  );
+  const javascriptBody = between(javascript, 'const __checkAbort=', '} finally {', 'JS handler body');
+  const pythonBody = lastBetween(python, '_watcher = None if _external is None', '\n    finally:', 'Python handler body');
   assert.ok(!/\bawait\b/u.test(javascriptBody), 'a capability-free void handler emits no await in JavaScript');
   assert.ok(!/\bawait\b/u.test(pythonBody), 'a capability-free void handler emits no await in Python');
 });

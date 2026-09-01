@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import {
   VOID_FALLTHROUGH,
-  assertLinkRejected,
+  assertLinkLabel,
   entryOf,
   lastStatementShape,
   moduleSource,
@@ -55,7 +55,11 @@ test('the RT-6 probe matrix reproduces the committed F5 facts exactly', async ()
 
 test('a handler with no returns at all projects and is still rejected on every leg', async () => {
   assert.equal((await projectionStatus(NO_RETURNS)).status, 'projected');
-  await assertLinkRejected(NO_RETURNS, 'void is never inferred from an absent returns declaration');
+  const message = await assertLinkLabel(NO_RETURNS, 'unsupported property set');
+  assert.ok(
+    !message.includes('void'),
+    'an absent returns declaration is refused by the property gate and never read as void',
+  );
 });
 
 test('F5 declares returns=void and never infers it from a missing return', async () => {

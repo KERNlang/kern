@@ -4,8 +4,9 @@ import test from 'node:test';
 import {
   ENTRY,
   LIMITS,
+  LINKED_KIR_TYPE_ADMISSION,
   admission,
-  assertLinkRejected,
+  assertLinkLabel,
   entryOf,
   linkVerifiedKernKirProgram,
   moduleSource,
@@ -16,27 +17,27 @@ import {
 const BOOLEAN_FLAG = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
 const TEXT_INPUT = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);
 
-test('a value-bearing return in a void handler is rejected at link, at top level and in a branch', async () => {
-  await assertLinkRejected(entryOf([text('a'), 'return value="\\"x\\""']), 'KIR_VOID_HANDLER_VALUE_RETURN');
-  await assertLinkRejected(
-    entryOf(['if cond="flag"', '  return value="flag"', text('after')], { parameters: BOOLEAN_FLAG }),
-    'a then-branch return must not escape the void gate',
-  );
-  await assertLinkRejected(
-    entryOf(['if cond="flag"', `  ${text('t')}`, 'else', '  return value="flag"', text('after')], {
-      parameters: BOOLEAN_FLAG,
-    }),
-    'an else-branch return must not escape the void gate',
+test('a value-bearing return in a void handler fires the void gate, at top level and in a branch', async () => {
+  for (const body of [
+    [text('a'), 'return value="\\"x\\""'],
+    ['if cond="flag"', '  return value="flag"', text('after')],
+    ['if cond="flag"', `  ${text('t')}`, 'else', '  return value="flag"', text('after')],
+  ]) {
+    await assertLinkLabel(entryOf(body, { parameters: BOOLEAN_FLAG }), 'KIR_VOID_HANDLER_VALUE_RETURN');
+  }
+});
+
+test('a bare return is projected by F5 and still fails closed on the property gate, not the void gate', async () => {
+  const message = await assertLinkLabel(entryOf([text('a'), 'return']), 'unsupported property set');
+  assert.ok(
+    !message.includes('KIR_VOID_HANDLER'),
+    'the bare return is deferred by the statement property gate, so no void gate may claim it',
   );
 });
 
-test('a bare return is projected by F5 and still fails closed at link in RT-6', async () => {
-  await assertLinkRejected(entryOf([text('a'), 'return']), 'a bare return is deferred, not admitted');
-});
-
-test('void is never inferred: a non-void handler that falls through is still rejected', async () => {
+test('void is never inferred: a non-void handler that falls through fires the final-return gate', async () => {
   for (const returns of ['boolean', 'string', 'boolean[]']) {
-    await assertLinkRejected(entryOf([text('a')], { returns }), `a ${returns} handler must still require its return`);
+    await assertLinkLabel(entryOf([text('a')], { returns }), 'expected exactly one final return');
   }
 });
 
@@ -48,18 +49,23 @@ test('a declared non-void handler with a final return is unaffected', async () =
   );
 });
 
-test('void is invalid as a parameter type on every leg', async () => {
+test('void is invalid as a parameter type: F5 refuses it and the table refuses it', async () => {
   const row = await admission(
     entryOf(['return value="true"'], { parameters: [{ name: 'x', type: 'void' }], returns: 'boolean' }),
   );
   assert.equal(row.projection, 'not-projected', 'F5 refuses a void parameter before the linker sees it');
+  assert.equal(
+    LINKED_KIR_TYPE_ADMISSION.void.parameter,
+    false,
+    'and the closed table the linker gate is built from refuses it independently of F5',
+  );
 });
 
-test('a void helper has no call form and is rejected at link when a call resolves to it', async () => {
+test('a void helper has no call form and fires the void callee gate when a call resolves to it', async () => {
   const source = `${moduleSource([
     { body: ['print value="t"'], name: 'log', parameters: TEXT_INPUT, returns: 'void' },
   ])}${entryOf(['return value="log(t)"'], { parameters: TEXT_INPUT, returns: 'string' })}`;
-  await assertLinkRejected(source, 'KIR_VOID_HANDLER_NO_CALL_FORM');
+  await assertLinkLabel(source, 'KIR_VOID_HANDLER_NO_CALL_FORM');
 });
 
 test('a void call can never be an argument, because void resolves no cross-call type', async () => {
@@ -67,7 +73,7 @@ test('a void call can never be an argument, because void resolves no cross-call 
     { body: [text('inner')], name: 'log', returns: 'void' },
     { body: ['return value="flag"'], name: 'pick', parameters: BOOLEAN_FLAG, returns: 'boolean' },
   ])}${entryOf(['return value="pick(log())"'], { returns: 'boolean' })}`;
-  await assertLinkRejected(source, 'a void call may not be an argument');
+  await assertLinkLabel(source, 'KIR_VOID_HANDLER_NO_CALL_FORM');
 });
 
 test('a void helper that is never called does not enter the linked program at all', async () => {
