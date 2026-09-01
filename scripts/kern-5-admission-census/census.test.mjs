@@ -1,17 +1,32 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { CENSUS_DIR, CENSUS_FORMAT, admitFile, readJson, sha256Hex } from './support.mjs';
-import { parseArguments, sweep, trackedKernFiles } from './sweep.mjs';
+import {
+  corpusInvariantFailures,
+  parseArguments,
+  ratchetRefusals,
+  sweep,
+  trackedKernFiles,
+  whitelistFiles as readWhitelistFiles,
+  writeAtomic,
+} from './sweep.mjs';
 
 // RT-7 births the ratchet. The floor and the birth file live in the test source so that deleting a
 // row from admitted.json cannot quietly lower the bar.
 const RATCHET_FLOOR = 1;
 const RT7_BIRTH = 'examples/kern-5-preview-app/ui.kern';
+// The files that clear F5 and stop only at the missing export are the nearest thing to an
+// accidental admission, so the sampled fence must always carry all three.
+const F5_CLEARING = [
+  'examples/agon-engine-islands.kern',
+  'examples/kern-frontend/builtin-node-types.generated.kern',
+  'examples/kern-frontend/f1-scan-catalog.kern',
+];
 
 const ratchet = await readJson(resolve(CENSUS_DIR, 'admitted.json'));
 const sample = await readJson(resolve(CENSUS_DIR, 'rejected-sample.json'));
@@ -38,7 +53,11 @@ test('the committed ratchet is the RT-7 birth value and never sinks below its fl
 
 test('the whitelist and the pinned rejection sample are disjoint', () => {
   assert.equal(sample.format, CENSUS_FORMAT);
-  assert.equal(sample.rejected.length, 5, 'the fast test pins exactly five known-rejected files');
+  assert.ok(sample.rejected.length >= 7, `the sampled fence shrank to ${sample.rejected.length} files`);
+  const sampled = sample.rejected.map((row) => row.file);
+  for (const file of F5_CLEARING) {
+    assert.ok(sampled.includes(file), `${file} clears F5 and must stay in the sampled fence`);
+  }
   for (const row of sample.rejected) {
     assert.ok(!whitelistFiles.includes(row.file), `${row.file} cannot be both whitelisted and pinned as rejected`);
   }
@@ -118,6 +137,11 @@ test('the sweep records a hard per-file timeout, logs progress, and writes after
     const written = JSON.parse(await readFile(out, 'utf8'));
     assert.equal(written.completed, files.length);
     assert.equal(written.timeoutMs, 1);
+    assert.deepEqual(
+      (await readdir(directory)).filter((name) => name.endsWith('.tmp')),
+      [],
+      'every report lands by rename, leaving no partial file behind',
+    );
   } finally {
     await rm(directory, { force: true, recursive: true });
   }
@@ -156,10 +180,83 @@ test('a concurrent sweep still reports its results in corpus order', async () =>
   }
 });
 
+test('--update refuses to rewrite the ratchet from an incomplete or regressing sweep', () => {
+  const clean = [{ admitted: true, file: RT7_BIRTH }];
+  assert.deepEqual(ratchetRefusals(clean, [RT7_BIRTH]), [], 'a clean, non-shrinking sweep is accepted');
+
+  for (const broken of [
+    { admitted: false, code: 'probe-timeout', file: 'a.kern', stage: 'timeout' },
+    { admitted: false, code: 'probe-exit', file: 'a.kern', stage: 'probe' },
+    { admitted: false, code: 'probe-overflow', file: 'a.kern', stage: 'probe' },
+  ]) {
+    const refusals = ratchetRefusals([...clean, broken], [RT7_BIRTH]);
+    assert.ok(
+      refusals.some((line) => line.includes('did not complete cleanly')),
+      `a ${broken.code} probe must refuse the update, got ${JSON.stringify(refusals)}`,
+    );
+  }
+
+  const regressed = ratchetRefusals([{ admitted: false, file: RT7_BIRTH, stage: 'link' }], [RT7_BIRTH]);
+  assert.ok(regressed.some((line) => line.includes('no longer admit')), 'a regressed whitelist entry refuses');
+
+  const shrunk = ratchetRefusals([], [RT7_BIRTH]);
+  assert.ok(shrunk.some((line) => line.includes('may only grow')), 'a shrinking ratchet refuses by default');
+  assert.deepEqual(
+    ratchetRefusals([], [RT7_BIRTH], { allowShrink: true }).filter((line) => line.includes('may only grow')),
+    [],
+    '--allow-shrink records a deliberate shrink',
+  );
+  assert.ok(
+    ratchetRefusals([], [RT7_BIRTH], { allowShrink: true }).some((line) => line.includes('no longer admit')),
+    '--allow-shrink still refuses a regressed whitelist entry',
+  );
+});
+
+test('a failed report write leaves the previous report intact', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kern-5-census-'));
+  try {
+    const out = join(directory, 'admission.json');
+    writeAtomic(out, 'first\n');
+    assert.equal(readFileSync(out, 'utf8'), 'first\n');
+    // Occupying the temp path makes the write fail after the previous report is already on disk.
+    mkdirSync(`${out}.${process.pid}.tmp`);
+    assert.throws(() => writeAtomic(out, 'second\n'));
+    assert.equal(readFileSync(out, 'utf8'), 'first\n', 'a failed write must not truncate the previous report');
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+// The corpus-invariant CLI consumes this after the sweep resolves; a promise here would read as
+// an empty whitelist and silently pass the invariant instead of failing.
+test('the whitelist reader returns file names synchronously', () => {
+  const files = readWhitelistFiles();
+  assert.ok(Array.isArray(files), 'the reader must return an array, not a promise');
+  assert.deepEqual(files, readWhitelistFiles(), 'repeated reads agree');
+  assert.deepEqual(files, whitelistFiles, 'the reader agrees with admitted.json');
+});
+
+test('the corpus-wide invariant admits exactly the whitelist', () => {
+  assert.deepEqual(corpusInvariantFailures([{ admitted: true, file: RT7_BIRTH }], [RT7_BIRTH]), []);
+  assert.ok(
+    corpusInvariantFailures(
+      [{ admitted: true, file: RT7_BIRTH }, { admitted: true, file: 'extra.kern' }],
+      [RT7_BIRTH],
+    ).some((line) => line.includes('admitted but not whitelisted')),
+    'an unwhitelisted admission violates the corpus invariant',
+  );
+  assert.ok(
+    corpusInvariantFailures([], [RT7_BIRTH]).some((line) => line.includes('whitelisted but not admitted')),
+    'a lost whitelist entry violates the corpus invariant',
+  );
+});
+
 test('--update rewrites the ratchet only from a complete tracked sweep', () => {
   assert.equal(parseArguments([]).update, false, 'the ratchet is never rewritten implicitly');
   assert.equal(parseArguments(['--update']).update, true);
   assert.throws(() => parseArguments(['--jobs', '0']), /--jobs must be a positive integer/u);
+  assert.equal(parseArguments([]).allowShrink, false, 'a shrink is never allowed implicitly');
+  assert.equal(parseArguments(['--allow-shrink']).allowShrink, true);
   assert.throws(() => parseArguments(['--update', '--files', RT7_BIRTH]), /complete tracked sweep/u);
 });
 

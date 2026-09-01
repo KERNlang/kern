@@ -8,16 +8,16 @@
       "wall": "the linker selects entries only from module.exports and this module exports nothing"
     },
     {
-      "code": "F4_F2B_DRIFT",
-      "file": "examples/api-routes.kern",
-      "stage": "projection",
-      "wall": "unquoted property values do not project"
-    },
-    {
       "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
       "file": "examples/agon-pty-session.kern",
       "stage": "projection",
       "wall": "the module root is not an fn"
+    },
+    {
+      "code": "F4_F2B_DRIFT",
+      "file": "examples/api-routes.kern",
+      "stage": "projection",
+      "wall": "unquoted property values do not project"
     },
     {
       "code": "F4_AUTHORITY_DRIFT",
@@ -30,6 +30,18 @@
       "file": "examples/capstone-assertion-engine/sort.kern",
       "stage": "projection",
       "wall": "source the projection lexer does not accept"
+    },
+    {
+      "code": "no-exported-entry",
+      "file": "examples/kern-frontend/builtin-node-types.generated.kern",
+      "stage": "entry-selection",
+      "wall": "projects cleanly and stops only at the missing export=true"
+    },
+    {
+      "code": "no-exported-entry",
+      "file": "examples/kern-frontend/f1-scan-catalog.kern",
+      "stage": "entry-selection",
+      "wall": "projects cleanly and stops only at the missing export=true"
     }
   ]
 }
