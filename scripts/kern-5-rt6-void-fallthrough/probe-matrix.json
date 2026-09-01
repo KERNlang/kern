@@ -7,6 +7,9 @@
     "bareReturnInVoidHandler": {
       "status": "projected"
     },
+    "handlerWithoutReturns": {
+      "status": "projected"
+    },
     "nonVoidFallthrough": {
       "status": "projected"
     },

@@ -9,6 +9,7 @@ import {
   compilePython,
   entryOf,
   envelopeBytes,
+  linkTypeGateLiterals,
   linkedProgram,
   project,
   runtimeRequest,
@@ -68,6 +69,7 @@ async function recompute() {
   assert.equal(python.outcome, 'success');
   const legs = await threeLegs(VOID_FALLTHROUGH, runtimeRequest('rt6-k0', {}));
   return {
+    ...(await linkTypeGateLiterals()),
     directEnvelopeSha256: sha256Hex(Buffer.from(envelopeBytes(legs.direct.envelope))),
     javascriptArtifactSha256: javascript.artifact.sha256,
     javascriptEnvelopeSha256: sha256Hex(Buffer.from(envelopeBytes(legs.javascript.envelope))),

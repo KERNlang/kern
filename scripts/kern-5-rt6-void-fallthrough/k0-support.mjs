@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import { projectKernModules } from '../../packages/core/dist/frontend-projection.js';
 import { ENTRY, compileJavaScript, compilePython, moduleSource, project } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
@@ -46,6 +47,24 @@ export async function lastStatementShape(source) {
   const handler = (await projectedRoot(source)).children.find((node) => node.kind === 'handler');
   const statement = handler.children.at(-1);
   return { keys: statement.properties.map((property) => property.key).sort(), kind: statement.kind };
+}
+
+// F5 is fatal on every return or parameter kind outside its own closed set, so no projection can
+// reach the linker's type gates. Pinning the literals each gate compares against is what keeps the
+// gates honest: widening `parameterType` to admit void, or keying the void return on anything but
+// the word itself, moves this inventory.
+export async function linkTypeGateLiterals() {
+  const source = await readFile(new URL('../../packages/core/src/kir-runtime/linked-kir-program/link.ts', import.meta.url), 'utf8');
+  const body = (name) => {
+    const start = source.indexOf(`function ${name}(`);
+    assert.ok(start >= 0, `link.ts must declare ${name}`);
+    const end = source.indexOf('\nfunction ', start + 1);
+    assert.ok(end > start, `${name} must be followed by another function`);
+    return source.slice(start, end);
+  };
+  const literals = (name) =>
+    [...new Set([...body(name).matchAll(/(===|!==) '([a-z]+)'/gu)].map((match) => `${match[1]} ${match[2]}`))].sort();
+  return { handlerReturnType: literals('handlerReturnType'), parameterType: literals('parameterType') };
 }
 
 export async function emittedArtifacts(source) {

@@ -1,4 +1,15 @@
 {
+  "handlerReturnType": [
+    "=== record",
+    "=== void"
+  ],
+  "parameterType": [
+    "!== record",
+    "=== boolean",
+    "=== integer",
+    "=== list",
+    "=== text"
+  ],
   "directEnvelopeSha256": "f7dbd870ef909909cc3a09b5cb0e28319b53bc6494614416b5a0c014a695404b",
   "javascriptArtifactSha256": "59a3f201154963c42455beef0230c5d672dccf11337751794192c60150804d29",
   "javascriptEnvelopeSha256": "f7dbd870ef909909cc3a09b5cb0e28319b53bc6494614416b5a0c014a695404b",

@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   VOID_FALLTHROUGH,
+  assertLinkRejected,
   entryOf,
   lastStatementShape,
   moduleSource,
@@ -16,8 +17,11 @@ const MATRIX_URL = new URL('./probe-matrix.json', import.meta.url);
 const TEXT_INPUT = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);
 const VOID_LOG = Object.freeze({ body: [text('inner')], name: 'log', returns: 'void' });
 
+const NO_RETURNS = `fn name=route export=true\n  handler lang=kern\n    ${text('a')}\n`;
+
 const PROJECTION_FIXTURES = Object.freeze({
   bareReturnInVoidHandler: () => entryOf([text('a'), 'return']),
+  handlerWithoutReturns: () => NO_RETURNS,
   nonVoidFallthrough: () => entryOf([text('a')], { returns: 'string' }),
   voidEntryFallthrough: () => VOID_FALLTHROUGH,
   voidHelperDeclared: () => `${moduleSource([VOID_LOG])}${VOID_FALLTHROUGH}`,
@@ -47,6 +51,11 @@ test('the RT-6 probe matrix reproduces the committed F5 facts exactly', async ()
     JSON.parse(await readFile(MATRIX_URL, 'utf8')),
     'RT6_PROBE_DRIFT: F5 no longer projects what the RT-6 contract was built on',
   );
+});
+
+test('a handler with no returns at all projects and is still rejected on every leg', async () => {
+  assert.equal((await projectionStatus(NO_RETURNS)).status, 'projected');
+  await assertLinkRejected(NO_RETURNS, 'void is never inferred from an absent returns declaration');
 });
 
 test('F5 declares returns=void and never infers it from a missing return', async () => {
