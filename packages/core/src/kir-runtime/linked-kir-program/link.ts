@@ -19,14 +19,17 @@ import {
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
   LINKED_KIR_DEFAULT_CALL_POLICY,
+  LINKED_KIR_VOID_RETURN_TYPE,
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
+  type LinkedKernKirEntryHandler,
   type LinkedKernKirHandler,
   type LinkedKernKirHelper,
   type LinkedKernKirParameterType,
   type LinkedKernKirProgram,
+  type LinkedKernKirReturnType,
   type LinkedKernKirStatement,
   type LinkedKernKirStaticType,
   type LinkKernKirProgramResult,
@@ -118,6 +121,32 @@ function parameterType(
   fault('handler-entry-unsupported', `${label}: type is outside RT-1`);
 }
 
+function handlerReturnType(
+  value: CanonicalValue | undefined,
+  label: string,
+  meter: RuntimeMeter,
+): LinkedKernKirReturnType {
+  if (value !== undefined) {
+    const record = plainRecord(value, label);
+    exact(record, ['tag', 'value'], label);
+    if (record.tag === 'record' && denseArray(record.value, `${label}.value`).length === 1) {
+      const fields = canonicalRecord(value, ['kind'], label);
+      if (propertyText(fields, 'kind', label, meter) === 'void') return LINKED_KIR_VOID_RETURN_TYPE;
+    }
+  }
+  return parameterType(value, label, meter);
+}
+
+function containsReturn(statements: readonly LinkedKernKirStatement[]): boolean {
+  return statements.some(
+    (statement) =>
+      statement.kind === 'return' ||
+      (statement.kind === 'if' &&
+        (containsReturn(statement.thenBranch) ||
+          (statement.elseBranch !== undefined && containsReturn(statement.elseBranch)))),
+  );
+}
+
 function assertLeaf(node: StructuralKirNode, label: string): void {
   if (nodeChildren(node, label).length !== 0) fault('handler-entry-unsupported', `${label}: statement must be a leaf`);
 }
@@ -189,8 +218,11 @@ function resolveHelper(context: ModuleContext, name: string, label: string): Lin
     fault('handler-entry-unsupported', `${label}: KIR_CALL_DEPTH_EXCEEDED`);
   }
   context.linking.add(name);
-  const handler = compileHandler(node, context, `helper.${name}`, false);
+  const compiled = compileHandler(node, context, `helper.${name}`, false);
   context.linking.delete(name);
+  const { returnType } = compiled;
+  if (returnType.kind === 'void') fault('handler-entry-unsupported', `${label}: KIR_VOID_HANDLER_NO_CALL_FORM`);
+  const handler: LinkedKernKirHandler = Object.freeze({ ...compiled, returnType });
   if (linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk)) {
     fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_CAPABILITY`);
   }
@@ -315,13 +347,13 @@ function compileHandler(
   context: ModuleContext,
   label: string,
   requireExport: boolean,
-): LinkedKernKirHandler {
+): LinkedKernKirEntryHandler {
   const { meter } = context;
   const properties = nodeProperties(fn, label);
   propertySet(properties, ['export', 'name', 'returns'], [], label);
   if (requireExport && !propertyBool(properties, 'export', label))
     fault('handler-entry-unsupported', `${label}: function is not exported`);
-  const returnType = parameterType(properties.get('returns'), `${label}.returns`, meter);
+  const returnType = handlerReturnType(properties.get('returns'), `${label}.returns`, meter);
   const children = nodeChildren(fn, label);
   const parameters: { readonly name: string; readonly type: LinkedKernKirParameterType }[] = [];
   let handler: StructuralKirNode | undefined;
@@ -355,7 +387,9 @@ function compileHandler(
     fault('handler-entry-unsupported', `${label}: handler language is not kern`);
   }
   const statements = compileBlock(nodeChildren(handler, `${label}.handler`), scope, meter, `${label}.handler`);
-  if (
+  if (returnType.kind === 'void') {
+    if (containsReturn(statements)) fault('handler-entry-unsupported', `${label}: KIR_VOID_HANDLER_VALUE_RETURN`);
+  } else if (
     statements.length === 0 ||
     statements.at(-1)?.kind !== 'return' ||
     statements.filter((item) => item.kind === 'return').length !== 1
@@ -370,7 +404,7 @@ function selectHandler(
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
   policy: LinkedKernKirCallPolicy,
-): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirHandler } {
+): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirEntryHandler } {
   const projected = plainRecord(projection, 'projection');
   exact(projected, ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'], 'projection');
   const artifact = plainRecord(projected.artifact, 'projection.artifact');

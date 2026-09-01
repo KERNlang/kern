@@ -17,8 +17,8 @@ import { type ExpressionRuntime, evaluateExpression, matchesType } from './expre
 import { inspectRequest, inspectSlot, plainRecord, type RuntimeMeter } from './inspect.js';
 import {
   authenticateLinkedKernKirProjectionOrThrow,
-  type LinkedKernKirHandler,
   type LinkedKernKirHelper,
+  type LinkedKernKirProgram,
   type LinkedKernKirStatement,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
@@ -54,7 +54,7 @@ function requestIdFrom(value: unknown): string | null {
 }
 
 async function run(
-  handler: LinkedKernKirHandler,
+  handler: LinkedKernKirProgram['program'],
   helpers: readonly LinkedKernKirHelper[] | undefined,
   request: KernKirRequest,
   options: KernKirExecutionOptions,
@@ -62,6 +62,7 @@ async function run(
   deadline: ExecutionDeadline,
   events: KernKirEvent[],
 ): Promise<KernKirEnvelope> {
+  const { returnType } = handler;
   const expected = handler.parameters.map((parameter) => parameter.name).sort();
   const actual = Object.keys(request.arguments).sort();
   if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
@@ -104,6 +105,22 @@ async function run(
       'execution',
       'execution interrupted',
     );
+  };
+  const finish = (result: KernKirSlot): KernKirEnvelope => {
+    checkAbort();
+    if (successEnvelopeBytes(request.requestId, events, result, checkAbort) > request.limits.maxBytes) {
+      throw new KernKirFault('runtime-limit-exceeded', 'execution', 'envelope byte limit exceeded');
+    }
+    checkAbort();
+    return Object.freeze({
+      completion: Object.freeze({ kind: 'return' }),
+      diagnostics: Object.freeze([]),
+      events: Object.freeze(events),
+      format: KERN_KIR_RUNTIME_FORMAT,
+      outcome: 'success',
+      requestId: request.requestId,
+      result,
+    });
   };
   const runtime: ExpressionRuntime = {
     checkAbort,
@@ -191,24 +208,12 @@ async function run(
         const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
         if (branch !== undefined) frames.push({ statements: branch, index: 0 });
       } else {
+        if (returnType.kind === 'void')
+          throw new KernKirFault('invalid-handler-result', 'execution', 'a void handler must not return a value');
         const value = evaluateExpression(statement.value, bindings, meter, runtime);
-        if (!matchesType(value, handler.returnType))
+        if (!matchesType(value, returnType))
           throw new KernKirFault('invalid-handler-result', 'execution', 'return type mismatch');
-        const result: KernKirSlot = Object.freeze({ presence: 'value', value });
-        checkAbort();
-        if (successEnvelopeBytes(request.requestId, events, result, checkAbort) > request.limits.maxBytes) {
-          throw new KernKirFault('runtime-limit-exceeded', 'execution', 'envelope byte limit exceeded');
-        }
-        checkAbort();
-        return Object.freeze({
-          completion: Object.freeze({ kind: 'return' }),
-          diagnostics: Object.freeze([]),
-          events: Object.freeze(events),
-          format: KERN_KIR_RUNTIME_FORMAT,
-          outcome: 'success',
-          requestId: request.requestId,
-          result,
-        });
+        return finish(Object.freeze({ presence: 'value', value }));
       }
     }
     return undefined;
@@ -217,6 +222,7 @@ async function run(
     frames.push({ statements: handler.statements, index: 0 });
     const returned = await runFrames();
     if (returned !== undefined) return returned;
+    if (returnType.kind === 'void') return finish(Object.freeze({ presence: 'absent' }));
     throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');
   } finally {
     if (timer !== undefined) clearTimeout(timer);

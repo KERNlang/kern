@@ -113,6 +113,14 @@ export type LinkedKernKirParameterType =
   | { readonly kind: 'boolean' | 'integer' | 'text' }
   | { readonly kind: 'list'; readonly element: 'boolean' | 'integer' | 'text' };
 
+// `void` is a return position only, and only on the entry: no cross-call row exists for it, so a
+// void handler has no call form and a helper's return type can never widen to it.
+export type LinkedKernKirReturnType = LinkedKernKirParameterType | { readonly kind: 'void' };
+
+export const LINKED_KIR_VOID_RETURN_TYPE = Object.freeze({
+  kind: 'void' as const,
+}) satisfies LinkedKernKirReturnType;
+
 export type LinkedKernKirStatement =
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
@@ -304,6 +312,12 @@ export interface LinkedKernKirHandler {
   readonly statements: readonly LinkedKernKirStatement[];
 }
 
+export interface LinkedKernKirEntryHandler {
+  readonly parameters: readonly { readonly name: string; readonly type: LinkedKernKirParameterType }[];
+  readonly returnType: LinkedKernKirReturnType;
+  readonly statements: readonly LinkedKernKirStatement[];
+}
+
 export interface LinkedKernKirHelper {
   readonly handler: LinkedKernKirHandler;
   readonly name: string;
@@ -313,7 +327,7 @@ export interface LinkedKernKirProgram {
   readonly format: typeof KERN_LINKED_KIR_PROGRAM_FORMAT;
   readonly entry: { readonly moduleId: string; readonly handlerName: string };
   readonly helpers?: readonly LinkedKernKirHelper[];
-  readonly program: LinkedKernKirHandler;
+  readonly program: LinkedKernKirEntryHandler;
   readonly projectionArtifactSha256: string;
   readonly sha256: string;
 }
