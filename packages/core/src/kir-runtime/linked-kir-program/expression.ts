@@ -102,6 +102,28 @@ export function crossCallExpressionType(
   return undefined;
 }
 
+export function containsAsyncCall(expression: LinkedKernKirExpression, scope: LinkedKernKirTypeScope): boolean {
+  switch (expression.kind) {
+    case 'user-call':
+      return (
+        scope.calls?.isAsync(expression.handlerName) === true ||
+        expression.arguments.some((argument) => containsAsyncCall(argument, scope))
+      );
+    case 'binary':
+      return containsAsyncCall(expression.left, scope) || containsAsyncCall(expression.right, scope);
+    case 'list':
+      return expression.items.some((item) => containsAsyncCall(item, scope));
+    case 'record':
+      return expression.entries.some((entry) => containsAsyncCall(entry.value, scope));
+    case 'member':
+      return containsAsyncCall(expression.object, scope);
+    case 'json-call':
+      return containsAsyncCall(expression.argument, scope);
+    default:
+      return false;
+  }
+}
+
 function compileUserCall(
   name: string,
   args: readonly CanonicalValue[],

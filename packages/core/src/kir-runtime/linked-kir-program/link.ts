@@ -25,6 +25,7 @@ import {
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
   type LinkedKernKirEntryHandler,
+  type LinkedKernKirExpression,
   type LinkedKernKirHandler,
   type LinkedKernKirHelper,
   type LinkedKernKirParameterType,
@@ -38,7 +39,12 @@ import {
   linkedKirCrossCallType,
   linkedStatementsInvokeCapability,
 } from './contracts.js';
-import { compileLinkedExpression, crossCallExpressionType, staticExpressionType } from './expression.js';
+import {
+  compileLinkedExpression,
+  containsAsyncCall,
+  crossCallExpressionType,
+  staticExpressionType,
+} from './expression.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
@@ -228,15 +234,40 @@ function resolveHelper(context: ModuleContext, name: string, label: string): Lin
   const { returnType } = compiled;
   if (returnType.kind === 'void') fault('handler-entry-unsupported', `${label}: KIR_VOID_HANDLER_NO_CALL_FORM`);
   const handler: LinkedKernKirHandler = Object.freeze({ ...compiled, returnType });
-  if (linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk)) {
-    fault('handler-entry-unsupported', `${label}: KIR_CALL_CALLEE_CAPABILITY`);
-  }
   context.linked.set(name, handler);
   return handler;
 }
 
+function helperIsAsync(context: ModuleContext, name: string): boolean {
+  const handler = context.linked.get(name);
+  if (handler === undefined) return false;
+  return linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk);
+}
+
 function callScope(context: ModuleContext): LinkedKernKirCallScope {
-  return { linked: context.linked, resolve: (name, label) => resolveHelper(context, name, label) };
+  return {
+    isAsync: (name) => helperIsAsync(context, name),
+    linked: context.linked,
+    resolve: (name, label) => resolveHelper(context, name, label),
+  };
+}
+
+// RT-4 rejected a capability anywhere in the reachable callee closure at every call position. RT-5
+// narrows that to a callee reached from a position with no statement-value continuation, so the
+// retained KIR_CALL_CALLEE_CAPABILITY label still names why the position gate refused.
+const ASYNC_POSITION_LABEL = 'KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)';
+
+function assertAsyncCallPosition(
+  value: LinkedKernKirExpression,
+  scope: LinkScope,
+  label: string,
+  statementValue: boolean,
+): void {
+  const misplaced =
+    statementValue && value.kind === 'user-call'
+      ? value.arguments.some((argument) => containsAsyncCall(argument, scope))
+      : containsAsyncCall(value, scope);
+  if (misplaced) fault('handler-entry-unsupported', `${label}: ${ASYNC_POSITION_LABEL}`);
 }
 
 function compileStatement(
@@ -260,6 +291,7 @@ function compileStatement(
       name,
       value: compileLinkedExpression(value, scope, meter, `${label}.value`),
     });
+    assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
     bindName(scope, name, staticExpressionType(compiled.value, scope), crossCallExpressionType(compiled.value, scope));
     return compiled;
   }
@@ -275,6 +307,7 @@ function compileStatement(
       operation: propertyText(properties, 'operation', label, meter),
       input: input === undefined ? undefined : compileLinkedExpression(input, scope, meter, `${label}.input`),
     });
+    if (compiled.input !== undefined) assertAsyncCallPosition(compiled.input, scope, `${label}.input`, false);
     bindName(scope, name, undefined, undefined);
     return compiled;
   }
@@ -282,7 +315,9 @@ function compileStatement(
     propertySet(properties, ['value'], [], label);
     const value = properties.get('value');
     if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
-    return Object.freeze({ kind, value: compileLinkedExpression(value, scope, meter, `${label}.value`) });
+    const compiled = Object.freeze({ kind, value: compileLinkedExpression(value, scope, meter, `${label}.value`) });
+    assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
+    return compiled;
   }
   fault('handler-entry-unsupported', `${label}: statement kind ${kind} is outside RT-1`);
 }
@@ -311,6 +346,7 @@ function compileIf(
   const cond = properties.get('cond');
   if (cond === undefined) fault('handler-entry-unsupported', `${label}.cond`);
   const condition = compileLinkedExpression(cond, scope, meter, `${label}.cond`);
+  assertAsyncCallPosition(condition, scope, `${label}.cond`, false);
   if (staticExpressionType(condition, scope) !== 'boolean') {
     fault('handler-entry-unsupported', `${label}.cond: KIR_IF_COND_NOT_BOOLEAN`);
   }
@@ -461,9 +497,13 @@ function selectHandler(
     rootNodes: roots,
   };
   const program = compileHandler(candidates[0], context, 'entry.function', true);
-  const helpers = [...context.linked.keys()]
-    .sort()
-    .map((name) => Object.freeze({ handler: context.linked.get(name) as LinkedKernKirHandler, name }));
+  // The fixed point async(f) = containsCapability(f) or an async callee is asked of the one shared
+  // memoized walk, once, after the whole reachable closure is linked and in name order, so the
+  // answer cannot depend on the order the helpers happened to resolve in.
+  const helpers = [...context.linked.keys()].sort().map((name) => {
+    const handler = context.linked.get(name) as LinkedKernKirHandler;
+    return Object.freeze(helperIsAsync(context, name) ? { async: true as const, handler, name } : { handler, name });
+  });
   return { helpers: Object.freeze(helpers), program };
 }
 

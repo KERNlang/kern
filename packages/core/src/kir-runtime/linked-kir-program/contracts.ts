@@ -67,6 +67,7 @@ export const LINKED_KIR_DEFAULT_CALL_POLICY = Object.freeze({
 }) satisfies LinkedKernKirCallPolicy;
 
 export interface LinkedKernKirCallScope {
+  readonly isAsync: (name: string) => boolean;
   readonly linked: ReadonlyMap<string, LinkedKernKirHandler>;
   readonly resolve: (name: string, label: string) => LinkedKernKirHandler;
 }
@@ -350,7 +351,10 @@ export interface LinkedKernKirEntryHandler {
   readonly statements: readonly LinkedKernKirStatement[];
 }
 
+// The flag is omitted, never serialized as false, so a synchronous helper costs the same bytes it
+// cost before the classification existed and every pre-slice linked digest survives unchanged.
 export interface LinkedKernKirHelper {
+  readonly async?: true;
   readonly handler: LinkedKernKirHandler;
   readonly name: string;
 }
@@ -369,6 +373,12 @@ export function linkedProgramHelpers(
 ): ReadonlyMap<string, LinkedKernKirHandler> | undefined {
   if (helpers === undefined) return undefined;
   return new Map(helpers.map((helper) => [helper.name, helper.handler]));
+}
+
+export function linkedProgramAsyncHelpers(
+  helpers: readonly LinkedKernKirHelper[] | undefined,
+): ReadonlySet<string> {
+  return new Set((helpers ?? []).filter((helper) => helper.async === true).map((helper) => helper.name));
 }
 
 export type KernKirLinkCode =

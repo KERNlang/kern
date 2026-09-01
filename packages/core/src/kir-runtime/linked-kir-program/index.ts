@@ -25,6 +25,7 @@ export {
   type LinkKernKirProgramResult,
   linkedKirBinaryOperator,
   linkedKirCrossCallType,
+  linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsCallDepth,
   linkedStatementsInvokeCapability,
