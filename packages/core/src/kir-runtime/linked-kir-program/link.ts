@@ -22,6 +22,7 @@ import {
   LINKED_KIR_VOID_RETURN_TYPE,
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
+  type LinkedKernKirClosureWalk,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
   type LinkedKernKirEntryHandler,
@@ -238,10 +239,27 @@ function resolveHelper(context: ModuleContext, name: string, label: string): Lin
   return handler;
 }
 
+// The shared walk memoizes a helper reached through a call, but the helper a classification question
+// is asked *about* is its own root, so without this its whole statement tree would be rescanned once
+// per call site: quadratic, unmetered link work. The root is cached in the same map under the same
+// exact cycle-taint rule, so one scan per helper answers every call site.
 function helperIsAsync(context: ModuleContext, name: string): boolean {
+  const walk = context.closureWalk;
+  const memoized = walk.done.get(name);
+  if (memoized !== undefined) return memoized;
   const handler = context.linked.get(name);
   if (handler === undefined) return false;
-  return linkedStatementsInvokeCapability(handler.statements, context.linked, context.closureWalk);
+  if (walk.active.has(name)) {
+    walk.cycles += 1;
+    return false;
+  }
+  walk.active.add(name);
+  walk.visits += 1;
+  const enclosingCycles = walk.cycles;
+  const invokes = linkedStatementsInvokeCapability(handler.statements, context.linked, walk);
+  walk.active.delete(name);
+  if (walk.cycles === enclosingCycles) walk.done.set(name, invokes);
+  return invokes;
 }
 
 function callScope(context: ModuleContext): LinkedKernKirCallScope {
@@ -445,6 +463,7 @@ function selectHandler(
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
   policy: LinkedKernKirCallPolicy,
+  walk: LinkedKernKirClosureWalk,
 ): { readonly helpers: readonly LinkedKernKirHelper[]; readonly program: LinkedKernKirEntryHandler } {
   const projected = plainRecord(projection, 'projection');
   exact(projected, ['status', 'bytes', 'artifact', 'diagnostics', 'receipt'], 'projection');
@@ -488,7 +507,7 @@ function selectHandler(
   if (candidates.length === 0) fault('handler-entry-not-found', 'entry function was not found');
   if (candidates.length !== 1) fault('handler-entry-ambiguous', 'entry function is ambiguous');
   const context: ModuleContext = {
-    closureWalk: createLinkedKirClosureWalk(),
+    closureWalk: walk,
     functions: undefined,
     linked: new Map<string, LinkedKernKirHandler>(),
     linking: new Set<string>([entry.handlerName]),
@@ -512,9 +531,10 @@ export function linkVerifiedKernKirProgramOrThrow(
   entry: LinkedKernKirEntry,
   meter: RuntimeMeter,
   policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
+  walk: LinkedKernKirClosureWalk = createLinkedKirClosureWalk(),
 ): LinkedKernKirProgram {
   authenticateLinkedKernKirProjectionOrThrow(projection);
-  const { helpers, program } = selectHandler(projection, entry, meter, policy);
+  const { helpers, program } = selectHandler(projection, entry, meter, policy, walk);
   const projectionArtifactSha256 = sha256(projection.bytes);
   const base = Object.freeze({
     format: KERN_LINKED_KIR_PROGRAM_FORMAT,
@@ -531,11 +551,12 @@ export function linkVerifiedKernKirProgram(
   entry: LinkedKernKirEntry,
   limits: KernKirLimits,
   policy: LinkedKernKirCallPolicy = LINKED_KIR_DEFAULT_CALL_POLICY,
+  walk: LinkedKernKirClosureWalk = createLinkedKirClosureWalk(),
 ): LinkKernKirProgramResult {
   try {
     return Object.freeze({
       outcome: 'success',
-      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits), policy),
+      program: linkVerifiedKernKirProgramOrThrow(projection, entry, new RuntimeMeter(limits), policy, walk),
     });
   } catch (error) {
     const code =
