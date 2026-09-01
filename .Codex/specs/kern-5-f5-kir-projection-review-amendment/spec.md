@@ -104,7 +104,8 @@ Source order is not canonical order. The discriminating order is
 
 Handler types retain their position. Parameters admit only `boolean`, `number`,
 `string`, and lists of those scalar types. Returns admit the same set plus
-`void`; `void` is never a parameter or list element. `unknown`, `json`, and
+`void`; `void` is never a parameter or list element. Amended by
+`[F5-R5 AMENDED — RT-8]` below. `unknown`, `json`, and
 arbitrary list elements are outside the pinned portable-handler domain.
 
 Quoted branch paths preserve text. Unquoted branch paths are exactly a bare
@@ -158,3 +159,33 @@ The repair is killed if it adds SHA-256 inside KERN, compares F4A field 16 to a
 receipt seal, adds an eighth profile limit, consumes decoded F4 semantics,
 changes F4/KIR/F5 formats, weakens error precedence, leaves a production file
 at 500 lines or more, or cannot make a RED fail for its claimed reason.
+
+## [F5-R5 AMENDED — RT-8] Admitted handler-type spellings
+
+Amends `[F5-R5 DECIDED]` above. Slice `rt8-integer-signatures`; amendment record
+`scripts/kern-frontend-closure/amendments/rt8-integer-signatures.json`; slice spec
+`.Codex/specs/kern-5-rt8-integer-signatures/spec.md`.
+
+This section is deliberately not titled "Amendment 2". The documents
+`.Codex/specs/kern-5-f5-kir-projection-review-amendment-2/` and `-3/` already exist
+and are unrelated to this change.
+
+Parameters additionally admit `integer`, and lists additionally admit `integer[]`.
+`integer` is an **exact alias** of the already-admitted spelling `number`, and
+`integer[]` an exact alias of `number[]`: each routes to the identical
+`f5typekind(limits, "integer")` / `f5typelist(limits, "integer")` path. The
+projected KIR is byte-identical, so no decoder, emitter, envelope, or runtime
+behaviour changes. Returns admit the same set plus `void`, unchanged; `void` remains
+never a parameter or list element.
+
+`integer[]` is admitted because `number[]` already was; the mirror is exact and adds
+nothing further. No other spelling is admitted — `Integer`, `INTEGER`, `int`, `Int`,
+`integers`, and `integer[][]` remain `F5_AUTHORITY_DRIFT`.
+
+This amendment is additive: it grows the value domain of the two existing
+`lowered-type` property rows (`fn.returns`, `param.type`) and adds no row. Node and
+property counts are unchanged at 302 and 1,149.
+
+Host decoders continue to reject `{kind:"number"}`. The alias exists only in source
+spelling; the kind `integer` is unchanged and remains the sole lowered form. It is a
+64-bit-safe integer, not arbitrary precision.
