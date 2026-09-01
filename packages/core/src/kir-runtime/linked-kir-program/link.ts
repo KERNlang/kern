@@ -33,6 +33,8 @@ import {
   type LinkedKernKirStatement,
   type LinkedKernKirStaticType,
   type LinkKernKirProgramResult,
+  linkedKirAdmitsScalar,
+  linkedKirAdmitsType,
   linkedKirCrossCallType,
   linkedStatementsInvokeCapability,
 } from './contracts.js';
@@ -108,13 +110,13 @@ function parameterType(
   if (entries.length === 1) {
     const fields = canonicalRecord(value, ['kind'], label);
     const kind = propertyText(fields, 'kind', label, meter);
-    if (kind === 'boolean' || kind === 'integer' || kind === 'text') return Object.freeze({ kind });
+    if (linkedKirAdmitsScalar(kind, 'parameter')) return Object.freeze({ kind });
   }
   if (entries.length === 2) {
     const fields = canonicalRecord(value, ['element', 'kind'], label);
     const kind = propertyText(fields, 'kind', label, meter);
     const element = propertyText(fields, 'element', label, meter);
-    if (kind === 'list' && (element === 'boolean' || element === 'integer' || element === 'text')) {
+    if (kind === 'list' && linkedKirAdmitsScalar(element, 'parameter')) {
       return Object.freeze({ kind: 'list', element });
     }
   }
@@ -131,7 +133,10 @@ function handlerReturnType(
     exact(record, ['tag', 'value'], label);
     if (record.tag === 'record' && denseArray(record.value, `${label}.value`).length === 1) {
       const fields = canonicalRecord(value, ['kind'], label);
-      if (propertyText(fields, 'kind', label, meter) === 'void') return LINKED_KIR_VOID_RETURN_TYPE;
+      const kind = propertyText(fields, 'kind', label, meter);
+      if (linkedKirAdmitsType(kind, 'return') && !linkedKirAdmitsType(kind, 'parameter')) {
+        return LINKED_KIR_VOID_RETURN_TYPE;
+      }
     }
   }
   return parameterType(value, label, meter);

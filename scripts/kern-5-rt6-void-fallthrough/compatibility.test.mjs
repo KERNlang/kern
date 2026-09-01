@@ -7,9 +7,9 @@ import {
   VOID_FALLTHROUGH,
   compileJavaScript,
   compilePython,
+  LINKED_KIR_TYPE_ADMISSION,
   entryOf,
   envelopeBytes,
-  linkTypeGateLiterals,
   linkedProgram,
   project,
   runtimeRequest,
@@ -19,6 +19,7 @@ import {
 } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
+const BUILD_GOLDEN_URL = new URL('./k0-build-golden.json', import.meta.url);
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
@@ -57,9 +58,22 @@ const NON_VOID_FIXTURES = Object.freeze({
   literal: () => entryOf(['return value="true"'], { returns: 'boolean' }),
 });
 
-// Every row is recomputed from the real pipeline on each run, so a golden that was copied rather
-// than produced by the layer it claims to pin cannot survive.
-async function recompute() {
+// Behaviour rows: the linked shape and the envelope text every leg must agree on. These are
+// invariants of the contract, so a change here is a behaviour change and never environment drift.
+async function recomputeBehaviour() {
+  const linked = await linkedProgram(VOID_FALLTHROUGH);
+  const legs = await threeLegs(VOID_FALLTHROUGH, runtimeRequest('rt6-k0', {}));
+  const envelope = Buffer.from(envelopeBytes(legs.direct.envelope)).toString('utf8');
+  return {
+    envelopeText: envelope,
+    linkedReturnType: linked.program.returnType,
+    typeAdmission: LINKED_KIR_TYPE_ADMISSION,
+  };
+}
+
+// Build rows: digests over emitted bytes and over the projection of this source text. They move
+// with the toolchain, so they are pinned apart from the behaviour rows and cannot mask one.
+async function recomputeBuild() {
   const verified = await project(VOID_FALLTHROUGH);
   assert.ok(verified !== undefined, 'the K0 fixture must project');
   const linked = await linkedProgram(VOID_FALLTHROUGH);
@@ -67,35 +81,61 @@ async function recompute() {
   const python = compilePython(verified);
   assert.equal(javascript.outcome, 'success');
   assert.equal(python.outcome, 'success');
-  const legs = await threeLegs(VOID_FALLTHROUGH, runtimeRequest('rt6-k0', {}));
   return {
-    ...(await linkTypeGateLiterals()),
-    directEnvelopeSha256: sha256Hex(Buffer.from(envelopeBytes(legs.direct.envelope))),
     javascriptArtifactSha256: javascript.artifact.sha256,
-    javascriptEnvelopeSha256: sha256Hex(Buffer.from(envelopeBytes(legs.javascript.envelope))),
     linkedProgramSha256: linked.sha256,
-    linkedReturnType: linked.program.returnType,
     projectionArtifactSha256: linked.projectionArtifactSha256,
     pythonArtifactSha256: python.artifact.sha256,
-    pythonEnvelopeSha256: sha256Hex(Buffer.from(envelopeBytes(legs.python.envelope))),
   };
 }
 
-test('the RT-6 K0 golden pins every layer of the void completion', async () => {
+test('the RT-6 behaviour golden pins the linked shape, the type gate table and the envelope text', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.deepEqual(
-    await recompute(),
+    await recomputeBehaviour(),
     golden,
-    'RT6_K0_GOLDEN_DRIFT: a projection, linked program, artifact or envelope layer changed',
+    'RT6_K0_BEHAVIOUR_DRIFT: the linked shape, the closed type gate table or the envelope text changed',
   );
-  assert.equal(golden.directEnvelopeSha256, golden.javascriptEnvelopeSha256);
-  assert.equal(golden.directEnvelopeSha256, golden.pythonEnvelopeSha256);
+  assert.deepEqual(golden.linkedReturnType, { kind: 'void' });
+  assert.equal(golden.typeAdmission.void.parameter, false, 'void is admitted in return position only');
+  assert.equal(golden.typeAdmission.void.return, true);
+});
+
+test('the return gate rests on exactly one return-only row, and that row is void', () => {
+  const returnOnly = Object.entries(LINKED_KIR_TYPE_ADMISSION)
+    .filter(([, row]) => row.return && !row.parameter)
+    .map(([kind]) => kind);
+  assert.deepEqual(
+    returnOnly,
+    ['void'],
+    'handlerReturnType recognises void as the one kind admitted in return position and refused in parameter position; a second such row would silently widen it',
+  );
+  for (const [kind, row] of Object.entries(LINKED_KIR_TYPE_ADMISSION)) {
+    assert.ok(row.return, `${kind} must be admissible in return position`);
+    assert.equal(row.scalar && !row.parameter, false, `${kind} must not be a scalar refused as a parameter`);
+  }
+});
+
+test('the RT-6 build golden pins the emitted artifacts apart from the behaviour rows', async () => {
+  const golden = JSON.parse(await readFile(BUILD_GOLDEN_URL, 'utf8'));
+  assert.deepEqual(
+    await recomputeBuild(),
+    golden,
+    'RT6_K0_BUILD_DRIFT: a projection, linked program or emitted artifact digest changed',
+  );
   assert.notEqual(
     golden.javascriptArtifactSha256,
     golden.pythonArtifactSha256,
-    'the two targets really are different artifacts, so the envelope identity above is not vacuous',
+    'the two targets really are different artifacts, so the envelope identity is not vacuous',
   );
-  assert.deepEqual(golden.linkedReturnType, { kind: 'void' });
+});
+
+test('all three legs produce one envelope byte stream, recomputed rather than pinned once', async () => {
+  const legs = await threeLegs(VOID_FALLTHROUGH, runtimeRequest('rt6-k0-identity', {}));
+  const digests = ['direct', 'javascript', 'python'].map((leg) =>
+    sha256Hex(Buffer.from(envelopeBytes(legs[leg].envelope))),
+  );
+  assert.equal(new Set(digests).size, 1, 'RT-1, emitted JavaScript and emitted Python must agree byte for byte');
 });
 
 test('no non-void linked program carries a void return type or an added field', async () => {

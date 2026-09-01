@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 
 import { projectKernModules } from '../../packages/core/dist/frontend-projection.js';
-import { ENTRY, compileJavaScript, compilePython, moduleSource, project } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
+import { LINKED_KIR_TYPE_ADMISSION } from '../../packages/core/dist/kir-runtime/linked-kir-program/contracts.js';
+import { RuntimeMeter } from '../../packages/core/dist/kir-runtime/inspect.js';
+import { linkVerifiedKernKirProgramOrThrow } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import {
+  ENTRY,
+  LIMITS,
+  admission,
+  compileJavaScript,
+  compilePython,
+  moduleSource,
+  project,
+} from '../kern-5-rt4-user-fn-call/k0-support.mjs';
+
+export { LINKED_KIR_TYPE_ADMISSION };
 
 export * from '../kern-5-rt4-user-fn-call/k0-support.mjs';
 
@@ -49,22 +61,44 @@ export async function lastStatementShape(source) {
   return { keys: statement.properties.map((property) => property.key).sort(), kind: statement.kind };
 }
 
-// F5 is fatal on every return or parameter kind outside its own closed set, so no projection can
-// reach the linker's type gates. Pinning the literals each gate compares against is what keeps the
-// gates honest: widening `parameterType` to admit void, or keying the void return on anything but
-// the word itself, moves this inventory.
-export async function linkTypeGateLiterals() {
-  const source = await readFile(new URL('../../packages/core/src/kir-runtime/linked-kir-program/link.ts', import.meta.url), 'utf8');
-  const body = (name) => {
-    const start = source.indexOf(`function ${name}(`);
-    assert.ok(start >= 0, `link.ts must declare ${name}`);
-    const end = source.indexOf('\nfunction ', start + 1);
-    assert.ok(end > start, `${name} must be followed by another function`);
-    return source.slice(start, end);
-  };
-  const literals = (name) =>
-    [...new Set([...body(name).matchAll(/(===|!==) '([a-z]+)'/gu)].map((match) => `${match[1]} ${match[2]}`))].sort();
-  return { handlerReturnType: literals('handlerReturnType'), parameterType: literals('parameterType') };
+// The linker's rejection code is closed, so a suite that only asserts the code cannot tell which
+// gate fired. The fault message carries the label; pin that.
+export async function assertLinkLabel(source, label) {
+  const row = await admission(source);
+  assert.equal(row.projection, 'projected', `${label} must project so the negative is a link decision`);
+  for (const leg of ['rt1', 'javascript', 'python']) {
+    assert.equal(row[leg], 'handler-entry-unsupported', `${leg} must reject ${label} under the closed code`);
+  }
+  let thrown;
+  try {
+    linkVerifiedKernKirProgramOrThrow(row.verified, ENTRY, new RuntimeMeter(LIMITS));
+  } catch (error) {
+    thrown = error;
+  }
+  assert.ok(thrown !== undefined, `${label} must throw at link`);
+  assert.ok(
+    thrown.message.includes(label),
+    `expected the ${label} gate to fire, but the linker reported: ${thrown.message}`,
+  );
+  return thrown.message;
+}
+
+// indexOf returns -1 on a missing marker, which silently turns a slice into an empty string and a
+// tail assertion into a tautology. Every extraction goes through here instead.
+export function between(source, start, end, label) {
+  const from = source.indexOf(start);
+  assert.ok(from >= 0, `${label}: start marker ${JSON.stringify(start)} is absent`);
+  const to = source.indexOf(end, from + start.length);
+  assert.ok(to > from, `${label}: end marker ${JSON.stringify(end)} is absent after the start marker`);
+  const slice = source.slice(from, to);
+  assert.ok(slice.length > 0, `${label}: extracted an empty region`);
+  return slice;
+}
+
+export function lastBetween(source, start, end, label) {
+  const from = source.lastIndexOf(start);
+  assert.ok(from >= 0, `${label}: start marker ${JSON.stringify(start)} is absent`);
+  return between(source.slice(from), start, end, label);
 }
 
 export async function emittedArtifacts(source) {
