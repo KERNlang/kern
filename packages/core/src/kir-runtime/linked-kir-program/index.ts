@@ -14,6 +14,7 @@ export {
   type LinkedKernKirCrossCallType,
   type LinkedKernKirCrossCallTypeContract,
   type LinkedKernKirEntry,
+  type LinkedKernKirEntryHandler,
   type LinkedKernKirExpression,
   type LinkedKernKirHandler,
   type LinkedKernKirHelper,

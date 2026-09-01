@@ -1,8 +1,15 @@
-import { type KernKirEvent, KernKirFault, type KernKirValue } from './contracts.js';
+import {
+  type KernKirDiagnosticCode,
+  type KernKirEvent,
+  KernKirFault,
+  type KernKirSlot,
+  type KernKirValue,
+} from './contracts.js';
 import type { RuntimeMeter } from './inspect.js';
 import { parseKernJson, stringifyKernJson } from './json.js';
 import type {
   LinkedKernKirBinaryOperator,
+  LinkedKernKirEntryHandler,
   LinkedKernKirExpression,
   LinkedKernKirHandler,
   LinkedKernKirParameterType,
@@ -10,11 +17,52 @@ import type {
 } from './linked-kir-program/index.js';
 
 export interface ExpressionRuntime {
+  readonly asyncHelpers: ReadonlySet<string>;
   readonly checkAbort: () => void;
   readonly events: KernKirEvent[];
   readonly helpers: ReadonlyMap<string, LinkedKernKirHandler> | undefined;
   readonly maxEvents: number;
 }
+
+export type StatementStep =
+  | {
+      readonly kind: 'capability';
+      readonly input: KernKirSlot;
+      readonly statement: Extract<LinkedKernKirStatement, { kind: 'capability' }>;
+    }
+  | {
+      readonly kind: 'call';
+      readonly arguments: readonly KernKirValue[];
+      readonly handler: LinkedKernKirHandler;
+    };
+
+// A drained walk is not an error on its own: RT-6's void entry completes there, while a helper and
+// a value-returning entry both fail closed. The core reports which happened and each driver decides.
+export type StatementWalkResult =
+  | { readonly kind: 'returned'; readonly value: KernKirValue }
+  | { readonly kind: 'drained' };
+
+export interface StatementWalkPolicy {
+  readonly meterReturn: boolean;
+  readonly returnCode: KernKirDiagnosticCode;
+  readonly returnMessage: string;
+}
+
+export const ENTRY_WALK_POLICY = Object.freeze({
+  meterReturn: true,
+  returnCode: 'invalid-handler-result',
+  returnMessage: 'return type mismatch',
+}) satisfies StatementWalkPolicy;
+
+export const HELPER_WALK_POLICY = Object.freeze({
+  meterReturn: false,
+  returnCode: 'unsupported-runtime-input',
+  returnMessage: 'KIR_CALL_RETURN_TAG',
+}) satisfies StatementWalkPolicy;
+
+// A driver seeds the first next() with this and the walk discards it, so neither driver needs a
+// special case for the first resumption.
+export const WALK_SEED: KernKirValue = Object.freeze({ tag: 'null' });
 
 export function matchesType(value: KernKirValue, type: LinkedKernKirParameterType): boolean {
   if (type.kind !== 'list') return value.tag === type.kind;
@@ -59,13 +107,10 @@ const BINARY_EVALUATORS = Object.freeze({
   '>=': (left, right) => booleanValue(integerOperand(left) >= integerOperand(right())),
 }) satisfies Record<LinkedKernKirBinaryOperator, BinaryEvaluator>;
 
-function callHelper(
+export function calleeBindings(
   handler: LinkedKernKirHandler,
   args: readonly KernKirValue[],
-  meter: RuntimeMeter,
-  runtime: ExpressionRuntime,
-): KernKirValue {
-  meter.step();
+): Map<string, KernKirValue> {
   const bindings = new Map<string, KernKirValue>();
   for (const [index, parameter] of handler.parameters.entries()) {
     const value = args[index];
@@ -74,6 +119,34 @@ function callHelper(
     }
     bindings.set(parameter.name, value);
   }
+  return bindings;
+}
+
+function* statementValue(
+  expression: LinkedKernKirExpression,
+  bindings: ReadonlyMap<string, KernKirValue>,
+  meter: RuntimeMeter,
+  runtime: ExpressionRuntime,
+): Generator<StatementStep, KernKirValue, KernKirValue> {
+  if (expression.kind !== 'user-call' || !runtime.asyncHelpers.has(expression.handlerName)) {
+    return evaluateExpression(expression, bindings, meter, runtime);
+  }
+  meter.step();
+  const handler = runtime.helpers?.get(expression.handlerName);
+  if (handler === undefined) {
+    throw new KernKirFault('handler-link-error', 'execution', `missing helper ${expression.handlerName}`);
+  }
+  const args = expression.arguments.map((argument) => evaluateExpression(argument, bindings, meter, runtime));
+  return yield Object.freeze({ arguments: Object.freeze(args), handler, kind: 'call' as const });
+}
+
+export function* walkStatements(
+  handler: LinkedKernKirEntryHandler,
+  bindings: Map<string, KernKirValue>,
+  meter: RuntimeMeter,
+  runtime: ExpressionRuntime,
+  policy: StatementWalkPolicy,
+): Generator<StatementStep, StatementWalkResult, KernKirValue> {
   const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [
     { statements: handler.statements, index: 0 },
   ];
@@ -85,12 +158,24 @@ function callHelper(
     }
     const statement = frame.statements[frame.index];
     frame.index += 1;
-    if (statement.kind !== 'return') meter.step();
+    if (statement.kind !== 'return' || policy.meterReturn) meter.step();
     runtime.checkAbort();
     if (statement.kind === 'let') {
-      bindings.set(statement.name, evaluateExpression(statement.value, bindings, meter, runtime));
+      bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
+    } else if (statement.kind === 'capability') {
+      const input: KernKirSlot =
+        statement.input === undefined
+          ? Object.freeze({ presence: 'absent' })
+          : Object.freeze({
+              presence: 'value',
+              value: evaluateExpression(statement.input, bindings, meter, runtime),
+            });
+      if (runtime.events.length + 1 > runtime.maxEvents) {
+        throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
+      }
+      bindings.set(statement.name, yield Object.freeze({ input, kind: 'capability' as const, statement }));
     } else if (statement.kind === 'print') {
-      const value = evaluateExpression(statement.value, bindings, meter, runtime);
+      const value = yield* statementValue(statement.value, bindings, meter, runtime);
       if (value.tag !== 'text') throw new KernKirFault('unsupported-runtime-input', 'execution', 'print expects text');
       if (runtime.events.length + 1 > runtime.maxEvents) {
         throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
@@ -103,17 +188,37 @@ function callHelper(
       }
       const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
       if (branch !== undefined) frames.push({ statements: branch, index: 0 });
-    } else if (statement.kind === 'return') {
-      const value = evaluateExpression(statement.value, bindings, meter, runtime);
-      if (!matchesType(value, handler.returnType)) {
-        throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_CALL_RETURN_TAG');
-      }
-      return value;
     } else {
-      throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_CALL_CALLEE_CAPABILITY');
+      const { returnType } = handler;
+      if (returnType.kind === 'void') {
+        throw new KernKirFault('invalid-handler-result', 'execution', 'a void handler must not return a value');
+      }
+      const value = yield* statementValue(statement.value, bindings, meter, runtime);
+      if (!matchesType(value, returnType)) {
+        throw new KernKirFault(policy.returnCode, 'execution', policy.returnMessage);
+      }
+      return Object.freeze({ kind: 'returned' as const, value });
     }
   }
-  throw new KernKirFault('handler-entry-unsupported', 'execution', 'helper did not return');
+  return Object.freeze({ kind: 'drained' as const });
+}
+
+// A synchronous generator suspends and resumes with no microtask hop, so the synchronous call
+// boundary keeps the tick discipline RT-2 established while sharing the walk with the async driver.
+function callHelper(
+  handler: LinkedKernKirHandler,
+  args: readonly KernKirValue[],
+  meter: RuntimeMeter,
+  runtime: ExpressionRuntime,
+): KernKirValue {
+  meter.step();
+  const walk = walkStatements(handler, calleeBindings(handler, args), meter, runtime, HELPER_WALK_POLICY);
+  const step = walk.next(WALK_SEED);
+  if (!step.done) throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_CALL_CALLEE_CAPABILITY');
+  if (step.value.kind === 'drained') {
+    throw new KernKirFault('handler-entry-unsupported', 'execution', 'helper did not return');
+  }
+  return step.value.value;
 }
 
 export function evaluateExpression(
@@ -131,6 +236,9 @@ export function evaluateExpression(
         evaluateExpression(expression.right, bindings, meter, runtime),
       );
     case 'user-call': {
+      if (runtime.asyncHelpers.has(expression.handlerName)) {
+        throw new KernKirFault('handler-link-error', 'execution', 'KIR_ASYNC_CALL_EXPRESSION_POSITION');
+      }
       const callee = runtime.helpers?.get(expression.handlerName);
       if (callee === undefined) {
         throw new KernKirFault('handler-link-error', 'execution', `missing helper ${expression.handlerName}`);
