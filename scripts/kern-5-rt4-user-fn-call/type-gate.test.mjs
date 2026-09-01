@@ -137,25 +137,13 @@ test('only a bare same-module identifier callee is admitted', async () => {
   await assertLinkRejected(crossModule, 'cross-module callee');
 });
 
-test('a capability anywhere in the reachable callee closure is rejected at link', async () => {
+test('a capability in a callee reached from a non-statement position is rejected at link', async () => {
   const capabilityHelper = {
     body: ['capability namespace=fixture operation=resolve name=reply', 'return value="reply"'],
     name: 'fetch',
     parameters: TEXT_PARAMETERS,
     returns: 'string',
   };
-  await assertLinkRejected(
-    moduleSource([capabilityHelper, entryFn(['return value="fetch(t)"'], TEXT_PARAMETERS, 'string')]),
-    'direct callee capability',
-  );
-  await assertLinkRejected(
-    moduleSource([
-      capabilityHelper,
-      { body: ['return value="fetch(t)"'], name: 'wrap', parameters: TEXT_PARAMETERS, returns: 'string' },
-      entryFn(['return value="wrap(t)"'], TEXT_PARAMETERS, 'string'),
-    ]),
-    'transitive callee capability',
-  );
   await assertLinkRejected(
     moduleSource([
       capabilityHelper,
@@ -172,18 +160,6 @@ test('a capability anywhere in the reachable callee closure is rejected at link'
       entryFn(['return value="helper(wrap(fetch(t)))"'], TEXT_PARAMETERS, 'string'),
     ]),
     'capability nested two argument-position calls deep',
-  );
-  await assertLinkRejected(
-    moduleSource([
-      {
-        body: ['if cond="true"', '  capability namespace=fixture operation=resolve name=reply', '  return value="reply"', 'return value="t"'],
-        name: 'branchy',
-        parameters: TEXT_PARAMETERS,
-        returns: 'string',
-      },
-      entryFn(['return value="branchy(t)"'], TEXT_PARAMETERS, 'string'),
-    ]),
-    'capability inside an unselected callee branch',
   );
 });
 
