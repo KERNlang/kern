@@ -184,7 +184,44 @@ nothing further. No other spelling is admitted — `Integer`, `INTEGER`, `int`, 
 
 This amendment is additive: it grows the value domain of the two existing
 `lowered-type` property rows (`fn.returns`, `param.type`) and adds no row. Node and
-property counts are unchanged at 302 and 1,149.
+property counts are unchanged at 302 and 1,149. The closure ledger records
+dispositions and their counts but carries no per-row identity, so a record's
+`stableKey` is a **declared claim** that the ledger cannot mechanically confirm; the
+validator checks the disposition and the per-disposition row budget, not the key.
+
+### Chain model
+
+Composition pins move along an explicit predecessor/successor chain, mirroring the
+canonicalizer's prerequisite transitions. `amendments/chain-anchor.json` records, per
+composition path, the genesis digest — the pin as it stood before that path was ever
+amended. Each amendment's `repin` entry is one edge carrying `parentDigest` and, once
+consumed, `resultDigest`.
+
+The validator walks each anchored path from its genesis, following the unique edge
+whose `parentDigest` equals the cursor, and classifies each edge as it goes:
+
+- **pending** — no `resultDigest`; the chain's terminal edge. Its parent must equal
+  the current pin. If the source has drifted, this is the edge that licenses the
+  re-pin, and only this edge's record is checked against the live closure ledger.
+- **consumed / superseded** — `resultDigest` advances the cursor to the next edge or
+  to the current pin.
+
+The walk must consume every edge for that path and arrive exactly at the current pin.
+A deleted record, a corrupted `parentDigest` or `resultDigest`, an edge naming an
+unanchored path, and two edges leaving the same digest are each refused
+(`chain does not reach the current pin`, `orphaned amendment edge`,
+`unanchored amendment edge`, `chain forks at …`). A path with no anchor and no edge
+must match its pin exactly, so ordinary drift still fails closed.
+
+On `--write` the tool re-pins the policy digest **and** records `resultDigest` into
+the consumed edge, both as surgical single-occurrence substitutions. Re-running is a
+no-op. A consumed record can never re-bless a later edit — its parent no longer
+equals the pin — but a **successor amendment chaining from its `resultDigest` is
+accepted**, so the protocol composes across slices.
+
+Ledger digest and count checks apply only to a pending edge's record. Consumed
+records are held to structural checks alone, so a later, unrelated closure-ledger
+change cannot retroactively invalidate settled history or block a new re-pin.
 
 Host decoders continue to reject `{kind:"number"}`. The alias exists only in source
 spelling; the kind `integer` is unchanged and remains the sole lowered form. It is a

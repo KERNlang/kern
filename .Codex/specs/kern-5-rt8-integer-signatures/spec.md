@@ -97,15 +97,35 @@ writing, when:
 
 Without `--write` it verifies the chain and reports pending re-pins.
 
+Pins move along an explicit genesis-anchored predecessor/successor chain rather than
+a single parent check; the model is specified in `[F5-R5 AMENDED — RT-8]`. The
+review found two defects in the first design, both fixed here: a one-claim-per-path
+map made the documented successor-amendment flow impossible, and a descriptor whose
+source matched its pin was skipped before its edge was examined, so deleting or
+corrupting a consumed record still printed "chain verified". Consumed edges are now
+walked and must reach the current pin exactly.
+
+Ledger digest and count checks apply only to a pending edge's record; consumed
+records face structural checks alone. Otherwise any later closure-ledger change would
+hard-fail every settled record and block all future re-pins. The ledger has no
+per-row identity, so `stableKey` remains a declared claim — the validator checks the
+disposition and the per-disposition budget, not the key.
+
 Two properties matter beyond the checklist:
 
 - **Surgical.** The writer substitutes the digest string in the raw policy text after
   proving it occurs exactly once. It never re-serializes the JSON, so it cannot move
   a byte the amendment did not license. The policy file's compact descriptor
   formatting is preserved and the diff is one line.
-- **Single use.** Once consumed, the amendment's `parentDigest` no longer equals the
-  pinned digest, so the same record cannot re-bless a later edit. Re-blessing
-  requires a new amendment naming the new parent.
+- **Single use, but composable.** Once consumed, the amendment's `parentDigest` no
+  longer equals the pinned digest, so the same record cannot re-bless a later edit.
+  A successor amendment chaining from its `resultDigest` is accepted and re-pins
+  normally, so the protocol composes across slices.
+
+`amend.mjs` takes a root override (`KERN_AMEND_ROOT` or `--root`) so the chain tests
+run against a scratch copy of the ledger, policy, composition sources and amendments
+directory. No test mutates the live tree; a crashed test can no longer leave a
+drifted pin poisoning every F5 gate.
 
 `policy-integrity.test.mjs` is untouched and remains the second, independent
 recompute of the same digest.
