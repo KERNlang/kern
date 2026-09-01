@@ -56,7 +56,8 @@
     "list",
     "literal",
     "member",
-    "record"
+    "record",
+    "user-call"
   ],
   "rt2GoldenSha256": "aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0"
 }

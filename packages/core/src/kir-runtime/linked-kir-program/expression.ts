@@ -3,10 +3,12 @@ import { KernKirFault, type KernKirValue } from '../contracts.js';
 import { canonicalRecord, denseArray, exact, plainRecord, type RuntimeMeter } from '../inspect.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  type LinkedKernKirCrossCallType,
   type LinkedKernKirExpression,
   type LinkedKernKirStaticType,
   type LinkedKernKirTypeScope,
   linkedKirBinaryOperator,
+  linkedKirCrossCallType,
 } from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
@@ -69,10 +71,57 @@ export function staticExpressionType(
 ): LinkedKernKirStaticType | undefined {
   if (expression.kind === 'binary') return 'boolean';
   if (expression.kind === 'identifier') return scope.types.get(expression.name);
+  if (expression.kind === 'user-call') {
+    return scope.calls?.linked.get(expression.handlerName)?.returnType.kind === 'boolean' ? 'boolean' : undefined;
+  }
   if (expression.kind !== 'literal') return undefined;
   if (expression.value.tag === 'boolean') return 'boolean';
   if (expression.value.tag === 'integer' && CANONICAL_INTEGER.test(expression.value.value)) return 'integer';
   return undefined;
+}
+
+export function crossCallExpressionType(
+  expression: LinkedKernKirExpression,
+  scope: LinkedKernKirTypeScope,
+): LinkedKernKirCrossCallType | undefined {
+  if (expression.kind === 'binary') return 'boolean';
+  if (expression.kind === 'identifier') return scope.crossCallTypes.get(expression.name);
+  if (expression.kind === 'user-call') {
+    const callee = scope.calls?.linked.get(expression.handlerName);
+    return callee === undefined ? undefined : linkedKirCrossCallType(callee.returnType);
+  }
+  if (expression.kind === 'list') {
+    const element = expression.items.length === 0 ? undefined : crossCallExpressionType(expression.items[0], scope);
+    if (element !== 'boolean' && element !== 'text') return undefined;
+    if (!expression.items.every((item) => crossCallExpressionType(item, scope) === element)) return undefined;
+    return linkedKirCrossCallType({ kind: 'list', element });
+  }
+  if (expression.kind !== 'literal') return undefined;
+  if (expression.value.tag === 'boolean') return 'boolean';
+  if (expression.value.tag === 'text') return 'text';
+  return undefined;
+}
+
+function compileUserCall(
+  name: string,
+  args: readonly CanonicalValue[],
+  scope: LinkedKernKirTypeScope,
+  meter: RuntimeMeter,
+  label: string,
+  depth: number,
+): LinkedKernKirExpression {
+  if (scope.calls === undefined || scope.bindings.has(name)) unsupported(`${label}: KIR_CALL_CALLEE_UNRESOLVED`);
+  const callee = scope.calls.resolve(name, label);
+  if (callee.parameters.length !== args.length) unsupported(`${label}: KIR_CALL_ARITY`);
+  if (linkedKirCrossCallType(callee.returnType) === undefined) unsupported(`${label}: KIR_CALL_SIGNATURE_TYPE`);
+  const compiled = args.map((argument, index) => {
+    const expected = linkedKirCrossCallType(callee.parameters[index].type);
+    if (expected === undefined) unsupported(`${label}: KIR_CALL_SIGNATURE_TYPE`);
+    const value = compileLinkedExpression(argument, scope, meter, `${label}.args[${index}]`, depth + 1);
+    if (crossCallExpressionType(value, scope) !== expected) unsupported(`${label}: KIR_CALL_ARGUMENT_TYPE`);
+    return value;
+  });
+  return Object.freeze({ kind: 'user-call', arguments: Object.freeze(compiled), handlerName: name });
 }
 
 export function compileLinkedExpression(
@@ -96,7 +145,12 @@ export function compileLinkedExpression(
   if (kind === 'identifier') {
     const values = canonicalRecord(fields, ['name'], `${label}.fields`);
     const name = canonicalText(values.get('name'), `${label}.fields.name`, meter);
-    if (!IDENTIFIER.test(name) || (!scope.bindings.has(name) && !(name === 'Json' && context === 'intrinsic-object'))) {
+    if (
+      !IDENTIFIER.test(name) ||
+      (context !== 'intrinsic-member' &&
+        !scope.bindings.has(name) &&
+        !(name === 'Json' && context === 'intrinsic-object'))
+    ) {
       unsupported(`${label}: unknown identifier ${name}`);
     }
     return Object.freeze({ kind: 'identifier', name });
@@ -215,7 +269,6 @@ export function compileLinkedExpression(
     const values = canonicalRecord(fields, ['args', 'callee', 'optional'], `${label}.fields`);
     if (canonicalBool(values.get('optional'), `${label}.fields.optional`)) unsupported(`${label}: optional call`);
     const args = canonicalList(values.get('args'), `${label}.fields.args`, meter);
-    if (args.length !== 1) unsupported(`${label}: intrinsic arity`);
     const calleeValue = values.get('callee');
     if (calleeValue === undefined) unsupported(`${label}.fields.callee`);
     const callee = compileLinkedExpression(
@@ -226,6 +279,8 @@ export function compileLinkedExpression(
       depth + 1,
       'intrinsic-member',
     );
+    if (callee.kind === 'identifier') return compileUserCall(callee.name, args, scope, meter, label, depth);
+    if (args.length !== 1) unsupported(`${label}: intrinsic arity`);
     if (
       callee.kind !== 'member' ||
       callee.optional ||
