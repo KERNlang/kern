@@ -194,6 +194,20 @@ function indented(source: string): string {
     .join('\n');
 }
 
+function assignSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'assign' }>,
+  bindings: ReadonlyMap<string, string>,
+  calls: CallLocals,
+): string {
+  const local = bindings.get(statement.target);
+  if (local === undefined) throw new Error('a linked assign target must already own a host local');
+  const value = statementValue(statement.value, bindings, calls);
+  return `        _meter.step()
+        _check_abort()
+${value.prelude}        ${local} = ${value.source}
+`;
+}
+
 function leafSource(
   statement: LinkedKernKirStatement,
   local: string,
@@ -235,6 +249,7 @@ function blockSource(
   return statements
     .map((statement) => {
       if (statement.kind === 'return') return returnSource(statementValue(statement.value, scope, calls));
+      if (statement.kind === 'assign') return assignSource(statement, scope, calls);
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
