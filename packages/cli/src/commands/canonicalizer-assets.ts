@@ -52,7 +52,15 @@ const POLICY_KEYS = {
     'maxStringBytes',
   ],
   profileLimits: ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'],
-  runtimeLimits: ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+  runtimeLimits: [
+    'maxBytes',
+    'maxCollectionLength',
+    'maxDepth',
+    'maxDiagnostics',
+    'maxEvents',
+    'maxIterations',
+    'maxStringBytes',
+  ],
 } as const;
 
 function fail(message: string): never {
@@ -122,7 +130,7 @@ function parsePolicy(bytes: Buffer): CanonicalizerPolicy {
       maxDepth: runtimeLimits.maxDepth,
       maxDiagnostics: runtimeLimits.maxDiagnostics,
       maxEvents: runtimeLimits.maxEvents,
-      maxIterations: runtimeLimits.maxCollectionLength,
+      maxIterations: runtimeLimits.maxIterations,
       maxStringBytes: runtimeLimits.maxStringBytes,
     },
   };

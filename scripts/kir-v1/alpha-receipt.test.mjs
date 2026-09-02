@@ -191,7 +191,7 @@ test('receipt binds the complete decoded KIR runtime denominator', () => {
   assert.throws(() => validateAlphaReceiptPolicy(reorderedBindings), /bindings must be unique and sorted/u);
 });
 
-test('runtime contract directory discovery admits only a closed flat file inventory', (t) => {
+test('runtime contract directory discovery admits a closed regular-file tree', (t) => {
   const rootDir = path.join(os.tmpdir(), `kern-runtime-directory-${process.pid}-${Math.random().toString(16).slice(2)}`);
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(rootDir, { recursive: true });
@@ -199,11 +199,14 @@ test('runtime contract directory discovery admits only a closed flat file invent
   assert.deepEqual(discoverRuntimeContractDirectoryBindings(rootDir), [
     'scripts/runtime-contract-v1/authority.json',
   ]);
-  mkdirSync(path.join(rootDir, 'generated'));
-  assert.throws(
-    () => discoverRuntimeContractDirectoryBindings(rootDir),
-    /must be a regular file: generated/u,
-  );
+  mkdirSync(path.join(rootDir, 'amendments'));
+  writeFileSync(path.join(rootDir, 'amendments', 'chain-anchor.json'), '{}');
+  assert.deepEqual(discoverRuntimeContractDirectoryBindings(rootDir), [
+    'scripts/runtime-contract-v1/amendments/chain-anchor.json',
+    'scripts/runtime-contract-v1/authority.json',
+  ]);
+  symlinkSync('authority.json', path.join(rootDir, 'alias.json'));
+  assert.throws(() => discoverRuntimeContractDirectoryBindings(rootDir), /must be a regular file: alias.json/u);
 });
 
 test('core runtime contract test discovery closes only its prefix namespace', (t) => {

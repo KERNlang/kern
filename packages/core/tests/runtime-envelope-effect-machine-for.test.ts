@@ -172,9 +172,7 @@ describe('private effect-machine counted for frames', () => {
         children: [{ type: 'for', props: { from: '0', name: 'i', to: '2' }, children: [] }],
       },
     ];
-    expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).events,
-    ).toEqual([
+    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).events).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
     ]);

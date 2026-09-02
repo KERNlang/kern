@@ -45,8 +45,8 @@ export interface KernCheckerPolicy {
     readonly maxCollectionLength: number;
     readonly maxDepth: number;
     readonly maxDiagnostics: number;
-    readonly maxEvents: number;,
-    maxIterations: number;,
+    readonly maxEvents: number;
+    readonly maxIterations: number;
     readonly maxStringBytes: number;
   };
 }

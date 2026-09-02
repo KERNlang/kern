@@ -127,9 +127,7 @@ describe('private effect-machine while frames', () => {
       { type: 'return', props: { value: 'total' } },
     ];
 
-    expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }),
-    ).toMatchObject({
+    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations })).toMatchObject({
       completion: { kind: 'return', value: 2 },
     });
   });
