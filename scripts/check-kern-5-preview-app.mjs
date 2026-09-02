@@ -44,6 +44,7 @@ try {
       maxDepth: 1,
       maxDiagnostics: 1,
       maxEvents: 1,
+      maxIterations: 1,
       maxStringBytes: 1,
     },
   });

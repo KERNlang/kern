@@ -22,6 +22,7 @@ export const LIMITS = Object.freeze({
   maxDepth: 20,
   maxDiagnostics: 10,
   maxEvents: 10,
+  maxIterations: 100,
   maxSteps: 10_000,
   maxStringBytes: 10_000,
 });

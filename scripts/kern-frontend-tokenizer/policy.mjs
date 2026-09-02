@@ -17,7 +17,7 @@ const RUNTIME_KEYS = [
   'maxCollectionLength',
   'maxDepth',
   'maxDiagnostics',
-  'maxEvents',
+  'maxEvents', 'maxIterations',
   'maxStringBytes',
 ];
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL('../../', import.meta.url));

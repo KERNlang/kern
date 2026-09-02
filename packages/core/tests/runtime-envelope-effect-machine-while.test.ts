@@ -18,6 +18,7 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
@@ -56,10 +57,10 @@ describe('private effect-machine while frames', () => {
           },
         },
       }),
-      { iterationBudget: limits.maxCollectionLength },
+      { iterationBudget: limits.maxIterations },
     );
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
       asyncCapabilities: {
         llm: {
           complete: async ({ input }) => {
@@ -100,7 +101,7 @@ describe('private effect-machine while frames', () => {
       { type: 'return', props: { value: 'n' } },
     ];
 
-    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength })).toEqual({
+    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations })).toEqual({
       completion: { kind: 'return', value: 3 },
       events: [
         { op: 'assign', target: 'n', value: 0 },
@@ -127,7 +128,7 @@ describe('private effect-machine while frames', () => {
     ];
 
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }),
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }),
     ).toMatchObject({
       completion: { kind: 'return', value: 2 },
     });
@@ -151,7 +152,7 @@ describe('private effect-machine while frames', () => {
     ];
 
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).completion,
     ).toEqual({ kind: 'return', value: 2 });
   });
 
@@ -161,7 +162,7 @@ describe('private effect-machine while frames', () => {
   ])('propagates %s completion out of the loop', (abrupt, completion) => {
     const nodes: IRNode[] = [{ type: 'while', props: { cond: 'true' }, children: [abrupt] }];
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).completion,
     ).toEqual(completion);
   });
 
@@ -207,7 +208,7 @@ describe('private effect-machine while frames', () => {
     ];
     expect(
       runInternalEffectMachineSync(nodes, makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } }), {
-        iterationBudget: limits.maxCollectionLength,
+        iterationBudget: limits.maxIterations,
       }),
     ).toEqual({ completion: { kind: 'normal' }, events: [] });
     expect(calls).toBe(0);

@@ -27,7 +27,7 @@ const RUNTIME_HANDLER_LIMIT_KEYS = Object.freeze([
   'maxCollectionLength',
   'maxDepth',
   'maxDiagnostics',
-  'maxEvents',
+  'maxEvents', 'maxIterations',
   'maxStringBytes',
 ]);
 const MAX_TIMER_DELAY_MS = 2_147_483_647;

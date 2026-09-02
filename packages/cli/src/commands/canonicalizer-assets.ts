@@ -122,6 +122,7 @@ function parsePolicy(bytes: Buffer): CanonicalizerPolicy {
       maxDepth: runtimeLimits.maxDepth,
       maxDiagnostics: runtimeLimits.maxDiagnostics,
       maxEvents: runtimeLimits.maxEvents,
+      maxIterations: runtimeLimits.maxCollectionLength,
       maxStringBytes: runtimeLimits.maxStringBytes,
     },
   };

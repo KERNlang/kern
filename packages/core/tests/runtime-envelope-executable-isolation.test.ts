@@ -37,6 +37,7 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
@@ -710,9 +711,9 @@ describe('M3.15 executable-envelope isolation', () => {
 
     for (const nodes of cases) {
       const reference = referenceRunSequence(nodes, makeEnv());
-      const sync = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength });
+      const sync = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations });
       const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
-        iterationBudget: limits.maxCollectionLength,
+        iterationBudget: limits.maxIterations,
       });
       expect(tracesEqual(sync, reference)).toBe(true);
       expect(tracesEqual(asyncTrace, reference)).toBe(true);

@@ -9,6 +9,7 @@ export interface InternalRuntimeEnvelopeLimits {
   readonly maxDepth: number;
   readonly maxDiagnostics: number;
   readonly maxEvents: number;
+  readonly maxIterations: number;
   readonly maxStringBytes: number;
 }
 

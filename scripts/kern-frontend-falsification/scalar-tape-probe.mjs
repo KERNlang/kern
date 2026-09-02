@@ -15,6 +15,7 @@ const canonicalLimits = {
 const runtimeLimits = {
   maxBytes: 1048576, maxCollectionLength: 200000, maxDepth: 128,
   maxDiagnostics: 16, maxEvents: 16, maxStringBytes: 262144,
+  maxIterations: 200000,
 };
 const helper = readFileSync(new URL('../../examples/kern-frontend/expression-probe-helpers.kern', import.meta.url), 'utf8');
 const probe = readFileSync(new URL('../../examples/kern-frontend/scalar-tape-probe.kern', import.meta.url), 'utf8');

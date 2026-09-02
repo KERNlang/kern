@@ -33,7 +33,7 @@ test('discovered owner has the exact package-owned Python compiler surface', asy
 test('compile request admits exactly format, entry, and all seven positive safe integer limits', async () => {
   const verified = await projection();
   assert.deepEqual(LIMIT_KEYS, [
-    'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxSteps', 'maxStringBytes',
+    'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxSteps', 'maxStringBytes',
   ]);
   assertCompileSuccess(await compile(verified));
   for (const key of LIMIT_KEYS) {

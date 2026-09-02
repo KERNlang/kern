@@ -59,6 +59,7 @@ export interface KernRuntimeHandlerLimits {
   readonly maxDepth: number;
   readonly maxDiagnostics: number;
   readonly maxEvents: number;
+  readonly maxIterations: number;
   readonly maxStringBytes: number;
 }
 
@@ -167,6 +168,7 @@ const LIMIT_KEYS = [
   'maxDepth',
   'maxDiagnostics',
   'maxEvents',
+  'maxIterations',
   'maxStringBytes',
 ] as const;
 
@@ -296,6 +298,7 @@ function acceptedOptions(
     maxDepth: limits.maxDepth as number,
     maxDiagnostics: limits.maxDiagnostics as number,
     maxEvents: limits.maxEvents as number,
+    maxIterations: limits.maxIterations as number,
     maxStringBytes: limits.maxStringBytes as number,
   });
   const acceptedContext: KernRuntimeHandlerCapabilityContext | undefined =

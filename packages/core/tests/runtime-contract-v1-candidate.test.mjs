@@ -121,7 +121,7 @@ test('literal ingress matrix freezes sync throws and async rejections', async ()
   }
 });
 
-test('all six limit fields freeze minimum-valid and zero-invalid boundaries', async () => {
+test('all seven limit fields, including maxIterations, freeze minimum-valid and zero-invalid boundaries', async () => {
   const fixture = goldens.cases[2];
   for (const boundary of goldens.limitValidation) {
     const minimum = runtimeLimits({ [boundary.id]: boundary.minimum });

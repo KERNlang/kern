@@ -27,7 +27,15 @@ function fail(code: InternalRuntimeEnvelopeError['code'], message: string): neve
 }
 
 export function validateInternalRuntimeLimits(limits: InternalRuntimeEnvelopeLimits): void {
-  const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];
+  const keys = [
+    'maxBytes',
+    'maxCollectionLength',
+    'maxDepth',
+    'maxDiagnostics',
+    'maxEvents',
+    'maxIterations',
+    'maxStringBytes',
+  ];
   if (!limits || typeof limits !== 'object' || Array.isArray(limits))
     fail('invalid-limits', 'limits must be an object');
   const actual = Object.keys(limits).sort();
