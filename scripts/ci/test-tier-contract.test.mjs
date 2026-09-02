@@ -46,6 +46,21 @@ const exhaustiveTiers = [
   'test:pr-frontend-tooling',
 ];
 
+const kern5EvidenceCommands = [
+  'pnpm test:kern-5-r1-runtime-owner',
+  'pnpm test:kern-5-r2-js-lowering',
+  'pnpm test:kern-5-c-py-1-contract',
+  'pnpm test:kern-5-cli-compiler-runtime-shadow',
+  'pnpm test:kern-5-rt2-boolean-if',
+  'pnpm test:kern-5-rt3-binary-expression',
+  'pnpm test:kern-5-rt4-user-fn-call',
+  'pnpm test:kern-5-rt5-async-user-fn-call',
+  'pnpm test:kern-5-rt6-void-fallthrough',
+  'pnpm census:sweep',
+  'pnpm test:kern-5-admission-census',
+  'pnpm test:kern-5-rt8-integer-signatures',
+];
+
 const shardedFrontendJobs = new Map([
   ['frontend-properties-extended', 'test:pr-frontend-properties-extended'],
   ['frontend-composition', 'test:pr-frontend-composition'],
@@ -114,6 +129,33 @@ test('pull-request CI is bounded and covers the KIR Review Preview', async () =>
   assert.match(workflow, /timeout-minutes:/u);
 });
 
+test('pull-request CI requires the complete KERN 5 evidence family', async () => {
+  const packageJson = JSON.parse(await text('package.json'));
+  assert.equal(typeof packageJson.scripts['test:kern-5-c-py-1-contract'], 'string');
+  assert.equal(typeof packageJson.scripts['test:kern-5-cli-compiler-runtime-shadow'], 'string');
+  assert.equal(
+    packageJson.scripts['census:sweep'],
+    'pnpm --filter @kernlang/core build && node scripts/ci/kern-5-census-sweep.mjs',
+  );
+  assert.deepEqual(
+    segments(packageJson.scripts['test:kern-5-script-family']),
+    kern5EvidenceCommands,
+    'the KERN 5 evidence aggregate must retain every landed leaf exactly once and in dependency order',
+  );
+
+  const workflow = await text('.github/workflows/ci.yml');
+  const evidence = workflowJob(workflow, 'kern-5-evidence');
+  assert.match(evidence, /name: KERN 5 evidence family/u);
+  assert.match(evidence, /timeout-minutes: 180/u);
+  assert.match(evidence, /uses: actions\/setup-python@v7/u);
+  assert.match(evidence, /python-version: '3\.12'/u);
+  assert.equal(
+    [...evidence.matchAll(/run: pnpm test:kern-5-script-family/gmu)].length,
+    1,
+    'the KERN 5 evidence aggregate must run exactly once',
+  );
+});
+
 test('package tests use one parallel matrix job rather than duplicated job definitions', async () => {
   const workflow = await text('.github/workflows/ci.yml');
   const packageTests = workflowJob(workflow, 'package-tests');
@@ -144,6 +186,7 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
     'frontend-language',
     'frontend-tooling',
     'product-smoke',
+    'kern-5-evidence',
   ];
   const aggregator = workflowJob(workflow, 'build-and-test');
   assert.match(aggregator, /name: Build & Test/u);
