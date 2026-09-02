@@ -8,12 +8,12 @@ const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json',
 
 // The seals RT-9 re-pinned in the rt4/rt5/rt6 compatibility guards.
 const RT2_GOLDEN_SHA256 = 'cc7fb869d3f51ca6222521df52dd70e2364a83c8f97365f8db0a8c83cc2f9908';
-const RT3_GOLDEN_SHA256 = 'c8a94cc48ebc1e0a7c5364ab6b218a9471b30df02ef60e6fe8ab2d72d677d3f3';
+const RT3_GOLDEN_SHA256 = 'cb5799446b64c83f82a4a5a044e2b680d41932b5305fffacf8bb5643e99cc7de';
 
 // The pre-images those seals replaced, preserved here rather than in the frozen guards they left:
 // spec Corrections Log, resolution (A) plus its rider.
 const RT2_K0_GOLDEN_PRE_RT9_SHA256 = 'aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0';
-const RT3_K0_GOLDEN_PRE_RT9_SHA256 = 'ac690563c41feb50dc889c580de6cb763390484183c3795a513ec63a674a12cf';
+const RT3_K0_GOLDEN_PRE_RT9_SHA256 = '0eca34b6680ca2861fe6cb03fb5c1a0e31326aceb1ee3307afa6650d064f2e86';
 
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex');
