@@ -164,6 +164,7 @@ function assertLeaf(node: StructuralKirNode, label: string): void {
 }
 
 interface LinkScope {
+  readonly assignable: Set<string>;
   readonly bindings: Set<string>;
   readonly calls: LinkedKernKirCallScope | undefined;
   readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
@@ -182,6 +183,7 @@ interface ModuleContext {
 
 function branchScope(scope: LinkScope): LinkScope {
   return {
+    assignable: new Set(scope.assignable),
     bindings: new Set(scope.bindings),
     calls: scope.calls,
     crossCallTypes: new Map(scope.crossCallTypes),
@@ -288,6 +290,18 @@ function assertAsyncCallPosition(
   if (misplaced) fault('handler-entry-unsupported', `${label}: ${ASYNC_POSITION_LABEL}`);
 }
 
+function assignTargetName(value: CanonicalValue | undefined, label: string, meter: RuntimeMeter): string {
+  if (value === undefined) fault('handler-entry-unsupported', `${label}: missing target`);
+  const target = canonicalRecord(value, ['fields', 'kind'], label);
+  if (propertyText(target, 'kind', label, meter) !== 'identifier') {
+    fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_TARGET_NOT_IDENTIFIER`);
+  }
+  const fields = target.get('fields');
+  if (fields === undefined) fault('handler-entry-unsupported', `${label}.fields: missing record`);
+  const named = canonicalRecord(fields, ['name'], `${label}.fields`);
+  return propertyText(named, 'name', `${label}.fields`, meter);
+}
+
 function compileStatement(
   node: StructuralKirNode,
   scope: LinkScope,
@@ -311,6 +325,7 @@ function compileStatement(
     });
     assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
     bindName(scope, name, staticExpressionType(compiled.value, scope), crossCallExpressionType(compiled.value, scope));
+    scope.assignable.add(name);
     return compiled;
   }
   if (kind === 'capability') {
@@ -327,6 +342,33 @@ function compileStatement(
     });
     if (compiled.input !== undefined) assertAsyncCallPosition(compiled.input, scope, `${label}.input`, false);
     bindName(scope, name, undefined, undefined);
+    scope.assignable.add(name);
+    return compiled;
+  }
+  if (kind === 'assign') {
+    propertySet(properties, ['target', 'value'], ['op'], label);
+    if (properties.has('op')) fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_OP_UNSUPPORTED`);
+    const target = assignTargetName(properties.get('target'), `${label}.target`, meter);
+    if (!scope.bindings.has(target)) fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_UNDECLARED ${target}`);
+    if (!scope.assignable.has(target)) {
+      fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_TARGET_NOT_LET ${target}`);
+    }
+    const value = properties.get('value');
+    if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
+    const compiled = Object.freeze({
+      kind: 'assign' as const,
+      target,
+      value: compileLinkedExpression(value, scope, meter, `${label}.value`),
+    });
+    assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
+    // An assign never rebinds a link-time type record, so every downstream gate that read the
+    // binding's recorded type stays valid without re-deriving it.
+    if (
+      staticExpressionType(compiled.value, scope) !== scope.types.get(target) ||
+      crossCallExpressionType(compiled.value, scope) !== scope.crossCallTypes.get(target)
+    ) {
+      fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_TYPE_MISMATCH ${target}`);
+    }
     return compiled;
   }
   if (kind === 'print' || kind === 'return') {
@@ -417,6 +459,7 @@ function compileHandler(
   const parameters: { readonly name: string; readonly type: LinkedKernKirParameterType }[] = [];
   let handler: StructuralKirNode | undefined;
   const scope: LinkScope = {
+    assignable: new Set<string>(),
     bindings: new Set<string>(),
     calls: callScope(context),
     crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
