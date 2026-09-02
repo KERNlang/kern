@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  declaredLimitKeys,
   ENVELOPE_LIMIT_KEYS,
   executeKernRuntimeHandlerAsync,
   executeKernRuntimeHandlerSync,
   handlerRequest,
   KIR_LIMIT_KEYS,
+  kirLimitKeyDeclarations,
   kirLimits,
   LEGACY_ENVELOPE_LIMIT_KEYS,
   legacyLimits,
@@ -122,4 +124,20 @@ test('L1: spreading a KIR limits record into the envelope fails exact-key valida
 test('L1: an envelope limits record is not accepted as a KIR record either', () => {
   assert.ok(!KIR_LIMIT_KEYS.includes('maxIterations'), 'KIR must not learn the envelope name');
   assert.ok(!ENVELOPE_LIMIT_KEYS.includes('maxSteps'), 'the envelope must not reuse the KIR name');
+});
+
+test('L1: every shipped KIR limits key list still declares maxSteps and refuses maxIterations', () => {
+  const declarations = kirLimitKeyDeclarations();
+  assert.equal(declarations.length, 3);
+  for (const { keys, path } of declarations) {
+    assert.deepEqual(keys, [...KIR_LIMIT_KEYS], path);
+  }
+});
+
+test('L1: the shipped envelope limits key lists declare exactly the envelope record', () => {
+  assert.deepEqual(declaredLimitKeys('packages/core/src/runtime-handler.ts'), [...ENVELOPE_LIMIT_KEYS]);
+  assert.deepEqual(
+    declaredLimitKeys('packages/core/src/runtime-envelope/value.ts', 'keys'),
+    [...ENVELOPE_LIMIT_KEYS],
+  );
 });

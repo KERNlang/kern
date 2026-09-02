@@ -82,6 +82,23 @@ test('a successor edge is accepted only from the consumed result', () => {
   assert.match(run(root).output, /chain verified, 0 pending/u);
 });
 
+test('a pending amendment must name the current pin as its parent', () => {
+  const root = scratch();
+  const value = json(root, RECORD);
+  const successor = { ...value, slice: 'successor', parentDigests: value.resultDigests, rowsChanged: ['limits.future'] };
+  delete successor.resultDigests;
+  putRecord(root, successor, `${CONTRACT}/amendments/successor.json`);
+  write(root, `${CONTRACT}/constitution.json`, `${text(root, `${CONTRACT}/constitution.json`)}\n`);
+  const lineagePath = `${CONTRACT}/lineage.json`;
+  const drifted = json(root, lineagePath);
+  drifted.versions[0].goldensSha256 = 'c'.repeat(64);
+  write(root, lineagePath, `${JSON.stringify(drifted, null, 2)}\n`);
+  const before = text(root, lineagePath);
+  assert.match(run(root).output, /pending amendment parents do not match the current pin/u);
+  assert.equal(run(root, '--write').ok, false);
+  assert.equal(text(root, lineagePath), before);
+});
+
 test('forked, orphaned, and non-additive records are refused', () => {
   for (const [mutate, pattern] of [
     [(value) => { value.slice = 'fork'; }, /exactly one genesis/u],

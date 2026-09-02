@@ -232,3 +232,20 @@ export function envelopeShapedFiles() {
 export function kirShapedLimitFiles() {
   return [...KIR_ONLY_LIMIT_FILES].filter((path) => !MIXED_LIMIT_FILES.includes(path)).sort();
 }
+
+const KIR_LIMIT_KEY_DECLARATIONS = Object.freeze([
+  'packages/core/src/kir-runtime/inspect.ts',
+  'packages/core/src/compiler/kir-js-esm/request.ts',
+  'packages/core/src/compiler/kir-python/request.ts',
+]);
+
+export function declaredLimitKeys(path, name = 'LIMIT_KEYS') {
+  const source = readFileSync(join(REPO_ROOT, path), 'utf8');
+  const match = new RegExp(`(?:const ${name}|${name}) = \\[([^\\]]*)\\]`, 'u').exec(source);
+  if (match === null) throw new Error(`${path} declares no ${name} array`);
+  return [...match[1].matchAll(/'([^']+)'/gu)].map(([, key]) => key).sort();
+}
+
+export function kirLimitKeyDeclarations() {
+  return KIR_LIMIT_KEY_DECLARATIONS.map((path) => ({ keys: declaredLimitKeys(path), path }));
+}
