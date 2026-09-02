@@ -184,13 +184,51 @@ grep -rln maxDiagnostics scripts packages/*/src packages/*/tests tests generated
   | grep -v node_modules | grep -v '/dist/'
 ```
 
-- **90** non-test files mention `maxDiagnostics`; **77** of them lack `maxSteps` and are
-  therefore envelope-shaped and must change. The other 13 are KIR-shaped and need nothing.
-- **41** test files, **56** literal construction sites.
-- **118** files total. Full lists: `mustchange.txt` / `testfiles.txt` in this slice's
-  scratch; regenerate with the command above.
-- `runtime-handler.ts:293-300` builds `acceptedLimits` by explicit per-key copy, so **no**
-  site picks the new key up for free. Every one is a real edit.
+Two numbers, with their rules, because they measure different things.
+
+- **Mechanical fence (what leg L5 enforces): 77 files.** Rule: the file contains all six
+  current key names and does not contain `maxSteps`. 96 files contain all six; 19 already
+  carry `maxSteps`. This rule is exactly what `envelopeShapedFiles()` in the oracle computes,
+  so the fence and this count cannot drift apart. It excludes pure *consumers* —
+  `runtime-envelope/normalize.ts` and `cli/src/kir-shadow/normalize.ts` read
+  `limits.maxDiagnostics`/`maxEvents` but construct no record — correctly, since they need no
+  edit.
+- **Audited construction and validation sites: 46 non-test + 43 test = 89 files.** Hand-read,
+  after discarding two classes of false positive: the frontend/checker/canonicalizer
+  `policy.json` files each carry an *unrelated* `profileLimits.maxDiagnostics` alongside the
+  real `runtimeLimits` record, and ten files construct seven-key `KernKirLimits` records that
+  already have `maxSteps`. Breakdown: 22 construction sites (9 source/script + 13 JSON
+  policies), 21 key-set validators, 3 RC-v1 goldens.
+
+Neither number is the other's superset — the fence is textual and conservative; the audit is
+semantic. Implementation must satisfy the fence and consult the audit for *which* value each
+record gets.
+
+Three sites deserve naming because they are not simple literals:
+
+- `scripts/kern-5-r0-contracts/r0-abi-template-esm.mjs:44` and `r0-abi-template-python.mjs:19`
+  embed `LIMIT_KEYS` **inside code-generation template strings** — the generated child
+  handler's own validator. Editing the template changes generated ESM and Python source.
+- `scripts/kern-5-r0-contracts/schema/runtime-request.json:86-98` is a JSON Schema whose
+  `properties` and `required` arrays both enumerate the six keys.
+- `examples/kern-5-preview-app/server.mjs:25-31` holds `RUNTIME_HANDLER_LIMIT_KEYS` and
+  exact-key-checks a user-supplied config at `:81-88`, so its config file
+  (`runtime-handler-config.json:5-11`) and its key array must move together.
+
+- **VERIFIED:** `packages/core/tests/runtime-contract-v1-parity.test.ts` asserts
+  `Assert<Equal<KernRuntimeHandlerLimits, InternalRuntimeEnvelopeLimits>>` at compile time.
+  The public and internal records **cannot** diverge; adding the key to one without the other
+  fails `tsc`. This is a gift — it makes "public and internal agree" a type-level invariant
+  rather than a review item.
+- **VERIFIED:** `scripts/runtime-handler-public-declaration.mjs:144` diffs the *built* `.d.ts`
+  interface properties against `constitution.json.limits`, so it adapts automatically once
+  both sides gain the key — and fails loudly if only one does.
+- **VERIFIED:** `runtime-handler.ts:293-300` builds `acceptedLimits` by explicit per-key copy,
+  so no site picks the new key up for free. Pass-through sites exist —
+  `scripts/kern-frontend-f3-line-tree/worker.mjs:182-184` and `f2-batch/worker.mjs:205-208`
+  spread `...runtimeLimits`, and the 18 `scripts/check-kern-frontend-*.mjs` scripts forward
+  `policy.runtimeLimits` whole — but each still sits downstream of a hardcoded validator that
+  rejects a seven-key object until updated. There is no free ride.
 
 REQUIRED is chosen over OPTIONAL-with-fallback because:
 
@@ -213,7 +251,7 @@ REQUIRED is chosen over OPTIONAL-with-fallback because:
    `runtimeAbiFrozen: false` (`validate-runtime-contract-v1.mjs:337-344`) and the lineage
    holds exactly one version. This is the window in which the shape may still change.
 
-Accepted cost: 118 files, one integer each, and the RC-v1 amendment below.
+Accepted cost: 77 files by the fence, one integer each, and the RC-v1 amendment below.
 
 ## [MS-R3 DECIDED] This is a public runtime-contract (RC-v1) amendment
 
@@ -324,8 +362,11 @@ field that records the shape change.
 | `scripts/runtime-contract-v1/lineage.json` | Re-pin | All four SHA-256 digests (MS-R3; no writer) |
 | `scripts/kern-frontend-f5-projection/policy.json` | Modify | `runtimeLimits.maxSteps = 33554432` |
 | `scripts/kern-frontend-f5-projection/policy-validation.mjs` | Modify | `RUNTIME_KEYS` + relationship clause |
-| 76 further non-test limits records | Modify | `maxSteps := current maxCollectionLength` (MS-R2) |
-| 41 test files / 56 literal sites | Modify | Same mechanical transcription |
+| 62 further non-test limits records and validators | Modify | `maxSteps := current maxCollectionLength` (MS-R2) |
+| 43 test files | Modify | Same mechanical transcription |
+| `scripts/kern-5-r0-contracts/r0-abi-template-{esm,python}.mjs` | Modify | `LIMIT_KEYS` inside generated-source templates |
+| `scripts/kern-5-r0-contracts/schema/runtime-request.json` | Modify | JSON-Schema `properties` and `required` |
+| `examples/kern-5-preview-app/{server.mjs,runtime-handler-config.json}` | Modify | `RUNTIME_HANDLER_LIMIT_KEYS` and its config |
 | `packages/core/dist/**`, generated projection assets | Rebuild | Never hand-edited |
 
 ## Acceptance Criteria
@@ -352,10 +393,93 @@ claim feeds a fixture.
       `maxCollectionLength` is asserted to still be `1048576`. **No F5 projection is run**
       (p50 222 s).
 - [ ] **L5 caller sweep guard.** Every envelope-shaped limits record in the repo carries
-      `maxSteps`. Mechanical fence over the 118 files; fails loudly on any that is missed.
+      `maxSteps`. Mechanical fence over the 77 files that fail it today, plus named checks
+      on the four RC-v1 artefacts; fails loudly on any record that is missed.
 - [ ] `pnpm test:kern-runtime-envelope`, `pnpm test:kern-runtime-contract-v1`,
       `pnpm test:kern-frontend-f5-projection` and `pnpm test:kern-frontend-closure` pass.
 - [ ] `scripts/kern-5-admission-census` is byte-identical: this slice admits nothing (MS-R1).
+
+## Oracle
+
+`scripts/kern-5-runtime-envelope-max-steps/`, root script
+`test:kern-5-runtime-envelope-max-steps` (`package.json:117`), modelled on
+`test:kern-5-rt8-integer-signatures` minus the asset-rebuild and `amend.mjs` steps this slice
+does not need — it moves no composition `.kern` and no pinned digest that the closure
+protocol governs. Builds `@kernlang/core` first, then runs the five legs in order.
+
+**31 tests: 24 RED, 7 GREEN at base `1a88c705`.**
+
+| Leg | File | Tests | RED | GREEN |
+|---|---|---|---|---|
+| L1 contract | `contract.test.mjs` | 7 | 5 | 2 |
+| L2 decoupling | `budget-decoupling.test.mjs` | 6 | 6 | 0 |
+| L3 byte identity | `byte-identity.test.mjs` | 4 | 3 | 1 |
+| L4 F5 policy | `f5-policy.test.mjs` | 8 | 6 | 2 |
+| L5 caller sweep | `caller-sweep.test.mjs` | 6 | 4 | 2 |
+
+The 7 already-green tests are deliberate: each pins something that must **not** move. L1's
+unknown-key refusal and its `maxSteps`-is-the-only-new-key check; L3's golden integrity; L4's
+`maxCollectionLength` stays `1048576` and the three pre-existing limit relationships; L5's
+sweep coverage (21 named files, `shaped.length >= 96`) and the RC-v1 lineage digest
+consistency. That last one is the fence for MS-R3: it is green now, and it stays green only
+if the implementer re-pins all four digests after editing the artefacts.
+
+### RED-at-base strings, verbatim
+
+```
+L1 admits maxSteps
+  error: 'limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxStringBytes'
+L1 refuses a record without maxSteps
+  error: 'Missing expected exception.'
+L1 maxSteps is a positive safe integer
+  expected: 'maxSteps must be a positive safe integer'
+  actual:   'limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxStringBytes'
+L1 / L2 / L3 public handler paths
+  error: 'runtime handler limits are invalid'
+L2 compat path
+  error: 'limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxStringBytes'
+L4 refuses runtimeLimits without maxSteps
+  error: 'Missing expected exception.'   expected message: 'F5 projection policy: runtime limits keys'
+L4 non-positive maxSteps
+  expected: 'F5 projection policy: runtime limits maxSteps'
+  actual:   'F5 projection policy: runtime limits keys'
+L4 maxWorkSteps > maxSteps
+  expected: 'F5 projection policy: limit relationship'
+  actual:   'F5 projection policy: runtime limits keys'
+```
+
+Every RED is the *absence of the key*, on the path that will carry it. None is an incidental
+failure, a missing file, or an unrelated assertion.
+
+### Red-teaming the oracle
+
+- **L2 is the discriminating leg.** Recorded at base, the coupling is directly visible:
+  identical `while` loop of 100 iterations, `maxCollectionLength: 16` → `unsupported-runtime-input`,
+  `maxCollectionLength: 1024` → success returning `100`. So today the value ceiling *is* the
+  budget. L2 asserts the inverse post-change: with `maxSteps` fixed, three different
+  `maxCollectionLength` values (16, 64, 1048576) must yield **byte-identical** envelopes,
+  while `maxSteps: 8` fails even at `maxCollectionLength: 1048576`. A patch that widened the
+  ceiling instead of splitting the knob passes nothing here.
+- **The two limits are separated by different diagnostic codes, not by degree.** Budget
+  exhaustion is `unsupported-runtime-input`; the collection ceiling on arguments is
+  `invalid-handler-arguments`. L2 asserts both, and asserts the codes are not equal.
+- **Off-by-one is pinned.** `maxSteps: 100` admits a 100-iteration loop and `maxSteps: 99`
+  refuses it, so a fencepost slip in the budget wiring fails.
+- **L3 cannot be satisfied by regenerating it.** `byte-identity.golden.json` was captured at
+  base through the *legacy six-key* record and is checked in; the test drives the *seven-key*
+  record. An implementation that changed envelope bytes cannot make L3 pass without editing a
+  committed golden, which a reviewer sees.
+- **L4 runs no projection.** p50 is 222 s; L4 only exercises `validatePolicy` on in-memory
+  policy objects, so the lane stays fast and the timeout milestone stays out of scope.
+- **What the oracle deliberately does not claim:** no leg asserts that any census file becomes
+  admitted, or that any F5 projection completes (MS-R1). Both would be false.
+
+### Implementation obligations the oracle does not cover
+
+- Wire the lane into `test:kern-5-script-family` (`package.json:118`) and the CI tier list
+  enforced by `scripts/ci/test-tier-contract.test.mjs`. Verified that suite still passes 9/9
+  with the lane unwired, so deferring this to the implementation phase breaks nothing now.
+- Re-pin the four RC-v1 digests (MS-R3). L5 fences it; the OPEN question is *how*.
 
 ## Out of Scope
 
@@ -384,7 +508,7 @@ claim feeds a fixture.
 
 ## Deploy Order
 
-One candidate: core source, the 118 limits records, RC-v1 artefacts and the F5 policy build
+One candidate: core source, the 77 limits records, RC-v1 artefacts and the F5 policy build
 and gate together. There is no skew window inside the repo. Externally, `runtimeAbiFrozen`
 is `false` and the lineage holds one version, so no published consumer is owed a migration —
 which is precisely why the required key is affordable now and would not be later.
@@ -398,5 +522,6 @@ which is precisely why the required key is affordable now and would not be later
 | The root script should follow `test:kern-5-rt9-linked-assign`. | That script does not exist. The chained precedent is `test:kern-5-rt8-integer-signatures` (`package.json:117`), and any new lane must also join `test:kern-5-script-family` (`:118`) and the CI tier list enforced by `scripts/ci/test-tier-contract.test.mjs`. | The oracle's root script follows the rt8 shape, minus the `amend.mjs` step this slice does not need. |
 | `maxSteps` is an internal envelope field, so the change is internal. | `KernRuntimeHandlerLimits` is frozen by name in `constitution.json:30-37` and by exact `.d.ts` text in `public-declaration-schema.json:12`, with four cross-checked digests in `lineage.json` and no writer. | MS-R3 added; the slice is a public runtime-contract amendment and carries the one OPEN item that caps confidence. |
 | `maxCollectionLength` is the F5 profile/canonical collection ceiling being widened. | Those are `262144` (`policy.json:33,44`); `1048576` is `runtimeLimits.maxCollectionLength` alone. | The unsafe-widening argument is about the *runtime* record, which is the one the envelope validates. |
-| Blast radius is "at least the eight named scripts". | 77 non-test files and 41 test files carry an envelope-shaped record. `acceptedLimits` copies keys explicitly, so none inherits the new key. | MS-R2 rests on a measured 118, and the sweep is framed as 1 ruling + 117 transcriptions. |
+| Blast radius is "at least the eight named scripts". | 77 files fail the textual fence; 46 non-test + 43 test files were audited as real construction or validation sites. `acceptedLimits` copies keys explicitly, so none inherits the new key. | MS-R2 rests on measured numbers with their rules stated, and the sweep is framed as 1 ruling + 76 transcriptions. |
+| A first pass counted 90 non-test files by grepping `maxDiagnostics`. | Frontend/checker/canonicalizer policies carry an unrelated `profileLimits.maxDiagnostics`, and ten files construct seven-key `KernKirLimits`. Two more files (`runtime-contract-v1-parity.test.ts`, `runtime-contract-v1/declaration.test.mjs`) carry no `maxDiagnostics` at all and were missed by that grep. | The fence uses the all-six-keys rule and the audit was hand-read; `runtime-contract-v1-parity.test.ts` turned out to be the type-level invariant that keeps the public and internal records equal. |
 | A 17-element list at `maxCollectionLength: 16` is a clean second failure mode in any handler. | Only via *arguments*, which yield `invalid-handler-arguments`. In-KERN list growth (`assign op="+=" target=out value="[i]"`) and `len(rows)` both fail as `unsupported-runtime-input` at base and would have made the leg non-discriminating. | L2 uses an argument list and asserts the two distinct codes. |
