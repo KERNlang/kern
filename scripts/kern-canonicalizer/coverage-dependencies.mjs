@@ -107,6 +107,60 @@ const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   ...TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
   ...RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
 ]);
+const RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS = Object.freeze([
+  {
+    expectedDigest: '662199d6f2385cfe232e74bc284d27cf1b2525944d211ddfb525979b44504cec',
+    path: 'runtime-envelope/execute.js',
+    replacements: [
+      {
+        current: 'runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxIterations,',
+        historical: 'runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength,',
+      },
+      {
+        current: 'iterationBudget: accepted.limits.maxIterations,',
+        historical: 'iterationBudget: accepted.limits.maxCollectionLength,',
+      },
+    ],
+  },
+  {
+    expectedDigest: '7bc2f2aeaeabe38e89cf202033436aea8bb579ee95c45c3bb85351e9d062b98b',
+    path: 'runtime-envelope/execute-compat.js',
+    replacements: [
+      {
+        current: 'runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxIterations,',
+        historical: 'runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength,',
+      },
+      {
+        current: 'iterationBudget: accepted.limits.maxIterations,',
+        historical: 'iterationBudget: accepted.limits.maxCollectionLength,',
+      },
+    ],
+  },
+  {
+    expectedDigest: 'cd0739cf02ec2ad39102525bf1d820fb5c0f07eb5b3303ff606b1f0015bb6a4d',
+    path: 'runtime-envelope/value.js',
+    replacements: [{
+      current: `    const keys = [
+        'maxBytes',
+        'maxCollectionLength',
+        'maxDepth',
+        'maxDiagnostics',
+        'maxEvents',
+        'maxIterations',
+        'maxStringBytes',
+    ];`,
+      historical: "    const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];",
+    }],
+  },
+  {
+    expectedDigest: 'd62853c9694f8c74ea8eff3ff0a74258fe8251793cd0708836d8663be0cc5273',
+    path: 'runtime-handler.js',
+    replacements: [
+      { current: "    'maxIterations',\n", historical: '' },
+      { current: '        maxIterations: limits.maxIterations,\n', historical: '' },
+    ],
+  },
+]);
 
 let authenticatedDependencies;
 
@@ -474,6 +528,14 @@ function m4145CompiledCoreJavaScriptPaths() {
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = scalarHelperHistoryOverrides(canonicalRoot, runnerCallCachePaths, historicalPaths);
+  for (const reconstruction of RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS) {
+    overrides.set(reconstruction.path, reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-runtime-envelope-max-iterations compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    }));
+  }
   for (const reconstruction of POST_RUNNER_EXPORT_AMENDMENT_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-runner-export-amendment compiled core path is absent from M4.145: ${reconstruction.path}`);

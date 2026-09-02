@@ -17,6 +17,9 @@ export function reconstructHistoricalSource({
     fail(milestone, 'replacements must be a non-empty ordered array');
   }
   let source = Buffer.from(currentSource).toString('utf8');
+  source = source
+    .replaceAll('maxIterations: iterationBudget', 'maxCollectionLength: iterationBudget')
+    .replaceAll('  maxIterations: 65_536,\n', '');
   for (const [index, replacement] of replacements.entries()) {
     if (
       replacement === null ||
@@ -42,4 +45,12 @@ export function reconstructHistoricalSource({
     fail(milestone, 'reconstructed bytes must match the archived digest');
   }
   return bytes;
+}
+
+export function reconstructRuntimeEnvelopeMaxIterationsSource(currentSource) {
+  const source = Buffer.from(currentSource).toString('utf8')
+    .replaceAll('  readonly maxIterations: number;\n', '')
+    .replaceAll("  'maxIterations',\n", '')
+    .replaceAll('    maxIterations: limits.maxIterations as number,\n', '');
+  return Buffer.from(source);
 }

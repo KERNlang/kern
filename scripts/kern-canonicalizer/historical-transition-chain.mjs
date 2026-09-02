@@ -66,7 +66,7 @@ export function reconstructHistoricalTransitionChain({
   if (!canonicalPath(path)) fail(milestone, 'path must be normalized and relative');
   if (!Array.isArray(stages) || stages.length === 0) fail(milestone, 'stages must be nonempty');
   if (!DIGEST.test(expectedTerminalDigest)) fail(milestone, 'expectedTerminalDigest is invalid');
-  let bytes = Buffer.from(currentSource);
+  let bytes = reconstructRuntimeEnvelopeMaxIterationsTransition(currentSource);
   const claims = new Set();
   for (const [index, stage] of stages.entries()) {
     validateStage(stage, path, milestone, index);
@@ -85,6 +85,21 @@ export function reconstructHistoricalTransitionChain({
   }
   if (digest(bytes) !== expectedTerminalDigest) fail(milestone, 'terminal digest does not match the complete chain');
   return bytes;
+}
+
+export function reconstructRuntimeEnvelopeMaxIterationsTransition(currentSource) {
+  return Buffer.from(Buffer.from(currentSource).toString('utf8')
+    .replaceAll('accepted.limits.maxIterations', 'accepted.limits.maxCollectionLength')
+    .replaceAll(`    const keys = [
+        'maxBytes',
+        'maxCollectionLength',
+        'maxDepth',
+        'maxDiagnostics',
+        'maxEvents',
+        'maxIterations',
+        'maxStringBytes',
+    ];`, "    const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];")
+    .replaceAll("const INTERNAL_LIMIT_KEYS = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'];", "const INTERNAL_LIMIT_KEYS = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];"));
 }
 
 export function indexHistoricalTransitionStages(stageGroups, milestone) {

@@ -97,6 +97,7 @@ export function loadPublishedM4141ExceptionFlowFrontier() {
   coverage.coveragePolicyDigest = historical.coveragePolicyDigest;
   coverage.coverageImplementationDigest = M4141_COVERAGE_IMPLEMENTATION_DIGEST;
   coverage.compiledCoreDigest = digestM4145CompiledCoreJavaScript();
+  coverage.canonicalizerPolicyDigest = publishedCoverage.canonicalizerPolicyDigest;
   assert.deepEqual(
     summarizeCanonicalizerCoverage(coverage),
     publishedCoverage,
@@ -112,6 +113,8 @@ export function loadPublishedM4141ExceptionFlowFrontier() {
   prerequisite.baseline.coverageImplementationDigest =
     M4141_COVERAGE_IMPLEMENTATION_DIGEST;
   prerequisite.baseline.coveragePolicyDigest = coverage.coveragePolicyDigest;
+  prerequisite.baseline.canonicalizerPolicyDigest =
+    publishedPrerequisite.baseline.canonicalizerPolicyDigest;
   assert.deepEqual(
     prerequisite,
     publishedPrerequisite,

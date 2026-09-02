@@ -214,7 +214,7 @@ export function assertM4143PublishedInput(
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
     canonicalizerDigest,
-    canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
+    canonicalizerPolicyDigest: PUBLISHED_BASELINE.canonicalizerPolicyDigest,
     compiledCoreDigest: historicalCompiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
     coveragePolicyDigest,

@@ -20,7 +20,10 @@ import {
   reconstructLegacyParameterSource,
 } from './historical-parameter-sources.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
-import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  reconstructHistoricalSource,
+  reconstructRuntimeEnvelopeMaxIterationsSource,
+} from './historical-source.mjs';
 import { reconstructCanonicalizerHistoricalRuntimeSource } from './runtime-source-historical-chain.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
@@ -200,6 +203,8 @@ function exactInputs() {
         milestone: 'M4.116 checkModule witness',
         name: 'checkModule',
       });
+    } else if (name === 'publicRuntimeHandlerSha256') {
+      source = reconstructRuntimeEnvelopeMaxIterationsSource(source);
     }
     if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);

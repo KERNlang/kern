@@ -49,7 +49,7 @@ function exactWitness() {
   return { bytes, policy, tables };
 }
 
-function executeWitness(maxCollectionLength) {
+function executeWitness(maxIterations) {
   const { policy, tables } = exactWitness();
   return executeKernRuntimeHandlerSync(
     {
@@ -60,12 +60,12 @@ function executeWitness(maxCollectionLength) {
     },
     {
       enabled: true,
-      limits: { ...policy.runtimeLimits, maxCollectionLength },
+      limits: { ...policy.runtimeLimits, maxIterations },
     },
   );
 }
 
-function executeTablesOk(tables, maxCollectionLength = 32_768) {
+function executeTablesOk(tables, maxIterations = 32_768) {
   const { runtimeLimits } = loadCanonicalizerPolicy();
   const envelope = executeKernRuntimeHandlerSync(
     {
@@ -74,7 +74,7 @@ function executeTablesOk(tables, maxCollectionLength = 32_768) {
       identity: { handlerName: 'tablesok', sourcePath: CANONICALIZER_COMPOSITE_PATH },
       source: COMPOSITION.source,
     },
-    { enabled: true, limits: { ...runtimeLimits, maxCollectionLength } },
+    { enabled: true, limits: { ...runtimeLimits, maxIterations } },
   );
   assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));
   assert.deepEqual(envelope.completion, { kind: 'return' });

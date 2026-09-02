@@ -54,7 +54,7 @@ const PUBLISHED_BASELINE = {
   baseCompleteFunctions: 111,
   baseId: 'kern.kir-canonicalizer.profile.m4.141',
   canonicalizerDigest: '836e71de0c456247fdd8e5725d388aeb0f60853083616f82666d2fd2c191d266',
-  canonicalizerPolicyDigest: 'ec4124d1770e806131918e4a11cc9e8d265ecc43b077ce460726bb6fbfe2b92a',
+  canonicalizerPolicyDigest: '13d9315aeaf7ffa89ec17ad86b01e39e4a7084657000beb11f8bd0d478b21db7',
   compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
   corpusDigest: '8308f89b292ed823e8b551e0533c550008ee98ba5f817081ae4c9919421a3b6c',
   coverageImplementationDigest: '10b3ae6b227aa3c42094a175b63989d9b3089277d3a4730972581f1ec7a9b22c',
@@ -233,6 +233,7 @@ export function assertM4148PublishedInput(
   const normalizedCoverage = summarizeCanonicalizerCoverage(receipt);
   normalizedCoverage.catalogDigest = published.coverage.catalogDigest;
   normalizedCoverage.canonicalizerDigest = published.coverage.canonicalizerDigest;
+  normalizedCoverage.canonicalizerPolicyDigest = published.coverage.canonicalizerPolicyDigest;
   normalizedCoverage.composition = structuredClone(published.coverage.composition);
   normalizedCoverage.compiledCoreDigest = historicalCompiledCoreDigest;
   normalizedCoverage.coverageImplementationDigest =
@@ -242,6 +243,8 @@ export function assertM4148PublishedInput(
   normalizedPrerequisite.baseline.compiledCoreDigest = historicalCompiledCoreDigest;
   normalizedPrerequisite.baseline.canonicalizerDigest =
     published.prerequisite.baseline.canonicalizerDigest;
+  normalizedPrerequisite.baseline.canonicalizerPolicyDigest =
+    published.prerequisite.baseline.canonicalizerPolicyDigest;
   normalizedPrerequisite.baseline.coverageImplementationDigest =
     published.prerequisite.baseline.coverageImplementationDigest;
   normalizedPrerequisite.baseline.coveragePolicyDigest =
@@ -250,7 +253,7 @@ export function assertM4148PublishedInput(
     !isDeepStrictEqual(normalizedCoverage, published.coverage) ||
     !isDeepStrictEqual(normalizedPrerequisite, published.prerequisite)
   ) {
-    fail('live summaries must reproduce M4.147 except for the local implementation digest');
+    fail('live summaries must reproduce the normalized M4.147 identities');
   }
   const archived = {
     baseCompleteFunctions: published.coverage.baseCompleteFunctions,
@@ -277,7 +280,7 @@ export function assertM4148PublishedInput(
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
     canonicalizerDigest: normalizedCoverage.canonicalizerDigest,
-    canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
+    canonicalizerPolicyDigest: PUBLISHED_BASELINE.canonicalizerPolicyDigest,
     compiledCoreDigest: historicalCompiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
     coveragePolicyDigest: normalizedCoverage.coveragePolicyDigest,
