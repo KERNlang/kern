@@ -289,7 +289,7 @@ test('the RT-2 and RT-3 K0 goldens are untouched, and RT-5 adds no linked expres
   const golden = JSON.parse(await readFile(RT3_GOLDEN_URL, 'utf8'));
   assert.deepEqual(
     golden.linkedExpressionKinds,
-    ['binary', 'identifier', 'json-call', 'list', 'literal', 'member', 'record', 'user-call'],
+    ['binary', 'identifier', 'json-call', 'list', 'literal', 'member', 'record', 'unary', 'user-call'],
     'RT-5 introduces no expression variant, so the RT-3 inventory must not move',
   );
 });

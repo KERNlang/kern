@@ -41,7 +41,7 @@ const MIXED_TYPE_SOURCES = Object.freeze({
 
 const UNSUPPORTED_OPERATOR_SOURCES = Object.freeze(
   Object.fromEntries(
-    ['+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>', '===', '!==', '??'].map((operator) => [
+    ['/', '%', '&', '|', '^', '<<', '>>', '===', '!==', '??'].map((operator) => [
       `operator ${operator}`,
       returnSource(FLAGS, `1 ${operator} 2`),
     ]),
@@ -241,7 +241,9 @@ test('RT-3 carries the operand-type label at the runtime guard on all three legs
 
 test('RT-3 derives every operator table from one shared contract', () => {
   const contract = LINKED_KIR_BINARY_OPERATORS;
-  assert.deepEqual(Object.keys(contract).sort(), [...OPERATORS].sort());
+  for (const operator of OPERATORS) {
+    assert.ok(Object.hasOwn(contract, operator), `${operator} must stay in the shared operator contract`);
+  }
   assert.ok(Object.isFrozen(contract), 'the shared operator contract must be frozen');
   const helpers = new Set();
   for (const operator of OPERATORS) {

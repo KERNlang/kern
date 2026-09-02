@@ -7,6 +7,7 @@
     "literal",
     "member",
     "record",
+    "unary",
     "user-call"
   ],
   "notProjected": {
