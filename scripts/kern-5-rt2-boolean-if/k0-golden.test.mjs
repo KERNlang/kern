@@ -12,7 +12,7 @@ const CONTRACTS_URL = new URL(
 );
 
 const PROBE_BODIES = Object.freeze({
-  assign: ['let name=held value="\"a\""', 'assign target=held value="\"b\""'],
+  assign: ['let name=held value="\"a\""', 'assign target="held" value="\"b\""'],
   capability: ['capability namespace=fixture operation=resolve name=reply'],
   else: ['else', '  print value="\"f\""'],
   if: ['if cond="flag"', '  print value="\"t\""'],
