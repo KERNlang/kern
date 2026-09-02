@@ -1,6 +1,6 @@
 # KERN 5 RT-9: `assign` as a LINKED KIR statement
 
-**Status:** RED ORACLE / READY TO BUILD
+**Status:** IMPLEMENTED
 **Date:** 2026-09-02
 **Base:** `dcb54d6c` (RT-8 merged)
 **Branch:** `feat/kern-5-rt9-linked-assign`
@@ -892,6 +892,131 @@ These match the counts recorded in `.agon-goals/rt9/facts.md`, so the RT-9 oracl
 added nothing that perturbs a neighbour at base. The RT-2 golden move described in
 "Blast radius" happens **when the builder implements**, not now.
 
+## Implementation
+
+Built on base `0bd48136` (the nero-widened RED oracle) across
+`c5fd2f34` (link admission), `5cb5aed8` (RT-1 + both emitted legs), `f0175c15`/`701776f1`/`8cb5f0bc`
+(the licensed K0 golden move and its transitive receipts), `3ef731c2` (compiled-core repin) and
+`8398d36d` (coverage implementation receipts).
+
+### Production diff
+
+`git diff --numstat 0bd48136..HEAD -- packages/core/src` — **+74 / −0**, i.e. **74 net lines**
+against the ≤400 tribunal cap and the ~70 design estimate (contracts +5 / link +35 / RT-1 +3 /
+JS +10 / Python +12). Every file is one the spec allowed; no other production file moved.
+
+| File | + | − |
+| --- | --- | --- |
+| `kir-runtime/linked-kir-program/contracts.ts` | 1 | 0 |
+| `kir-runtime/linked-kir-program/link.ts` | 43 | 0 |
+| `kir-runtime/expression.ts` | 2 | 0 |
+| `compiler/kir-js-esm/emitter.ts` | 13 | 0 |
+| `compiler/kir-python/emitter.ts` | 15 | 0 |
+| **total** | **74** | **0** |
+
+Each site the spec named is present and nothing else: `assignable: Set<string>` on `LinkScope`
+and copied by `branchScope`; the `let` and `capability` branches adding their name to it; the new
+`assign` branch in `compileStatement` doing `propertySet(['target','value'],['op'])`, the `op`
+refusal, `assignTargetName` with the identifier check, declared-before-assignable ordering,
+`compileLinkedExpression` on the value, `assertAsyncCallPosition(…, true)`, then the two-table
+gate and **no `bindName`**; one RT-1 arm ahead of the trailing return handler; one `assignSource`
+per emitter, routed from `blockSource` before `nextLocal()` so an assign consumes no local.
+
+The single comment the slice adds is kept because it states a real invariant the code cannot
+show — the *absence* of the `bindName` call that both neighbouring branches make:
+
+> An assign never rebinds a link-time type record, so every downstream gate that read the
+> binding's recorded type stays valid without re-deriving it.
+
+`scope.types`/`scope.crossCallTypes` therefore keep the declaration-time record for the whole
+handler. Mutant **M02** is exactly the defect of adding that `bindName` back, and it is killed.
+
+Criterion 6 holds: `git diff 0bd48136..HEAD -- packages/core/src/kir-runtime/` adds **zero**
+occurrences of `await`, `setImmediate`, `queueMicrotask`, `Promise` or `checkAbort()`.
+
+### Gates
+
+| Gate | Result |
+| --- | --- |
+| `pnpm test:kern-5-rt9-linked-assign` | **75/75** (6 + 5 + 23 + 24 + 17) |
+| `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
+| `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
+| `pnpm test:kern-5-rt4-user-fn-call` | 50/50 |
+| `pnpm test:kern-5-rt5-async-user-fn-call` | 86/86 |
+| `pnpm test:kern-5-rt6-void-fallthrough` | 52/52 |
+| `pnpm test:kern-5-rt8-integer-signatures` | 28/28 |
+| `pnpm test:kern-5-admission-census` | 10/10 |
+| `pnpm test:kern-canonicalizer` | **872/872** after the receipt convergence in `8398d36d` |
+
+### Mutant battery
+
+Nineteen mutants, one at a time, each applied to a source file copied to a backup first and
+restored from that backup afterwards (never `git checkout --`/`git stash`), with
+`git status --porcelain -- packages/core/src` verified empty after every restore. Each run is a
+full `pnpm test:kern-5-rt9-linked-assign`, so the core is rebuilt from the mutated sources.
+
+**16 killed / 3 survived.** No mutant was equivalent; all three survivors are genuine corpus
+gaps with a named missing fixture.
+
+Because the suites are `&&`-chained, the first failing suite is the one recorded — for the
+link-side mutants that is usually `k0-golden`'s 44-row admission map rather than the
+`type-gate` row the design predicted. The label pins still fire; they are simply downstream
+of a cheaper drift check.
+
+| # | Verdict | Killed by | Failing assertion |
+| --- | --- | --- | --- |
+| M01 | **KILLED** | `k0-golden` — *the RT-9 K0 golden pins linker admission, the statement union and the assign schema* | `RT9_K0_GOLDEN_DRIFT`: all 13 admitted positions read `handler-entry-unsupported`, `linkedStatementKinds` loses `'assign'` |
+| M02 | **KILLED** | `k0-golden` — same row | every type refusal flips: `neg-bool-into-integer`, `neg-integer-into-text`, `neg-integer-into-call-typed`, `neg-call-typed-into-integer` → `'admitted'` |
+| M03 | **KILLED** | `k0-golden` — same row | `neg-list-into-text: 'admitted'` (the row only the cross-call half can refuse) |
+| M04 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M05 | **KILLED** | `k0-golden` — same row | `neg-param-target: 'admitted'` — a parameter becomes assignable |
+| M06 | **KILLED** | `k0-golden` — same row | `neg-op-compound: 'admitted'`, `neg-op-equals: 'admitted'` |
+| M07 | **KILLED** | `k0-golden` — same row | `neg-target-member: 'admitted'`, `neg-target-index: 'admitted'` |
+| M08 | **KILLED** | `type-gate` 20/24 — *neg-undeclared is refused at link with KIR_ASSIGN_UNDECLARED* (+3 more) | `expected the KIR_ASSIGN_UNDECLARED gate to fire, but the linker reported: entry.function.handler.children[0]: KIR_ASSIGN_TARGET_NOT_LET zz` |
+| M09 | **KILLED** | `behavior` 19/23 — B6 `ordering-print`, B7 `two-assigns`, B12 void fall-through, B18 after-async | `emitted JavaScript diverged from RT-1`: the RT-1 walk stops at the assign, losing the `{"op":"stdout"}` event the emitters still produce |
+| M10 | **KILLED** | `tick-discipline` 16/17 — *every RT-9 metering fixture consumes exactly the pinned number of execution steps* | `RT9_METER_DRIFT`: `assign-literal` 6→5, `assign-binary` 8→7, `assign-in-taken-branch` 9→8, `assign-self-and` 10→9, `assign-after-async-taken` 19→17 — the `let` parity identity breaks in both directions |
+| M11 | **KILLED** | `behavior` 22/23 — B11 *an async helper call is a legal assign value and suspends exactly as a let does* | `emitted JavaScript diverged from RT-1`: RT-1 faults where both emitters `await`, so the envelopes differ in length (236 vs 379 bytes) |
+| M12 | **KILLED** | `behavior` 4/23 (19 failures) — B1 *a reassigned let carries the assigned value, not the declared one* first | `emitted JavaScript diverged from RT-1`: JS returns `"a"` where RT-1 returns `"b"` |
+| M13 | **KILLED** | `k0-golden` — *both targets share one linker; async-value diverged* | `+ 'artifact-emission-failure' − 'admitted'` — `expressionSource` refuses the async call the assign value holds |
+| M14 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M15 | **KILLED** | `k0-golden` — *RT-1 and the emitters share one linker; self-referential-and diverged* | `+ 'handler-link-error' − 'admitted'` — clearing the target first makes B13's own RHS read an unset binding |
+| M16 | **KILLED** | `behavior` 22/23 — B14b *a target holding true still holds it while its own value is evaluated* | `emitted JavaScript diverged from RT-1`: `true` vs `false`. Exactly the single row the design predicted would separate it, and B13/B14 do coincide with the correct answer |
+| M17 | **KILLED** | `k0-golden` — the admission row | `async-value` and `call-typed-positive` flip to `handler-entry-unsupported` — a fail-closed refusal of legal programs |
+| M18 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M19 | **KILLED** | `k0-golden` — the admission row | `helper-body-assign: 'handler-entry-unsupported'` — the per-position gate RT9-O1 rejected |
+
+#### The three survivors
+
+- **M04** (drop the `types` half of the gate). The design argued T4 (`neg-bool-into-integer`,
+  `let n=1; assign n=true`) kills it "because integer has no cross-call row and both sides read
+  `undefined`". That is wrong: `crossCallExpressionType` **does** answer `'boolean'` for a boolean
+  literal, so on T4 the cross-call half reads `'boolean'` against the binding's `undefined` and
+  refuses on its own. T4 kills neither half in isolation. Separating the static half needs the
+  mirror of `neg-list-into-text`: a value whose *static* type differs from the binding's while both
+  cross-call types read `undefined` — e.g. `let n = 1` / `assign n = [1, 2]` (an integer list is
+  `undefined` in both cross-call directions and `undefined` statically, against the binding's
+  `'integer'`). Missing fixture, not an equivalent mutant.
+- **M14** (the Python emitter omits `_check_abort()` on the assign line). The queued-abort fences
+  ride microtask depths 0–4 on two fixtures whose abort never lands on an assign statement, and
+  every other row still checks abort at the following statement, so the one-statement-late
+  cancellation is unobservable. Needs a queued-abort fixture whose fence sits exactly on an assign
+  in the Python leg.
+- **M18** (drop the cross-call half on the call path only, applied as "treat a `user-call` value as
+  exempt from the cross-call comparison"). T18's fixture `neg-text-into-call-typed-list` is
+  `let ys = hs(); assign ys = "x"` — its *value* is a text literal, so no mutation of the call arm
+  can reach it, and the design's stated killer cannot fire. The separating row is the transpose:
+  a call-typed **value** into a binding whose static type also reads `undefined`, e.g.
+  `let s = "a"` / `assign s = hs()`, where only the cross-call half (`list<boolean>` vs `'text'`)
+  can refuse.
+
+All three are advisory test-gap findings, not blockers: each names the fixture that would close it.
+
+`biome check` is clean on all five touched `packages/core` files ("Checked 5 files. No fixes
+applied."). Every count above was re-measured in this worktree after the battery, with the core
+rebuilt from the restored sources.
+
+---
+
 ## rt10 `for` — pinned, queued, NOT built
 
 Copied verbatim from the tribunal verdict so rt10 inherits the decision rather than
@@ -984,3 +1109,7 @@ reviewer should check `git diff` for any new `await`, `setImmediate`, `queueMicr
 | 2026-09-02 | **RT9-C8a VERIFIED** — the metering model in RT9-C8 was incomplete: a **parameter** read costs 2 expression steps where a `let`-bound identifier costs 1. Measured on four fresh rows. The "executed `if` costs 3 / skipped costs 2" phrasing was really "1 + the condition cost" over a parameter condition; every previously pinned constant is unchanged. |
 | 2026-09-02 | **RT9-O1 CLOSED** — F5 projects a helper-body assign (verified), so the coverage boundary the open question flagged is now a pinned row rather than an assumption. |
 | 2026-09-02 | Mutant list 14 → 19: M15 (target cleared to unset before evaluation), M16 (cleared to a `false` default — killed by B14b alone), M17 (type gate resolves literal arms only), M18 (cross-call half dropped on the call path only), M19 (assign gated out of helper bodies). |
+| 2026-09-02 | **Acceptance criterion 5 is superseded — fork consult `tribunal_a89efc4f` (5 engines, adversarial/hybrid).** The spec froze `kern-5-rt4-user-fn-call/compatibility.test.mjs` and its RT-6 twin as "must pass with **no digest edited**", but the spec-licensed RT-2 K0 golden move (`assign` row → `admitted`, `"assign"` scraped into `linkedStatementKinds`) necessarily changes those bytes: rt4/rt5/rt6 went RED on **exactly and only** six digest guards with every behavioural test green, and reverting the golden turns RT-2 RED, so no implementation choice avoids it. Options weighed: **(A)** re-pin the six literals in place plus this log; **(B)** convert the five test-source guards to additive-only guards on the `RT3_PRE_SLICE_SHA256` model (~40 lines of new logic in frozen oracle files); **(C)** split the repin into its own spec amendment. **Resolution: (A).** It carried on the seal-versus-authorization split — a SHA-256 constant records one fact about a file's bytes at one moment, while "may RT-N touch the RT-2 golden?" is a spec question already answered by `2473677e`; re-sealing and logging is the correct primitive, and the guard stays byte-exact and fail-closed for the next licensed move. (B) is not merely expensive but *technically false* here: RT-9 flips the `assign` row **in place**, so there is no stable prefix for a prefix digest, and a masked digest would grow a licensed-cell exclusion per slice until it asserts nothing. (C) is (A) plus a context switch that would land a golden ahead of its runtime while rt4/5/6 stay RED. Digests moved: RT-2 K0 golden `aa7f116d…` → `cc7fb869…` (`RT2_GOLDEN_SHA256` in the rt4/rt5/rt6 compatibility tests; `rt2GoldenSha256` in the rt3 golden and the rt4 probe matrix) and RT-3 K0 golden `ac690563…` → `c8a94cc4…` (`RT3_GOLDEN_SHA256` in rt6; `rt3GoldenSha256` in the rt4 probe matrix). **Rider, accepted with the resolution: preserve the pre-image.** Record `RT2_K0_GOLDEN_PRE_RT9_SHA256 = aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0` in an RT-9-owned, *unfrozen* location pointing back at this entry — mirroring `RT3_PRE_SLICE_SHA256`'s **placement discipline** even though its prefix-digest mechanism does not transfer, so every historical constant survives without touching frozen assertion logic. The pre-image is preserved **here**; the four-line constant form is **not yet landed as code and remains open**. |
+| 2026-09-02 | **Two derived pins the implementer missed, both of the same class: a digest whose own input includes the file the previous repin edited.** (1) `kern-5-rt4-user-fn-call/compatibility.test.mjs:13` `RT3_PRE_SLICE_SHA256` is derived from the RT-3 golden, so the RT-3 move carried it too — `4aa59f32…` → `2664a39f…`, fixed in `8cb5f0bc`; it is one of the six guards the consult enumerated (rt4 line 13) and was simply not moved with its sibling on line 12. (2) `coverageImplementationDigest` path-frames **every** `.mjs` under `scripts/kern-canonicalizer`, so the compiled-core repin `3ef731c2` — which edited `coverage-prerequisite.test.mjs` to move `compiledCoreDigest` — moved the implementation digest as a side effect and left `pnpm test:kern-canonicalizer` RED at 870/872 (`coverage-prerequisite.test.mjs:89` and `coverage.test.mjs:67`, both `060b9d31…` vs `e61ae032…`). Converged in `8398d36d` by one `pnpm write:kern-canonicalizer-coverage` pass; only the two published receipt JSONs moved, so the second `--write` the RT2–RT6 recipe calls for was unnecessary — no `.mjs` had to change, and therefore the framed digest was already at its fixed point. |
+| 2026-09-02 | **`test:kern-5-rt3-binary-expression` chained-run flake — recorded, not chased.** Under a chained multi-suite run the RT-3 type-gate file intermittently fails one row with `projection-authentication-error` raised by `authenticateLinkedKernKirProjectionOrThrow` (`link.ts:56`, "projection is not authenticated"); the same file passes 42/42 run alone, and the full chained gate came back 142/142 on re-run with nothing changed. Classed as a shared-projection-asset/chained-run flake rather than an RT-9 defect: RT-9 adds nothing to the projection authentication path (its whole runtime diff is one `bindings.set` arm), and the row is green both in isolation and on a repeat of the same chained gate. Related environment finding from the mutant campaign: restoring a mutated source from a byte-copy **preserves its mtime**, so `tsc -b` judges the project up to date and silently keeps the previous build in `dist`. Each mutant run was unaffected — an apply always stamps a fresh mtime and `tsc -b` then re-emits the whole project from the then-current sources (proved by M14, whose clean 75/75 would have carried M13's kill if the previous file's output had persisted) — but the *final* restore leaves a stale `dist` until the sources are touched. Any post-battery verification must force the rebuild first. |
+| 2026-09-02 | **Mutant battery: 16/19 killed, three survivors, every survivor a corpus gap rather than an equivalent mutant, and two of the three expose a wrong non-equivalence argument in the mutant table above.** M04's row claims T4 (`let n=1; assign n=true`) kills it "because integer has no cross-call row and both sides read `undefined`" — but `crossCallExpressionType` answers `'boolean'` for a boolean literal, so on T4 *both* halves fire independently and neither half is separated by it; the static half needs the mirror of `neg-list-into-text`, e.g. `let n = 1` / `assign n = [1, 2]`. M18's row names T18 as its killer, but T18's fixture value (`assign ys = "x"`) is a **literal**, so no mutation of the call arm can reach it; the separating row is the transpose, `let s = "a"` / `assign s = hs()`. M14 (Python assign line drops `_check_abort()`) survives because neither queued-abort fence fixture places its abort on an assign statement, so the one-statement-late cancellation is unobservable. All three are advisory test-gap findings with a named missing fixture, not blockers. |
