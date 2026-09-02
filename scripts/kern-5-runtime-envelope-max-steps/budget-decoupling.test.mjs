@@ -3,12 +3,16 @@ import { test } from 'node:test';
 
 import {
   canonical,
-  countingNodes,
   diagnosticCodes,
+  DIFFERENTIAL_LIST,
+  differentialNodes,
   executeInternalRuntimeEnvelopeAsync,
   executeInternalRuntimeEnvelopeCompatAsync,
   executeInternalRuntimeEnvelopeCompatSync,
   executeInternalRuntimeEnvelopeSync,
+  executeKernRuntimeHandlerAsync,
+  executeKernRuntimeHandlerSync,
+  handlerRequest,
   limits,
   listEnvelope,
   loopEnvelopes,
@@ -18,81 +22,114 @@ import {
 
 registerAllContracts();
 
-const TIGHT_COLLECTION = 16;
-const ITERATIONS = 100;
+const LOOPS = 20;
+const LIST_LENGTH = 6;
 
-test('L2: a long loop succeeds under a tight collection ceiling and a large maxSteps', async () => {
-  const options = { enabled: true, limits: limits({ maxCollectionLength: TIGHT_COLLECTION, maxSteps: 1_000_000 }) };
-  const { async: asyncEnvelope, sync } = loopEnvelopes(ITERATIONS, options);
-  assert.deepEqual(sync.result, { presence: 'value', value: { tag: 'integer', value: String(ITERATIONS) } });
-  assert.deepEqual(sync.diagnostics, []);
-  assert.deepEqual(await asyncEnvelope, sync);
+const SITES = Object.freeze([
+  {
+    name: 'envelope-sync',
+    run: (options) => executeInternalRuntimeEnvelopeSync(differentialNodes(LOOPS), makeEnv(), options),
+  },
+  {
+    name: 'envelope-async',
+    run: (options) => executeInternalRuntimeEnvelopeAsync(differentialNodes(LOOPS), makeEnv(), options),
+  },
+  {
+    name: 'compat-sync',
+    run: (options) => executeInternalRuntimeEnvelopeCompatSync(differentialNodes(LOOPS), makeEnv(), options),
+  },
+  {
+    name: 'compat-async',
+    run: (options) => executeInternalRuntimeEnvelopeCompatAsync(differentialNodes(LOOPS), makeEnv(), options),
+  },
+  {
+    name: 'handler-sync',
+    run: (options) => executeKernRuntimeHandlerSync(handlerRequest(DIFFERENTIAL_LIST, [LOOPS]), options),
+  },
+  {
+    name: 'handler-async',
+    run: (options) =>
+      executeKernRuntimeHandlerAsync(handlerRequest(DIFFERENTIAL_LIST, [LOOPS]), {
+        capabilityTimeoutMs: 100,
+        ...options,
+      }),
+  },
+]);
+
+const options = (maxIterations, maxCollectionLength) => ({
+  enabled: true,
+  limits: limits({ maxCollectionLength, maxIterations }),
 });
 
-test('L2: a small maxSteps exhausts the budget regardless of a roomy collection ceiling', async () => {
-  const options = { enabled: true, limits: limits({ maxCollectionLength: 1_048_576, maxSteps: 8 }) };
-  const { async: asyncEnvelope, sync } = loopEnvelopes(ITERATIONS, options);
-  assert.equal(sync.outcome, 'failure');
-  assert.deepEqual(diagnosticCodes(sync), ['unsupported-runtime-input']);
-  assert.deepEqual(await asyncEnvelope, sync);
+test('L2: the ignored-key trap — a tiny maxIterations must flip a known-good program', async () => {
+  for (const site of SITES) {
+    const good = await site.run(options(10_000, 10_000));
+    assert.equal(good.outcome, 'success', `${site.name} control must succeed`);
+
+    const trapped = await site.run(options(2, 10_000));
+    assert.equal(trapped.outcome, 'failure', `${site.name}: maxIterations=2 was accepted but not consumed`);
+    assert.deepEqual(diagnosticCodes(trapped), ['unsupported-runtime-input'], site.name);
+  }
 });
 
-test('L2: maxSteps admits exactly its own budget and refuses one iteration more', () => {
-  const at = loopEnvelopes(ITERATIONS, {
-    enabled: true,
-    limits: limits({ maxCollectionLength: TIGHT_COLLECTION, maxSteps: ITERATIONS }),
-  }).sync;
-  const under = loopEnvelopes(ITERATIONS, {
-    enabled: true,
-    limits: limits({ maxCollectionLength: TIGHT_COLLECTION, maxSteps: ITERATIONS - 1 }),
-  }).sync;
-  assert.equal(at.outcome, 'success');
-  assert.deepEqual(diagnosticCodes(under), ['unsupported-runtime-input']);
+test('L2: differential pair A — budget aborts while collections stay unclamped', async () => {
+  for (const site of SITES) {
+    const envelope = await site.run(options(5, 10_000));
+    assert.equal(envelope.outcome, 'failure', site.name);
+    assert.deepEqual(diagnosticCodes(envelope), ['unsupported-runtime-input'], site.name);
+  }
 });
 
-test('L2: the collection ceiling still bites, with its own distinct diagnostic', () => {
-  const options = { enabled: true, limits: limits({ maxCollectionLength: TIGHT_COLLECTION, maxSteps: 1_000_000 }) };
-  assert.equal(listEnvelope(TIGHT_COLLECTION, options).outcome, 'success');
-  const over = listEnvelope(TIGHT_COLLECTION + 1, options);
-  assert.equal(over.outcome, 'failure');
-  assert.deepEqual(diagnosticCodes(over), ['invalid-handler-arguments']);
-  assert.notDeepEqual(diagnosticCodes(over), ['unsupported-runtime-input']);
-});
-
-test('L2: maxCollectionLength no longer influences the iteration budget', async () => {
-  const envelopes = [TIGHT_COLLECTION, 64, 1_048_576].map(
-    (maxCollectionLength) =>
-      loopEnvelopes(ITERATIONS, { enabled: true, limits: limits({ maxCollectionLength, maxSteps: 1_000_000 }) }).sync,
-  );
-  const [reference] = envelopes;
-  for (const envelope of envelopes) assert.equal(canonical(envelope), canonical(reference));
-  assert.equal(reference.outcome, 'success');
-
-  const nodes = countingNodes(ITERATIONS);
-  for (const maxCollectionLength of [TIGHT_COLLECTION, 1_048_576]) {
-    const options = { enabled: true, limits: limits({ maxCollectionLength, maxSteps: 1_000_000 }) };
-    assert.equal(
-      canonical(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), options)),
-      canonical(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), { enabled: true, limits: limits({ maxSteps: 1_000_000 }) })),
-      `direct sync must ignore maxCollectionLength=${maxCollectionLength}`,
-    );
-    assert.equal(
-      canonical(await executeInternalRuntimeEnvelopeAsync(nodes, makeEnv(), options)),
-      canonical(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), options)),
+test('L2: differential pair B — the collection ceiling fires while iterations run', async () => {
+  for (const site of SITES) {
+    const envelope = await site.run(options(10_000, LIST_LENGTH - 1));
+    assert.equal(envelope.outcome, 'failure', site.name);
+    const [code] = diagnosticCodes(envelope);
+    assert.notEqual(code, 'unsupported-runtime-input', `${site.name}: pair B must not report the budget diagnostic`);
+    assert.ok(
+      code === 'non-portable-value',
+      `${site.name}: unexpected pair B diagnostic ${code}`,
     );
   }
 });
 
-test('L2: the compat path reads the budget from maxSteps too', async () => {
-  const nodes = countingNodes(ITERATIONS);
-  const roomySteps = { enabled: true, limits: limits({ maxCollectionLength: TIGHT_COLLECTION, maxSteps: 1_000_000 }) };
-  const tightSteps = { enabled: true, limits: limits({ maxCollectionLength: 1_048_576, maxSteps: 8 }) };
+test('L2: pair A and pair B are distinguished by diagnostic code, not by degree', async () => {
+  for (const site of SITES) {
+    const [pairA] = diagnosticCodes(await site.run(options(5, 10_000)));
+    const [pairB] = diagnosticCodes(await site.run(options(10_000, LIST_LENGTH - 1)));
+    assert.notEqual(pairA, pairB, `${site.name}: the two limits must fail differently`);
+  }
+});
 
-  const passing = executeInternalRuntimeEnvelopeCompatSync(nodes, makeEnv(), roomySteps);
-  assert.deepEqual(passing.result, { presence: 'value', value: { tag: 'integer', value: String(ITERATIONS) } });
-  assert.equal(canonical(await executeInternalRuntimeEnvelopeCompatAsync(nodes, makeEnv(), roomySteps)), canonical(passing));
+test('L2: maxCollectionLength no longer influences the iteration budget', async () => {
+  for (const site of SITES) {
+    const envelopes = [];
+    for (const maxCollectionLength of [LIST_LENGTH, 64, 1_048_576]) {
+      envelopes.push(await site.run(options(10_000, maxCollectionLength)));
+    }
+    const [reference] = envelopes;
+    assert.equal(reference.outcome, 'success', site.name);
+    for (const envelope of envelopes) assert.equal(canonical(envelope), canonical(reference), site.name);
+  }
+});
 
-  const failing = executeInternalRuntimeEnvelopeCompatSync(nodes, makeEnv(), tightSteps);
-  assert.deepEqual(diagnosticCodes(failing), ['unsupported-runtime-input']);
-  assert.equal(canonical(await executeInternalRuntimeEnvelopeCompatAsync(nodes, makeEnv(), tightSteps)), canonical(failing));
+test('L2: a long loop succeeds under a tight collection ceiling', async () => {
+  const tight = { enabled: true, limits: limits({ maxCollectionLength: 16, maxIterations: 1_000_000 }) };
+  const { async: asyncEnvelope, sync } = loopEnvelopes(100, tight);
+  assert.deepEqual(sync.result, { presence: 'value', value: { tag: 'integer', value: '100' } });
+  assert.deepEqual(sync.diagnostics, []);
+  assert.deepEqual(await asyncEnvelope, sync);
+});
+
+test('L2: maxIterations admits exactly its own budget and refuses one iteration more', () => {
+  const budgeted = (maxIterations) =>
+    loopEnvelopes(100, { enabled: true, limits: limits({ maxCollectionLength: 16, maxIterations }) }).sync;
+  assert.equal(budgeted(100).outcome, 'success');
+  assert.deepEqual(diagnosticCodes(budgeted(99)), ['unsupported-runtime-input']);
+});
+
+test('L2: the argument collection ceiling keeps its own distinct diagnostic', () => {
+  const opts = { enabled: true, limits: limits({ maxCollectionLength: 16, maxIterations: 1_000_000 }) };
+  assert.equal(listEnvelope(16, opts).outcome, 'success');
+  assert.deepEqual(diagnosticCodes(listEnvelope(17, opts)), ['invalid-handler-arguments']);
 });

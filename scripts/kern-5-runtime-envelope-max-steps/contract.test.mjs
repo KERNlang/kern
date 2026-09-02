@@ -6,6 +6,8 @@ import {
   executeKernRuntimeHandlerAsync,
   executeKernRuntimeHandlerSync,
   handlerRequest,
+  KIR_LIMIT_KEYS,
+  kirLimits,
   LEGACY_ENVELOPE_LIMIT_KEYS,
   legacyLimits,
   limits,
@@ -16,12 +18,12 @@ import {
 
 registerAllContracts();
 
-test('L1: the envelope limits record admits maxSteps', () => {
+test('L1: the envelope limits record admits maxIterations', () => {
   assert.deepEqual([...ENVELOPE_LIMIT_KEYS].sort(), ENVELOPE_LIMIT_KEYS);
   validateInternalRuntimeLimits(limits());
 });
 
-test('L1: the envelope limits record refuses a record without maxSteps', () => {
+test('L1: the envelope limits record refuses a record without maxIterations', () => {
   assert.throws(() => validateInternalRuntimeLimits(legacyLimits()), (error) => {
     assert.equal(error.name, 'InternalRuntimeEnvelopeError');
     assert.equal(error.code, 'invalid-limits');
@@ -30,21 +32,21 @@ test('L1: the envelope limits record refuses a record without maxSteps', () => {
   });
 });
 
-test('L1: maxSteps is enforced as a positive safe integer', () => {
+test('L1: maxIterations is enforced as a positive safe integer', () => {
   for (const value of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 2, '1', null]) {
     assert.throws(
-      () => validateInternalRuntimeLimits({ ...legacyLimits(), maxSteps: value }),
+      () => validateInternalRuntimeLimits({ ...legacyLimits(), maxIterations: value }),
       (error) => {
         assert.equal(error.code, 'invalid-limits');
-        assert.equal(error.message, 'maxSteps must be a positive safe integer');
+        assert.equal(error.message, 'maxIterations must be a positive safe integer');
         return true;
       },
-      `maxSteps=${String(value)} must be refused`,
+      `maxIterations=${String(value)} must be refused`,
     );
   }
 });
 
-test('L1: the public handler accepts limits carrying maxSteps on both paths', async () => {
+test('L1: the public handler accepts limits carrying maxIterations on both paths', async () => {
   const invocation = handlerRequest(COUNTING_LOOP, [4]);
   const options = { enabled: true, limits: limits() };
   const sync = executeKernRuntimeHandlerSync(invocation, options);
@@ -54,7 +56,7 @@ test('L1: the public handler accepts limits carrying maxSteps on both paths', as
   assert.deepEqual(asyncEnvelope, sync);
 });
 
-test('L1: the public handler refuses limits without maxSteps on both paths', async () => {
+test('L1: the public handler refuses limits without maxIterations on both paths', async () => {
   const invocation = handlerRequest(COUNTING_LOOP, [4]);
   const options = { enabled: true, limits: legacyLimits() };
   const expected = (error) => {
@@ -83,9 +85,41 @@ test('L1: the public handler still refuses an unknown limit key', () => {
   );
 });
 
-test('L1: maxSteps is the only key the record gained', () => {
+test('L1: maxIterations is the only key the record gained', () => {
   assert.deepEqual(
     ENVELOPE_LIMIT_KEYS.filter((key) => !LEGACY_ENVELOPE_LIMIT_KEYS.includes(key)),
+    ['maxIterations'],
+  );
+});
+
+test('L1: a KIR limits record is NOT shape-compatible with the envelope record', () => {
+  assert.deepEqual(
+    KIR_LIMIT_KEYS.filter((key) => !ENVELOPE_LIMIT_KEYS.includes(key)),
     ['maxSteps'],
   );
+  assert.deepEqual(
+    ENVELOPE_LIMIT_KEYS.filter((key) => !KIR_LIMIT_KEYS.includes(key)),
+    ['maxIterations'],
+  );
+  assert.equal(KIR_LIMIT_KEYS.length, ENVELOPE_LIMIT_KEYS.length);
+});
+
+test('L1: spreading a KIR limits record into the envelope fails exact-key validation', () => {
+  assert.throws(() => validateInternalRuntimeLimits({ ...kirLimits() }), (error) => {
+    assert.equal(error.code, 'invalid-limits');
+    assert.equal(error.message, `limits must contain exactly ${ENVELOPE_LIMIT_KEYS.join(',')}`);
+    return true;
+  });
+  assert.throws(
+    () => executeKernRuntimeHandlerSync(handlerRequest(COUNTING_LOOP, [1]), { enabled: true, limits: kirLimits() }),
+    (error) => {
+      assert.equal(error.code, 'invalid-limits');
+      return true;
+    },
+  );
+});
+
+test('L1: an envelope limits record is not accepted as a KIR record either', () => {
+  assert.ok(!KIR_LIMIT_KEYS.includes('maxIterations'), 'KIR must not learn the envelope name');
+  assert.ok(!ENVELOPE_LIMIT_KEYS.includes('maxSteps'), 'the envelope must not reuse the KIR name');
 });

@@ -20,10 +20,10 @@ function withRuntimeLimits(overrides) {
   return candidate;
 }
 
-test('L4: the shipped F5 policy carries maxSteps equal to maxWorkSteps', () => {
+test('L4: the shipped F5 policy carries maxIterations equal to maxWorkSteps', () => {
   const shipped = policy();
   assert.equal(shipped.profileLimits.maxWorkSteps, F5_WORK_STEPS);
-  assert.equal(shipped.runtimeLimits.maxSteps, F5_WORK_STEPS);
+  assert.equal(shipped.runtimeLimits.maxIterations, F5_WORK_STEPS);
 });
 
 test('L4: the F5 collection ceiling is NOT widened by this slice', () => {
@@ -37,32 +37,32 @@ test('L4: runtimeLimits is exactly the envelope limits key set', () => {
 });
 
 test('L4: validatePolicy accepts the shipped policy', () => {
-  assert.equal(validatePolicy(policy()).runtimeLimits.maxSteps, F5_WORK_STEPS);
+  assert.equal(validatePolicy(policy()).runtimeLimits.maxIterations, F5_WORK_STEPS);
 });
 
-test('L4: validatePolicy refuses runtimeLimits without maxSteps', () => {
+test('L4: validatePolicy refuses runtimeLimits without maxIterations', () => {
   const candidate = policy();
-  const { maxSteps: _removed, ...rest } = candidate.runtimeLimits;
+  const { maxIterations: _removed, ...rest } = candidate.runtimeLimits;
   candidate.runtimeLimits = rest;
   assert.throws(() => validatePolicy(candidate), {
     message: 'F5 projection policy: runtime limits keys',
   });
 });
 
-test('L4: validatePolicy refuses a non-positive or non-integer maxSteps', () => {
-  for (const maxSteps of [0, -1, 1.5]) {
-    assert.throws(() => validatePolicy(withRuntimeLimits({ maxSteps })), {
-      message: 'F5 projection policy: runtime limits maxSteps',
+test('L4: validatePolicy refuses a non-positive or non-integer maxIterations', () => {
+  for (const maxIterations of [0, -1, 1.5]) {
+    assert.throws(() => validatePolicy(withRuntimeLimits({ maxIterations })), {
+      message: 'F5 projection policy: runtime limits maxIterations',
     });
   }
 });
 
-test('L4: validatePolicy refuses maxWorkSteps greater than maxSteps', () => {
-  assert.throws(() => validatePolicy(withRuntimeLimits({ maxSteps: F5_WORK_STEPS - 1 })), {
+test('L4: validatePolicy refuses maxWorkSteps greater than maxIterations', () => {
+  assert.throws(() => validatePolicy(withRuntimeLimits({ maxIterations: F5_WORK_STEPS - 1 })), {
     message: 'F5 projection policy: limit relationship',
   });
-  assert.equal(validatePolicy(withRuntimeLimits({ maxSteps: F5_WORK_STEPS })).format, policy().format);
-  assert.equal(validatePolicy(withRuntimeLimits({ maxSteps: F5_WORK_STEPS + 1 })).format, policy().format);
+  assert.equal(validatePolicy(withRuntimeLimits({ maxIterations: F5_WORK_STEPS })).format, policy().format);
+  assert.equal(validatePolicy(withRuntimeLimits({ maxIterations: F5_WORK_STEPS + 1 })).format, policy().format);
 });
 
 test('L4: the pre-existing limit relationships still hold', () => {

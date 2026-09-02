@@ -41,9 +41,9 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
   assert.ok(shaped.length >= 96, `sweep found only ${shaped.length} envelope-shaped files`);
 });
 
-test('L5: every envelope-shaped limits record carries maxSteps', () => {
+test('L5: every envelope-shaped limits record carries maxIterations', () => {
   const missing = shaped.filter((row) => !row.hasMaxSteps).map((row) => row.path);
-  assert.deepEqual(missing, [], `${missing.length} file(s) still lack maxSteps:\n${missing.join('\n')}`);
+  assert.deepEqual(missing, [], `${missing.length} file(s) still lack maxIterations:\n${missing.join('\n')}`);
 });
 
 test('L5: the runtime constitution records the widened public limits key set', () => {
@@ -53,20 +53,20 @@ test('L5: the runtime constitution records the widened public limits key set', (
   assert.equal(constitution.abi, 'kern.runtime.handler.v1');
 });
 
-test('L5: the frozen public declaration text carries maxSteps', () => {
+test('L5: the frozen public declaration text carries maxIterations', () => {
   const schema = JSON.parse(text('scripts/runtime-contract-v1/public-declaration-schema.json'));
   const declaration = schema.declarations.find((entry) => entry.includes('interface KernRuntimeHandlerLimits'));
   assert.ok(declaration, 'KernRuntimeHandlerLimits declaration must be present');
-  assert.match(declaration, /readonly maxSteps: number;/u);
+  assert.match(declaration, /readonly maxIterations: number;/u);
 });
 
-test('L5: the runtime contract goldens and proof inventory both carry a maxSteps boundary', () => {
+test('L5: the runtime contract goldens and proof inventory both carry a maxIterations boundary', () => {
   const goldens = JSON.parse(text('scripts/runtime-contract-v1/goldens.json'));
   const inventory = JSON.parse(text('scripts/runtime-contract-v1/proof-inventory.json'));
   assert.deepEqual(Object.keys(goldens.limits).sort(), [...ENVELOPE_LIMIT_KEYS]);
-  const ids = (value) => JSON.stringify(value).match(/"id":"maxSteps"/gu) ?? [];
-  assert.ok(ids(goldens).length > 0, 'goldens must enumerate a maxSteps boundary');
-  assert.ok(ids(inventory).length > 0, 'proof inventory must enumerate a maxSteps boundary');
+  const ids = (value) => JSON.stringify(value).match(/"id":"maxIterations"/gu) ?? [];
+  assert.ok(ids(goldens).length > 0, 'goldens must enumerate a maxIterations boundary');
+  assert.ok(ids(inventory).length > 0, 'proof inventory must enumerate a maxIterations boundary');
 });
 
 test('L5: the lineage digests match the artefacts they pin', async () => {

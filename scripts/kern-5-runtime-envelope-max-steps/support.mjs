@@ -12,6 +12,10 @@ import {
   executeInternalRuntimeEnvelopeAsync,
   executeInternalRuntimeEnvelopeSync,
 } from '../../packages/core/dist/runtime-envelope/execute.js';
+import {
+  executeSourceRunnerAsync,
+  executeSourceRunnerSync,
+} from '../../packages/core/dist/runtime-envelope/source-runner-engine.js';
 import { validateInternalRuntimeLimits } from '../../packages/core/dist/runtime-envelope/value.js';
 import {
   executeKernRuntimeHandlerAsync,
@@ -26,6 +30,8 @@ export {
   executeInternalRuntimeEnvelopeSync,
   executeKernRuntimeHandlerAsync,
   executeKernRuntimeHandlerSync,
+  executeSourceRunnerAsync,
+  executeSourceRunnerSync,
   KERN_RUNTIME_HANDLER_ABI,
   makeEnv,
   registerAllContracts,
@@ -40,12 +46,12 @@ export const ENVELOPE_LIMIT_KEYS = Object.freeze([
   'maxDepth',
   'maxDiagnostics',
   'maxEvents',
-  'maxSteps',
+  'maxIterations',
   'maxStringBytes',
 ]);
 
 export const LEGACY_ENVELOPE_LIMIT_KEYS = Object.freeze(
-  ENVELOPE_LIMIT_KEYS.filter((key) => key !== 'maxSteps'),
+  ENVELOPE_LIMIT_KEYS.filter((key) => key !== 'maxIterations'),
 );
 
 const BASE = Object.freeze({
@@ -58,11 +64,25 @@ const BASE = Object.freeze({
 });
 
 export function limits(overrides = {}) {
-  return Object.freeze({ ...BASE, maxSteps: 1_048_576, ...overrides });
+  return Object.freeze({ ...BASE, maxIterations: 1_048_576, ...overrides });
 }
 
 export function legacyLimits(overrides = {}) {
   return Object.freeze({ ...BASE, ...overrides });
+}
+
+export const KIR_LIMIT_KEYS = Object.freeze([
+  'maxBytes',
+  'maxCollectionLength',
+  'maxDepth',
+  'maxDiagnostics',
+  'maxEvents',
+  'maxSteps',
+  'maxStringBytes',
+]);
+
+export function kirLimits(overrides = {}) {
+  return Object.freeze({ ...BASE, maxSteps: 1_048_576, ...overrides });
 }
 
 export const IDENTITY = Object.freeze({ handlerName: 'answer', sourcePath: 'app/main.kern' });
@@ -87,6 +107,28 @@ export const LIST_ECHO = [
   '  handler lang="kern"',
   '    return value="rows"',
 ].join('\n');
+
+export const DIFFERENTIAL_LIST = [
+  'fn name=answer returns="number[]"',
+  '  param name=n type=number',
+  '  handler lang="kern"',
+  '    let name=i value="0"',
+  '    while cond="i < n"',
+  '      assign op="+=" target=i value="1"',
+  '    return value="[1, 2, 3, 4, 5, 6]"',
+].join('\n');
+
+export function differentialNodes(bound) {
+  return [
+    { type: 'let', props: { kind: 'let', name: 'i', value: '0' } },
+    {
+      type: 'while',
+      props: { cond: `i < ${bound}` },
+      children: [{ type: 'assign', props: { op: '+=', target: 'i', value: '1' } }],
+    },
+    { type: 'return', props: { value: '[1, 2, 3, 4, 5, 6]' } },
+  ];
+}
 
 export function countingNodes(bound) {
   return [
@@ -152,7 +194,7 @@ export function envelopeShapedFiles() {
     for (const path of sourceFiles(join(REPO_ROOT, root))) {
       const text = readFileSync(path, 'utf8');
       if (!LEGACY_ENVELOPE_LIMIT_KEYS.every((key) => text.includes(key))) continue;
-      shaped.push({ hasMaxSteps: text.includes('maxSteps'), path: relative(REPO_ROOT, path) });
+      shaped.push({ hasMaxSteps: text.includes('maxIterations'), path: relative(REPO_ROOT, path) });
     }
   }
   return shaped;

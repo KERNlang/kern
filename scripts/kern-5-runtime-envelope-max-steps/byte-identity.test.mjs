@@ -21,9 +21,9 @@ registerAllContracts();
 const golden = readGolden();
 const nodes = countingNodes(100);
 
-async function produced(maxSteps) {
-  const tight = { enabled: true, limits: limits({ maxCollectionLength: 16, maxSteps }) };
-  const roomy = { enabled: true, limits: limits({ maxCollectionLength: 1_024, maxSteps }) };
+async function produced(maxIterations) {
+  const tight = { enabled: true, limits: limits({ maxCollectionLength: 16, maxIterations }) };
+  const roomy = { enabled: true, limits: limits({ maxCollectionLength: 1_024, maxIterations }) };
   const loop = loopEnvelopes(10, tight);
   return {
     'compat-loop-async': await executeInternalRuntimeEnvelopeCompatAsync(nodes, makeEnv(), roomy),
@@ -61,11 +61,11 @@ test('L3: a non-exhausting program yields byte-identical envelopes after the cha
   }
 });
 
-test('L3: maxSteps never leaks into the envelope, at any budget', async () => {
-  for (const maxSteps of [128, 4_096, 1_048_576, 33_554_432]) {
-    const actual = await produced(maxSteps);
+test('L3: maxIterations never leaks into the envelope, at any budget', async () => {
+  for (const maxIterations of [128, 4_096, 1_048_576, 33_554_432]) {
+    const actual = await produced(maxIterations);
     for (const [name, envelope] of Object.entries(actual)) {
-      assert.equal(canonical(envelope), canonical(golden.cases[name]), `${name} at maxSteps=${maxSteps}`);
+      assert.equal(canonical(envelope), canonical(golden.cases[name]), `${name} at maxIterations=${maxIterations}`);
     }
   }
 });
