@@ -188,13 +188,23 @@ function* sourceFiles(directory) {
   }
 }
 
+const KIR_ONLY_LIMIT_FILES = new Set([
+  'packages/core/src/kir-runtime/contracts.ts',
+  'packages/core/src/kir-runtime/inspect.ts',
+  'packages/core/src/compiler/kir-js-esm/request.ts',
+  'packages/core/src/compiler/kir-js-esm/target-base.ts',
+  'packages/core/src/compiler/kir-python/request.ts',
+  'packages/core/src/compiler/kir-python/target-base.ts',
+  'packages/cli/src/kir-shadow/limits.ts',
+]);
+
 export function envelopeShapedFiles() {
   const shaped = [];
   for (const root of SWEEP_ROOTS) {
     for (const path of sourceFiles(join(REPO_ROOT, root))) {
       const text = readFileSync(path, 'utf8');
       if (!LEGACY_ENVELOPE_LIMIT_KEYS.every((key) => text.includes(key))) continue;
-      if (text.includes('maxSteps')) continue;
+      if (KIR_ONLY_LIMIT_FILES.has(relative(REPO_ROOT, path))) continue;
       shaped.push({ hasMaxSteps: text.includes('maxIterations'), path: relative(REPO_ROOT, path) });
     }
   }
