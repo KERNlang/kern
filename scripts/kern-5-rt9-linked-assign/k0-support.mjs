@@ -214,12 +214,20 @@ export const POSITIONS = Object.freeze({
     withHelper(SYNC_BOOL_HELPER, ['let name=n value="1"', 'assign target="n" value="h()"', 'return value="n"'], {
       returns: 'number',
     }),
+  // The transpose of `neg-text-into-call-typed-list`: the *value* is the call, so this is the only
+  // row a mutation of the tables' user-call arm can reach.
+  'neg-call-typed-list-into-text': () =>
+    withHelper(SYNC_LIST_HELPER, [`let name=s value=${T('a')}`, 'assign target="s" value="hs()"', 'return value="s"']),
   'neg-integer-into-call-typed': () =>
     withHelper(SYNC_BOOL_HELPER, ['let name=n value="h()"', 'assign target="n" value="2"', 'return value="n"'], {
       returns: 'boolean',
     }),
   'neg-integer-into-text': () =>
     route([`let name=s value=${T('a')}`, 'assign target="s" value="1"', 'return value="s"']),
+  // An integer list reads `undefined` in both cross-call directions and `undefined` statically,
+  // against the binding's `integer`, so only the static half of the gate can refuse it.
+  'neg-integer-list-into-integer': () =>
+    route(['let name=n value="1"', 'assign target="n" value="[1, 2]"', 'return value="n"'], { returns: 'number' }),
   'neg-list-into-text': () =>
     route([`let name=ys value="[flag, flag]"`, `assign target="ys" value=${T('x')}`, 'return value="ys"'], {
       parameters: BOOL_FLAG,

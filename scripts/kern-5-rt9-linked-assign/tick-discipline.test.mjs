@@ -6,7 +6,9 @@ import {
   BOOL_FLAG,
   POSITIONS,
   TEXT_AND_FLAG,
+  between,
   compileJavaScript,
+  compilePython,
   directStepBudget,
   envelopeBytes,
   executeJavaScriptChild,
@@ -157,6 +159,87 @@ test('an assign across an async suspension is metered exactly as the let it repl
   assert.equal(EXECUTION_STEPS['assign-after-async-taken'], EXECUTION_STEPS['let-after-async-taken-control']);
   assert.equal(EXECUTION_STEPS['assign-after-async-skipped'], EXECUTION_STEPS['let-after-async-skipped-control']);
   assert.equal(EXECUTION_STEPS['assign-after-async-taken'] - EXECUTION_STEPS['assign-after-async-skipped'], 2);
+});
+
+// The emitted Python has no suspension point between a statement's trailing `_check_abort()` and
+// the next statement's leading one, so an omitted assign checkpoint cannot be reached first by a
+// signal abort; the checkpoint census is what pins it, exactly as RT-4 pins the callee census.
+const CHECKPOINT_PAIRS = Object.freeze({
+  'ordering-print': {
+    assign: POSITIONS['ordering-print'](),
+    control: route([
+      `let name=s value=${T('a')}`,
+      `let name=t value=${T('b')}`,
+      'print value="t"',
+      `let name=u value=${T('c')}`,
+      'return value="u"',
+    ]),
+  },
+  'simple-reassign': {
+    assign: POSITIONS['simple-reassign'](),
+    control: METERING['let-literal-control'].source,
+  },
+});
+
+async function checkpointCensus(source) {
+  const verified = await project(source);
+  assert.ok(verified !== undefined, 'F5 must project the checkpoint fixture');
+  const javascript = compileJavaScript(verified);
+  const python = compilePython(verified);
+  assert.equal(javascript.outcome, 'success', `javascript compile failed: ${javascript.code}`);
+  assert.equal(python.outcome, 'success', `python compile failed: ${python.code}`);
+  const javascriptBody = between(
+    between(
+      Buffer.from(javascript.artifact.bytes).toString('utf8'),
+      'const __runSpecialized=',
+      'const execute=async(input,executionOptions)',
+      'the emitted JavaScript specialized handler',
+    ),
+    'try {',
+    '} finally {',
+    'the emitted JavaScript statement region',
+  );
+  const pythonBody = between(
+    between(
+      Buffer.from(python.artifact.bytes).toString('utf8'),
+      'async def _run_specialized(',
+      'async def execute(',
+      'the emitted Python specialized handler',
+    ),
+    '    try:\n',
+    '    finally:',
+    'the emitted Python statement region',
+  );
+  return {
+    javascript: (javascriptBody.match(/__checkAbort\(\)/gu) ?? []).length,
+    python: (pythonBody.match(/_check_abort\(\)/gu) ?? []).length,
+  };
+}
+
+// Hand-counted from the emitted regions. `simple-reassign` is let + assign + return, one
+// checkpoint each plus the two the success tail carries. `ordering-print` adds a print and a
+// second assign: the JavaScript print carries one checkpoint and the Python print two, which is a
+// pre-existing asymmetry of the print form and the reason the two legs are pinned separately.
+const CHECKPOINT_CENSUS = Object.freeze({
+  'ordering-print': { javascript: 7, python: 8 },
+  'simple-reassign': { javascript: 5, python: 5 },
+});
+
+test('an assign carries exactly the cancellation checkpoints of the let it replaces, on both emitted legs', async () => {
+  for (const name of Object.keys(CHECKPOINT_PAIRS).sort()) {
+    const { assign, control } = CHECKPOINT_PAIRS[name];
+    const observed = await checkpointCensus(assign);
+    assert.deepEqual(
+      observed,
+      CHECKPOINT_CENSUS[name],
+      `RT9_CHECKPOINT_CENSUS_DRIFT: ${name} no longer checks cancellation once per emitted statement`,
+    );
+    assert.deepEqual(
+      observed,
+      await checkpointCensus(control),
+      `RT9_CHECKPOINT_CENSUS_DRIFT: ${name} must carry the checkpoints of its let-shaped control`,
+    );
+  }
 });
 
 const QUEUE_DEPTHS = Object.freeze([0, 1, 2, 3, 4]);

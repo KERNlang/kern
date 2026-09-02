@@ -208,11 +208,22 @@ Worked consequences, each an oracle row:
 | `let n = 1`, `let m = 2` | `m` | `integer` = `integer` | undefined = undefined | admitted |
 | `let ys = [flag,flag]` | `[flag]` | undefined = undefined | `list<boolean>` = `list<boolean>` | admitted |
 | `capability … name=first`, `… name=second` | `second` | undefined = undefined | undefined = undefined | admitted |
-| `let n = 1` | `true` | `integer` ≠ `boolean` | — | **MISMATCH** |
-| `let n = 1` | `"x"` | `integer` ≠ undefined | — | **MISMATCH** |
-| `let s = "a"` | `1` | undefined ≠ `integer` | — | **MISMATCH** |
+| `let n = 1` | `true` | `integer` ≠ `boolean` | undefined ≠ `boolean` | **MISMATCH** |
+| `let n = 1` | `"x"` | `integer` ≠ undefined | undefined ≠ `text` | **MISMATCH** |
+| `let s = "a"` | `1` | undefined ≠ `integer` | `text` ≠ undefined | **MISMATCH** |
+| `let n = 1` | `[1, 2]` | `integer` ≠ undefined | undefined = undefined | **MISMATCH** |
 | `let ys = [flag,flag]` | `"x"` | undefined = undefined | `list<boolean>` ≠ `text` | **MISMATCH** |
 | `capability … name=reply` | `"x"` | undefined = undefined | undefined ≠ `text` | **MISMATCH** |
+
+**Both halves fire on the first three rows**, so none of them separates one half from the
+other: `crossCallExpressionType` answers `'boolean'` for a boolean literal, `'text'` for a text
+literal and `undefined` for an integer one (`expression.ts:83-103`), so it disagrees with the
+binding's record wherever the static table does. Exactly two rows are single-half:
+`let n = 1` / `[1, 2]` is the **static-only** row — an integer list is `undefined` statically
+*and* `undefined` in both cross-call directions, because `crossCallExpressionType`'s list arm
+admits only `boolean` and `text` elements — and `let ys = [flag,flag]` / `"x"` is the
+**cross-call-only** row. They are the two fixtures that hold the halves apart, and mutants M04
+and M03 are exactly the defects of dropping one of them.
 
 The last row is the one surprise and is deliberate: a capability result carries **no**
 type record, so only another untyped value may be assigned into it. It is pinned as a
@@ -243,11 +254,19 @@ cross-call shapes that do resolve: `boolean` (`h()`) and `list<boolean>` (`hs()`
 | `let n = h()` | `2` | `boolean` ≠ `integer` | `boolean` ≠ undefined | **MISMATCH** |
 | `let n = 1` | `h()` | `integer` ≠ `boolean` | undefined ≠ `boolean` | **MISMATCH** |
 | `let ys = hs()` | `"x"` | undefined = undefined | `list<boolean>` ≠ `text` | **MISMATCH** |
+| `let s = "a"` | `hs()` | undefined = undefined | `text` ≠ `list<boolean>` | **MISMATCH** |
 
-The last row is the only fixture in the corpus where the **`crossCallTypes` half fires
+The last two rows are the only fixtures in the corpus where the **`crossCallTypes` half fires
 alone on a record that came from a call signature**: both sides read `undefined` from
-`types`, so dropping that half admits it. Its admitted sibling (`[flag]` into the same
-binding) is the row a linker resolving only the literal arms would wrongly refuse.
+`types`, so dropping that half admits them. The admitted sibling of the first (`[flag]` into the
+same binding) is the row a linker resolving only the literal arms would wrongly refuse.
+
+The two are **not** interchangeable, and the difference is which side of the comparison holds the
+call. In `let ys = hs()` / `assign ys = "x"` the call is the **binding**, so the cross-call record
+under test was produced by the call arm but the *value* is a literal; in `let s = "a"` /
+`assign s = hs()` the call is the **value**, so the call arm is evaluated on this very statement.
+Only the second row can see a mutation confined to the call arm of the value lookup, which is
+mutant M18.
 
 `let n = h()` / `assign n = 2` is over-strict, and **deliberately so**: the binding's
 static record is `boolean`, the rule is strict equality, and no widening is possible even
@@ -669,14 +688,16 @@ adds only RT-9 fixtures and two helpers; no harness is duplicated.
 
 | Suite | Tests | What it pins | At base |
 | --- | --- | --- | --- |
-| `probe-matrix.test.mjs` | 6 | F5 facts only — projection status, diagnostic codes and the projected node/target shapes across 40 positions and 4 control positions, including the helper-body assign | **GREEN 6/6** (F5 already projects `assign`; the matrix pins the frontier and must stay green after the build too) |
-| `k0-golden.test.mjs` | 5 | `linkedStatementKinds` scraped from `contracts.ts`, the 44-row admission map, the `assign` catalog schema, the untouched loop/`set` controls | **RED 4/5** |
+| `probe-matrix.test.mjs` | 6 | F5 facts only — projection status, diagnostic codes and the projected node/target shapes across 42 positions and 4 control positions, including the helper-body assign | **GREEN 6/6** (F5 already projects `assign`; the matrix pins the frontier and must stay green after the build too) |
+| `compatibility.test.mjs` | 2 | the two prior-slice golden **pre-images** RT-9's licensed move replaced: undoing exactly the RT-9 edits must reproduce each pre-RT-9 file byte for byte (rider to Corrections-Log resolution (A)) | **N/A** — added after the implementation; the digests it pins did not exist at base |
+| `k0-golden.test.mjs` | 5 | `linkedStatementKinds` scraped from `contracts.ts`, the 46-row admission map, the `assign` catalog schema, the untouched loop/`set` controls | **RED 4/5** |
 | `behavior.test.mjs` | 23 | three-leg byte-identical envelopes for the twenty positive fixtures | **RED 0/23** |
-| `type-gate.test.mjs` | 24 | 16 refusals, each with its **label text** pinned, plus the label-disambiguation rows, the call-resolved admitted rows and the two-table separation row | **RED 1/24** |
-| `tick-discipline.test.mjs` | 17 | exact `execution` step counts on 14 rows, `assign` = `let` parity on six pairs, queued-abort fences at microtask depths 0–4 on two fixtures, pre-cancel fail-closed | **RED 5/17** |
+| `type-gate.test.mjs` | 28 | 18 refusals, each with its **label text** pinned, plus the label-disambiguation rows, the call-resolved admitted rows and the three two-table separation rows | **RED 1/24** at base for the 24 rows that existed then |
+| `tick-discipline.test.mjs` | 18 | exact `execution` step counts on 14 rows, `assign` = `let` parity on six pairs, the emitted cancellation-checkpoint census on both legs, queued-abort fences at microtask depths 0–4 on two fixtures, pre-cancel fail-closed | **RED 5/17** at base for the 17 rows that existed then |
 
 `probe-matrix` runs first: it is the sequencing gate, and it proves every negative is a
-link decision rather than a frontend gap.
+link decision rather than a frontend gap. `compatibility` runs second, in the rt4/rt5/rt6
+position, so a golden that drifted is reported before any behavioural row is scored.
 
 Label texts are asserted, not just the closed code — the RT-6 review lesson
 (`kern-5-rt6-void-fallthrough/k0-support.mjs:64-84`: "the linker's rejection code is
@@ -760,8 +781,13 @@ implementation that mistakes an assign for a return: such an implementation retu
 | T16 | `let n = h()` (h→boolean) / `assign n = 2` | `KIR_ASSIGN_TYPE_MISMATCH` (deliberately over-strict, RT9-C5) |
 | T17 | `let n = 1` / `assign n = h()` | `KIR_ASSIGN_TYPE_MISMATCH` |
 | T18 | `let ys = hs()` (hs→boolean[]) / `assign ys = "x"` | `KIR_ASSIGN_TYPE_MISMATCH` — the `crossCallTypes` half firing alone on a call-resolved record |
+| T19 | `let n = 1` / `assign n = [1, 2]` | `KIR_ASSIGN_TYPE_MISMATCH` — the **`types`** half firing alone (M04) |
+| T20 | `let s = "a"` / `assign s = hs()` | `KIR_ASSIGN_TYPE_MISMATCH` — the `crossCallTypes` half firing alone **on the call arm of the value** (M18) |
 
-All 18 project at base (verified), so every refusal is a link decision.
+All 20 project at base (verified), so every refusal is a link decision. T19 and T20 were added
+after the mutant battery showed T4 and T18 could not separate the halves the design claimed they
+did; each is paired in `type-gate.test.mjs` with the admitted sibling that makes the refusal
+non-vacuous (`integer-from-identifier` for T19, `simple-reassign` for T20).
 
 ### Metering fixtures
 
@@ -783,7 +809,7 @@ rather than against the spec text.
 | M01 | `compileStatement` has no `assign` branch | falls through to `link.ts:340`; every positive is `handler-entry-unsupported` | `k0-golden`, all of `behavior` |
 | M02 | the assign branch calls `bindName(scope, target, staticType(value), crossCallType(value))` | the binding's recorded type follows the last assign, so `let n=1; assign n=true; return n` links and then fails at `matchesType` with `invalid-handler-result` on all three legs — a runtime failure where a link refusal was contracted | T4 (expects the label at link, observes a success-then-runtime-failure) |
 | M03 | drop the `crossCallTypes` half of the type gate | `let ys=[flag,flag]; assign ys="x"` links; RT-1 returns text against `boolean[]`. Independent of M04: this table has no `integer` row, so `let n=1; assign n=true` is still caught by the other half | T7 |
-| M04 | drop the `types` half of the type gate | `let n=1; assign n=true` links; the `crossCallTypes` half cannot see it, because integer has no cross-call row and both sides read `undefined` | T4 |
+| M04 | drop the `types` half of the type gate | `let n=1; assign n=[1, 2]` links; the `crossCallTypes` half cannot see it, because an integer list is `undefined` in both cross-call directions and the binding's cross-call record is `undefined` too | **T19** (the design named T4; the battery proved T4 fires both halves — see the Corrections Log) |
 | M05 | `assignable` is `scope.bindings` (parameters assignable) | T9 links; the emitted JS then executes `__k0=…` against `const __k0` in an ESM module — a real `TypeError: Assignment to constant variable`, while Python rebinds happily. Genuine three-leg divergence, unlike a `1n < 2` style phantom | T9 label pin; `behavior` byte-equality if the label check were removed |
 | M06 | `op` is accepted and treated as a plain assign | `assign n op="+=" value="2"` executes as `n = 2`, silently wrong arithmetic on every leg with no error anywhere | T10, T11 |
 | M07 | a `member`/`index` target is accepted by taking the object's name | `assign s.x = "b"` writes `s`, replacing a record with a text; the frozen value model makes the intended write impossible in the first place | T12, T13 |
@@ -793,12 +819,12 @@ rather than against the spec text.
 | M11 | RT-1 uses `evaluateExpression` instead of `yield* statementValue` for the value | an async-helper value throws `KIR_ASYNC_CALL_EXPRESSION_POSITION` at RT-1 (`expression.ts:240`) while both emitters `await` it happily — RT-1-only failure, maximal divergence | B11 |
 | M12 | either emitter assigns into a freshly allocated local instead of `bindings.get(target)` | the target never updates on that leg only: B1 returns `"a"` in JS/Python and `"b"` at RT-1. Also perturbs local numbering, so assign-free artifacts move | B1–B7 byte-equality; RT-4/RT-6 `compatibility` digests |
 | M13 | either emitter uses `expressionSource` instead of `statementValueSource`/`statementValue` | the async assign emits with no `await`, so the local holds a pending promise and the returned value fails `__matches`/`_matches` — that leg only | B11 |
-| M14 | the Python emitter omits `_check_abort()` on the assign line | the emitted Python stops observing cancellation at an assign, so a queued abort lands one statement later than at RT-1 | `tick-discipline` queued-abort fence, pre-cancel row |
+| M14 | the Python emitter omits `_check_abort()` on the assign line | the emitted Python stops observing cancellation at an assign, so the Python leg no longer checks cancellation once per emitted statement while RT-1 and the JavaScript leg still do | `tick-discipline` **checkpoint census** (the design named the queued-abort fence; no behavioural abort fixture can reach it — see the Corrections Log) |
 
 | M15 | the target is rebound (or its host local cleared) **before** the value is evaluated | `assign b = b && c` reads an unset binding, so RT-1 faults and both emitters feed `undefined` into `__and`/`__or`; no leg can produce the contracted clean envelope. Every other positive has a target-free RHS and cannot see it | B13, B14 |
 | M16 | as M15, but the target is cleared to a `false` default rather than to unset | B13 (`true && false`) and B14 (`false \|\| flag`) both coincide with the correct answer, so the ordering is still unobservable on them. `true \|\| false` is the only shape that separates them | **B14b alone** |
 | M17 | the type gate resolves only the literal arms of the two tables and treats a `user-call` value as untyped | `let n = h()` records nothing, so `assign n = false` and `assign ys = [flag]` are refused for a type the binding genuinely has — a fail-closed refusal of legal programs, invisible to every literal-only fixture | B15, B16, B17, and the type-gate admitted-through-a-call-signature row |
-| M18 | drop the `crossCallTypes` half **on the call path only** (M03's narrower sibling) | `let ys = hs(); assign ys = "x"` links, because the `types` half reads `undefined` on both sides. The `[flag,flag]` list-literal binding of M03/T7 does not reach the call arm, so T7 cannot see this | T18 |
+| M18 | drop the `crossCallTypes` half **on the call path only** (M03's narrower sibling) | `let s = "a"; assign s = hs()` links, because the `types` half reads `undefined` on both sides. The `[flag,flag]` list-literal binding of M03/T7 does not reach the call arm, so T7 cannot see this | **T20** (the design named T18, whose *value* is a literal and so cannot reach the call arm — see the Corrections Log) |
 | M19 | `assign` is admitted in an entry handler but refused (or ignored) inside a helper body | `compileHandler` is shared, so a per-position gate is an added special case; the helper's local rebinding is then never emitted and `g()` returns `"p"` on the leg that skipped it | B19 |
 
 M13–M19 bring the table to nineteen; twelve is the tribunal's floor. M13/M14 are the
@@ -809,19 +835,28 @@ No mutant in this list relies on a `const`-vs-`let` JS analysis, on a `int()` co
 or on mixed-BigInt arithmetic — the three phantom classes the tribunal's `for` contract
 produced.
 
+The "Killed by" column above is the **post-battery** column: M04, M14 and M18 originally named
+T4, the queued-abort fence and T18, and all three of those arguments were falsified by running
+the battery. Every entry now names a fixture that was measured to fire.
+
 ---
 
 ## Acceptance criteria
 
-1. `pnpm test:kern-5-rt9-linked-assign` — 75/75.
+1. `pnpm test:kern-5-rt9-linked-assign` — **82/82** (75 at implementation, then +7 to close the
+   three mutant survivors and land the rider: 2 refusal rows, 2 half-separation rows, the
+   checkpoint census, and the two golden pre-image rows).
 2. `pnpm test:kern-5-rt2-boolean-if` 35/35, `test:kern-5-rt3-binary-expression` 142/142,
    `test:kern-5-rt4-user-fn-call` 50/50, `test:kern-5-rt5-async-user-fn-call` 86/86,
    `test:kern-5-rt6-void-fallthrough` 52/52, `test:kern-5-rt8-integer-signatures` 28/28.
 3. F5 / closure / census / canonicalizer unchanged: 67 / 5 / 10 / 872.
 4. `pnpm --filter @kernlang/core build` (tsc) clean; `biome check` clean on the five
    touched `packages/core` files.
-5. `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs` and the RT-6 twin pass with
-   **no digest edited** — the proof that assign-free emission is byte-identical.
+5. **SUPERSEDED** (Corrections Log, fork consult `tribunal_a89efc4f`, resolution (A)).
+   `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs` and the RT-6 twin pass with every
+   *artifact* digest untouched — that is the proof that assign-free emission is byte-identical —
+   but the six **golden** seals had to be re-pinned, and their pre-images are now themselves
+   asserted from `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs`.
 6. `git diff` adds zero occurrences of `await`, `setImmediate`, `queueMicrotask`,
    `Promise`, or `checkAbort()` under `packages/core/src/kir-runtime/`.
 7. Net production diff ≤ 400 lines (design estimate ~70).
@@ -840,6 +875,13 @@ produced.
 | `type-gate.test.mjs` | 24 | 1 | **23** |
 | `tick-discipline.test.mjs` | 17 | 5 | **12** |
 | total | 75 | 16 | **59** |
+
+This table is the RED evidence for the **75-test** corpus that existed at base. The seven tests
+added after the mutant battery (T19, T20, their two half-separation rows, the checkpoint census
+and the two golden pre-image rows) are not scored here: three of them assert digests that the
+licensed golden move created, so they have no meaning at base, and the four link-side rows would
+have failed at base for the *kind* gate rather than for the gate they pin. Their discriminating
+power is recorded in the kill table instead, which is where a post-implementation fixture belongs.
 
 Before the nero pass the corpus was 59 tests / 46 RED. The sixteen added tests are 13 new
 RED rows and three that pass at base and must keep passing: the helper-body F5 shape row,
@@ -938,7 +980,7 @@ occurrences of `await`, `setImmediate`, `queueMicrotask`, `Promise` or `checkAbo
 
 | Gate | Result |
 | --- | --- |
-| `pnpm test:kern-5-rt9-linked-assign` | **75/75** (6 + 5 + 23 + 24 + 17) |
+| `pnpm test:kern-5-rt9-linked-assign` | **82/82** (6 + 2 + 5 + 23 + 28 + 18) |
 | `pnpm test:kern-5-rt2-boolean-if` | 35/35 |
 | `pnpm test:kern-5-rt3-binary-expression` | 142/142 |
 | `pnpm test:kern-5-rt4-user-fn-call` | 50/50 |
@@ -948,6 +990,49 @@ occurrences of `await`, `setImmediate`, `queueMicrotask`, `Promise` or `checkAbo
 | `pnpm test:kern-5-admission-census` | 10/10 |
 | `pnpm test:kern-canonicalizer` | **872/872** after the receipt convergence in `8398d36d` |
 
+### Golden pre-images — rider to resolution (A), CLOSED
+
+Resolution (A) re-pinned six golden seals in the rt4/rt5/rt6 compatibility guards and accepted
+one rider: **preserve the pre-images in an RT-9-owned, unfrozen location.** That is now
+`scripts/kern-5-rt9-linked-assign/compatibility.test.mjs`, wired into the root script in the
+rt4/rt5/rt6 position (second, right after `probe-matrix`).
+
+It follows the *placement* discipline of `RT3_PRE_SLICE_SHA256` and the *proof* shape of
+`kern-5-rt4-user-fn-call/compatibility.test.mjs`'s additive-only assertion — parse the golden,
+require it to still be canonically serialized (`JSON.stringify(golden, null, 2)` + newline equals
+the file), undo exactly the licensed edit, and require the result to hash to the pre-image. It is
+a **consuming** assertion, not a comment: the constant is only satisfied if the undo is exact, so
+it fails on any RT-9 edit to those files beyond the licensed cells.
+
+| Constant | Value | Reproduced by |
+| --- | --- | --- |
+| `RT2_GOLDEN_SHA256` | `cc7fb869…` | the RT-2 golden's current bytes |
+| `RT2_K0_GOLDEN_PRE_RT9_SHA256` | `aa7f116d…` | RT-2 golden with `admission.assign` reset to `projection-rejected` and `"assign"` filtered out of `linkedStatementKinds` |
+| `RT3_GOLDEN_SHA256` | `c8a94cc4…` | the RT-3 golden's current bytes |
+| `RT3_K0_GOLDEN_PRE_RT9_SHA256` | `ac690563…` | RT-3 golden with `rt2GoldenSha256` reset to `aa7f116d…` |
+
+Three findings from deriving the transforms, each verified against
+`git show 0bd48136:` for both files (whose bytes hash to `aa7f116d…` and `ac690563…`, so the
+reconstructions are byte-exact and not merely digest-equal):
+
+1. **The probe-target re-quoting is not in the golden.** The `assign target=held` →
+   `assign target="held"` fix landed in `kern-5-rt2-boolean-if/k0-golden.test.mjs`'s
+   `PROBE_BODIES`, not in `k0-golden.json`, so the undo transform on the JSON is exactly two
+   edits and nothing else. The re-quoting is *what caused* the admission row to move from
+   `projection-rejected` to a linkable probe; it leaves no trace in the golden's bytes.
+2. **The `ac690563…` → `c8a94cc4…` pair belongs to the RT-3 K0 golden**
+   (`scripts/kern-5-rt3-binary-expression/k0-golden.json`), which the spec's Corrections Log
+   named as `RT3_GOLDEN_SHA256` in rt6 and `rt3GoldenSha256` in the rt4 probe matrix. Verified
+   before pinning: the RT-3 golden's only RT-9 change is its own `rt2GoldenSha256` literal.
+3. **The two pre-images chain.** Substituting the RT-2 pre-image digest into the RT-3 golden is
+   what reproduces the RT-3 pre-image, so the second assertion consumes the first constant and
+   the pair cannot drift independently.
+
+`RT3_PRE_SLICE_SHA256` (`4aa59f32…` → `2664a39f…`) is deliberately **not** re-pinned here: it is
+a digest of a *derived* pre-image rather than of a file, it already lives in an additive-only
+guard that recomputes it from the current golden, and duplicating it would create a second
+constant with no independent input.
+
 ### Mutant battery
 
 Nineteen mutants, one at a time, each applied to a source file copied to a backup first and
@@ -955,11 +1040,15 @@ restored from that backup afterwards (never `git checkout --`/`git stash`), with
 `git status --porcelain -- packages/core/src` verified empty after every restore. Each run is a
 full `pnpm test:kern-5-rt9-linked-assign`, so the core is rebuilt from the mutated sources.
 
-**16 killed / 3 survived.** No mutant was equivalent; all three survivors are genuine corpus
-gaps with a named missing fixture.
+**19 killed / 0 survived**, after a second pass. The first pass killed 16 and left M04, M14 and
+M18 alive; each was a genuine corpus gap, each named the missing fixture, and all three were then
+closed by one discriminating fixture apiece and re-run under the same battery procedure. Two of
+the three survivors also falsified the *non-equivalence argument* the mutant table had recorded,
+and one falsified the mechanism its killer was supposed to use; all three corrections are in the
+Corrections Log and the table above now names the fixture that actually fires.
 
 Because the suites are `&&`-chained, the first failing suite is the one recorded — for the
-link-side mutants that is usually `k0-golden`'s 44-row admission map rather than the
+link-side mutants that is usually `k0-golden`'s 46-row admission map rather than the
 `type-gate` row the design predicted. The label pins still fire; they are simply downstream
 of a cheaper drift check.
 
@@ -968,7 +1057,7 @@ of a cheaper drift check.
 | M01 | **KILLED** | `k0-golden` — *the RT-9 K0 golden pins linker admission, the statement union and the assign schema* | `RT9_K0_GOLDEN_DRIFT`: all 13 admitted positions read `handler-entry-unsupported`, `linkedStatementKinds` loses `'assign'` |
 | M02 | **KILLED** | `k0-golden` — same row | every type refusal flips: `neg-bool-into-integer`, `neg-integer-into-text`, `neg-integer-into-call-typed`, `neg-call-typed-into-integer` → `'admitted'` |
 | M03 | **KILLED** | `k0-golden` — same row | `neg-list-into-text: 'admitted'` (the row only the cross-call half can refuse) |
-| M04 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M04 | **KILLED** (second pass, after T19 was added) | `k0-golden` — *the RT-9 K0 golden pins linker admission, the statement union and the assign schema* | `RT9_K0_GOLDEN_DRIFT`: `neg-integer-list-into-integer: + 'admitted' − 'handler-entry-unsupported'` — and that row **alone**, which is the proof T19 is the only fixture in the corpus that separates the static half |
 | M05 | **KILLED** | `k0-golden` — same row | `neg-param-target: 'admitted'` — a parameter becomes assignable |
 | M06 | **KILLED** | `k0-golden` — same row | `neg-op-compound: 'admitted'`, `neg-op-equals: 'admitted'` |
 | M07 | **KILLED** | `k0-golden` — same row | `neg-target-member: 'admitted'`, `neg-target-index: 'admitted'` |
@@ -978,42 +1067,76 @@ of a cheaper drift check.
 | M11 | **KILLED** | `behavior` 22/23 — B11 *an async helper call is a legal assign value and suspends exactly as a let does* | `emitted JavaScript diverged from RT-1`: RT-1 faults where both emitters `await`, so the envelopes differ in length (236 vs 379 bytes) |
 | M12 | **KILLED** | `behavior` 4/23 (19 failures) — B1 *a reassigned let carries the assigned value, not the declared one* first | `emitted JavaScript diverged from RT-1`: JS returns `"a"` where RT-1 returns `"b"` |
 | M13 | **KILLED** | `k0-golden` — *both targets share one linker; async-value diverged* | `+ 'artifact-emission-failure' − 'admitted'` — `expressionSource` refuses the async call the assign value holds |
-| M14 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M14 | **KILLED** (second pass, after the checkpoint census was added) | `tick-discipline` 17/18 — *an assign carries exactly the cancellation checkpoints of the let it replaces, on both emitted legs* | `RT9_CHECKPOINT_CENSUS_DRIFT: ordering-print no longer checks cancellation once per emitted statement` — `{javascript: 7, python: + 6 − 8}`. Every behavioural row stayed green, including all ten queued-abort fences and the pre-cancel row, which is the measurement behind the equivalence finding below |
 | M15 | **KILLED** | `k0-golden` — *RT-1 and the emitters share one linker; self-referential-and diverged* | `+ 'handler-link-error' − 'admitted'` — clearing the target first makes B13's own RHS read an unset binding |
 | M16 | **KILLED** | `behavior` 22/23 — B14b *a target holding true still holds it while its own value is evaluated* | `emitted JavaScript diverged from RT-1`: `true` vs `false`. Exactly the single row the design predicted would separate it, and B13/B14 do coincide with the correct answer |
 | M17 | **KILLED** | `k0-golden` — the admission row | `async-value` and `call-typed-positive` flip to `handler-entry-unsupported` — a fail-closed refusal of legal programs |
-| M18 | **SURVIVED** | — | 75/75. See the corpus gap below |
+| M18 | **KILLED** (second pass, after T20 was added) | `k0-golden` — the admission row | `RT9_K0_GOLDEN_DRIFT`: `neg-call-typed-list-into-text: + 'admitted' − 'handler-entry-unsupported'` — and that row alone; `neg-text-into-call-typed-list` (T18) stays refused, which is the proof T18 could never have fired |
 | M19 | **KILLED** | `k0-golden` — the admission row | `helper-body-assign: 'handler-entry-unsupported'` — the per-position gate RT9-O1 rejected |
 
-#### The three survivors
+#### The three first-pass survivors and the fixtures that closed them
 
-- **M04** (drop the `types` half of the gate). The design argued T4 (`neg-bool-into-integer`,
+Each survivor was a corpus gap, not an equivalent mutant, and each is now closed by exactly one
+new fixture. All three were re-applied under the same procedure after the fixtures landed and all
+three died; in every case the *only* row that moved was the new fixture, which is what makes each
+one a minimal separator rather than a broad net.
+
+- **M04** — drop the `types` half of the gate. The design argued T4 (`neg-bool-into-integer`,
   `let n=1; assign n=true`) kills it "because integer has no cross-call row and both sides read
-  `undefined`". That is wrong: `crossCallExpressionType` **does** answer `'boolean'` for a boolean
-  literal, so on T4 the cross-call half reads `'boolean'` against the binding's `undefined` and
-  refuses on its own. T4 kills neither half in isolation. Separating the static half needs the
-  mirror of `neg-list-into-text`: a value whose *static* type differs from the binding's while both
-  cross-call types read `undefined` — e.g. `let n = 1` / `assign n = [1, 2]` (an integer list is
-  `undefined` in both cross-call directions and `undefined` statically, against the binding's
-  `'integer'`). Missing fixture, not an equivalent mutant.
-- **M14** (the Python emitter omits `_check_abort()` on the assign line). The queued-abort fences
-  ride microtask depths 0–4 on two fixtures whose abort never lands on an assign statement, and
-  every other row still checks abort at the following statement, so the one-statement-late
-  cancellation is unobservable. Needs a queued-abort fixture whose fence sits exactly on an assign
-  in the Python leg.
-- **M18** (drop the cross-call half on the call path only, applied as "treat a `user-call` value as
-  exempt from the cross-call comparison"). T18's fixture `neg-text-into-call-typed-list` is
-  `let ys = hs(); assign ys = "x"` — its *value* is a text literal, so no mutation of the call arm
-  can reach it, and the design's stated killer cannot fire. The separating row is the transpose:
-  a call-typed **value** into a binding whose static type also reads `undefined`, e.g.
-  `let s = "a"` / `assign s = hs()`, where only the cross-call half (`list<boolean>` vs `'text'`)
-  can refuse.
+  `undefined`". **That argument is wrong.** `crossCallExpressionType` **does** answer `'boolean'`
+  for a boolean literal (`expression.ts:97-99`), so on T4 the cross-call half reads `'boolean'`
+  against the binding's `undefined` and refuses on its own; T4 separates neither half. The static
+  half needs the mirror of `neg-list-into-text` — a value whose *static* type differs from the
+  binding's while both cross-call types read `undefined`.
+  **Closed by T19** (`neg-integer-list-into-integer`, `let n = 1` / `assign n = [1, 2]`): an
+  integer list is `undefined` statically and `undefined` in both cross-call directions, because
+  `crossCallExpressionType`'s list arm admits only `boolean` and `text` elements
+  (`expression.ts:93-98`), so the static half is the only one that can refuse it.
+- **M14** — the Python emitter omits `_check_abort()` on the assign line. The design expected a
+  queued-abort fence to kill it. **No behavioural abort fixture can**, and the reason is
+  structural rather than a corpus gap:
+  1. `_meter.step()` precedes the dropped check on every emitted statement and already calls
+     `_deadline.check()` through `_Meter.check_interruption`
+     (`kir-python/target-base.ts:119-127`, meter constructed with `_deadline.check` in
+     `_inspect_request`), so the **deadline** half of `_check_abort()` is redundant at every
+     statement.
+  2. The **external-signal** half can only change state at a suspension point, and the emitted
+     Python's only suspension points are the `await asyncio.wait(...)` inside
+     `_invoke_capability` and the async helper calls that contain one. Every one of them is
+     immediately followed by its own `_check_abort()` (`kir-python/emitter.ts:175`, `:184`, and
+     the helper `returnSource` at `:295`), and between a predecessor statement's final check and
+     the assign's check there is **no** suspension, so no other task can set the signal in that
+     window.
 
-All three are advisory test-gap findings, not blockers: each names the fixture that would close it.
+  Therefore the assign's `_check_abort()` can never be the first observer of a signal abort, and
+  the mutant's one-statement-late cancellation is unobservable in any envelope. The battery
+  confirms it empirically: under M14 the whole `behavior` suite, all ten queued-abort fences and
+  the pre-cancel row stayed green. What *is* observable — and what the contract in RT9-C11
+  actually claims — is that the assign carries the same per-statement checkpoint the `let` it
+  replaces carries.
+  **Closed by the checkpoint census** in `tick-discipline.test.mjs`, on the RT-4 precedent
+  (`kern-5-rt4-user-fn-call/tick-discipline.test.mjs`, *every callee statement carries a
+  cancellation checkpoint on both emitted legs*, which counts `_check_abort()` / `__checkAbort()`
+  in the emitted helper region). RT-9's row counts them in the specialized-handler statement
+  region for `simple-reassign` and `ordering-print` and pins each leg both absolutely and against
+  its let-shaped control. The two legs are pinned **separately** (`ordering-print` is 7 in
+  JavaScript and 8 in Python) because the Python `print` form carries a second checkpoint before
+  `_events.append` that the JavaScript form does not — a pre-existing asymmetry of `print`, not
+  of `assign`.
+- **M18** — drop the cross-call half on the call path only, applied as "treat a `user-call` value
+  as exempt from the cross-call comparison". T18's fixture `neg-text-into-call-typed-list` is
+  `let ys = hs(); assign ys = "x"` — its *value* is a text literal, so no mutation of the value's
+  call arm can reach it, and the design's stated killer could never fire.
+  **Closed by T20** (`neg-call-typed-list-into-text`, `let s = "a"` / `assign s = hs()`), the
+  transpose: the call is on the **value** side, both static reads are `undefined`, and only the
+  cross-call half (`list<boolean>` vs `'text'`) can refuse. Under M18 T18 stays refused and T20
+  flips, which is the direct measurement of the distinction.
 
 `biome check` is clean on all five touched `packages/core` files ("Checked 5 files. No fixes
-applied."). Every count above was re-measured in this worktree after the battery, with the core
-rebuilt from the restored sources.
+applied."); `biome.json` does not cover `scripts/**`, so the oracle files carry no lint gate.
+Every count above was re-measured in this worktree after the battery, with the core rebuilt from
+the restored sources — `git status --porcelain -- packages/core/src` empty after each of the three
+restores.
 
 ---
 
@@ -1109,7 +1232,10 @@ reviewer should check `git diff` for any new `await`, `setImmediate`, `queueMicr
 | 2026-09-02 | **RT9-C8a VERIFIED** — the metering model in RT9-C8 was incomplete: a **parameter** read costs 2 expression steps where a `let`-bound identifier costs 1. Measured on four fresh rows. The "executed `if` costs 3 / skipped costs 2" phrasing was really "1 + the condition cost" over a parameter condition; every previously pinned constant is unchanged. |
 | 2026-09-02 | **RT9-O1 CLOSED** — F5 projects a helper-body assign (verified), so the coverage boundary the open question flagged is now a pinned row rather than an assumption. |
 | 2026-09-02 | Mutant list 14 → 19: M15 (target cleared to unset before evaluation), M16 (cleared to a `false` default — killed by B14b alone), M17 (type gate resolves literal arms only), M18 (cross-call half dropped on the call path only), M19 (assign gated out of helper bodies). |
-| 2026-09-02 | **Acceptance criterion 5 is superseded — fork consult `tribunal_a89efc4f` (5 engines, adversarial/hybrid).** The spec froze `kern-5-rt4-user-fn-call/compatibility.test.mjs` and its RT-6 twin as "must pass with **no digest edited**", but the spec-licensed RT-2 K0 golden move (`assign` row → `admitted`, `"assign"` scraped into `linkedStatementKinds`) necessarily changes those bytes: rt4/rt5/rt6 went RED on **exactly and only** six digest guards with every behavioural test green, and reverting the golden turns RT-2 RED, so no implementation choice avoids it. Options weighed: **(A)** re-pin the six literals in place plus this log; **(B)** convert the five test-source guards to additive-only guards on the `RT3_PRE_SLICE_SHA256` model (~40 lines of new logic in frozen oracle files); **(C)** split the repin into its own spec amendment. **Resolution: (A).** It carried on the seal-versus-authorization split — a SHA-256 constant records one fact about a file's bytes at one moment, while "may RT-N touch the RT-2 golden?" is a spec question already answered by `2473677e`; re-sealing and logging is the correct primitive, and the guard stays byte-exact and fail-closed for the next licensed move. (B) is not merely expensive but *technically false* here: RT-9 flips the `assign` row **in place**, so there is no stable prefix for a prefix digest, and a masked digest would grow a licensed-cell exclusion per slice until it asserts nothing. (C) is (A) plus a context switch that would land a golden ahead of its runtime while rt4/5/6 stay RED. Digests moved: RT-2 K0 golden `aa7f116d…` → `cc7fb869…` (`RT2_GOLDEN_SHA256` in the rt4/rt5/rt6 compatibility tests; `rt2GoldenSha256` in the rt3 golden and the rt4 probe matrix) and RT-3 K0 golden `ac690563…` → `c8a94cc4…` (`RT3_GOLDEN_SHA256` in rt6; `rt3GoldenSha256` in the rt4 probe matrix). **Rider, accepted with the resolution: preserve the pre-image.** Record `RT2_K0_GOLDEN_PRE_RT9_SHA256 = aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0` in an RT-9-owned, *unfrozen* location pointing back at this entry — mirroring `RT3_PRE_SLICE_SHA256`'s **placement discipline** even though its prefix-digest mechanism does not transfer, so every historical constant survives without touching frozen assertion logic. The pre-image is preserved **here**; the four-line constant form is **not yet landed as code and remains open**. |
+| 2026-09-02 | **Acceptance criterion 5 is superseded — fork consult `tribunal_a89efc4f` (5 engines, adversarial/hybrid).** The spec froze `kern-5-rt4-user-fn-call/compatibility.test.mjs` and its RT-6 twin as "must pass with **no digest edited**", but the spec-licensed RT-2 K0 golden move (`assign` row → `admitted`, `"assign"` scraped into `linkedStatementKinds`) necessarily changes those bytes: rt4/rt5/rt6 went RED on **exactly and only** six digest guards with every behavioural test green, and reverting the golden turns RT-2 RED, so no implementation choice avoids it. Options weighed: **(A)** re-pin the six literals in place plus this log; **(B)** convert the five test-source guards to additive-only guards on the `RT3_PRE_SLICE_SHA256` model (~40 lines of new logic in frozen oracle files); **(C)** split the repin into its own spec amendment. **Resolution: (A).** It carried on the seal-versus-authorization split — a SHA-256 constant records one fact about a file's bytes at one moment, while "may RT-N touch the RT-2 golden?" is a spec question already answered by `2473677e`; re-sealing and logging is the correct primitive, and the guard stays byte-exact and fail-closed for the next licensed move. (B) is not merely expensive but *technically false* here: RT-9 flips the `assign` row **in place**, so there is no stable prefix for a prefix digest, and a masked digest would grow a licensed-cell exclusion per slice until it asserts nothing. (C) is (A) plus a context switch that would land a golden ahead of its runtime while rt4/5/6 stay RED. Digests moved: RT-2 K0 golden `aa7f116d…` → `cc7fb869…` (`RT2_GOLDEN_SHA256` in the rt4/rt5/rt6 compatibility tests; `rt2GoldenSha256` in the rt3 golden and the rt4 probe matrix) and RT-3 K0 golden `ac690563…` → `c8a94cc4…` (`RT3_GOLDEN_SHA256` in rt6; `rt3GoldenSha256` in the rt4 probe matrix). **Rider, accepted with the resolution: preserve the pre-image.** Record `RT2_K0_GOLDEN_PRE_RT9_SHA256 = aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0` in an RT-9-owned, *unfrozen* location pointing back at this entry — mirroring `RT3_PRE_SLICE_SHA256`'s **placement discipline** even though its prefix-digest mechanism does not transfer, so every historical constant survives without touching frozen assertion logic. The pre-image is preserved **here**; the constant form is **landed as code** in `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs` — see *Golden pre-images — rider to resolution (A), CLOSED*. |
 | 2026-09-02 | **Two derived pins the implementer missed, both of the same class: a digest whose own input includes the file the previous repin edited.** (1) `kern-5-rt4-user-fn-call/compatibility.test.mjs:13` `RT3_PRE_SLICE_SHA256` is derived from the RT-3 golden, so the RT-3 move carried it too — `4aa59f32…` → `2664a39f…`, fixed in `8cb5f0bc`; it is one of the six guards the consult enumerated (rt4 line 13) and was simply not moved with its sibling on line 12. (2) `coverageImplementationDigest` path-frames **every** `.mjs` under `scripts/kern-canonicalizer`, so the compiled-core repin `3ef731c2` — which edited `coverage-prerequisite.test.mjs` to move `compiledCoreDigest` — moved the implementation digest as a side effect and left `pnpm test:kern-canonicalizer` RED at 870/872 (`coverage-prerequisite.test.mjs:89` and `coverage.test.mjs:67`, both `060b9d31…` vs `e61ae032…`). Converged in `8398d36d` by one `pnpm write:kern-canonicalizer-coverage` pass; only the two published receipt JSONs moved, so the second `--write` the RT2–RT6 recipe calls for was unnecessary — no `.mjs` had to change, and therefore the framed digest was already at its fixed point. |
 | 2026-09-02 | **`test:kern-5-rt3-binary-expression` chained-run flake — recorded, not chased.** Under a chained multi-suite run the RT-3 type-gate file intermittently fails one row with `projection-authentication-error` raised by `authenticateLinkedKernKirProjectionOrThrow` (`link.ts:56`, "projection is not authenticated"); the same file passes 42/42 run alone, and the full chained gate came back 142/142 on re-run with nothing changed. Classed as a shared-projection-asset/chained-run flake rather than an RT-9 defect: RT-9 adds nothing to the projection authentication path (its whole runtime diff is one `bindings.set` arm), and the row is green both in isolation and on a repeat of the same chained gate. Related environment finding from the mutant campaign: restoring a mutated source from a byte-copy **preserves its mtime**, so `tsc -b` judges the project up to date and silently keeps the previous build in `dist`. Each mutant run was unaffected — an apply always stamps a fresh mtime and `tsc -b` then re-emits the whole project from the then-current sources (proved by M14, whose clean 75/75 would have carried M13's kill if the previous file's output had persisted) — but the *final* restore leaves a stale `dist` until the sources are touched. Any post-battery verification must force the rebuild first. |
 | 2026-09-02 | **Mutant battery: 16/19 killed, three survivors, every survivor a corpus gap rather than an equivalent mutant, and two of the three expose a wrong non-equivalence argument in the mutant table above.** M04's row claims T4 (`let n=1; assign n=true`) kills it "because integer has no cross-call row and both sides read `undefined`" — but `crossCallExpressionType` answers `'boolean'` for a boolean literal, so on T4 *both* halves fire independently and neither half is separated by it; the static half needs the mirror of `neg-list-into-text`, e.g. `let n = 1` / `assign n = [1, 2]`. M18's row names T18 as its killer, but T18's fixture value (`assign ys = "x"`) is a **literal**, so no mutation of the call arm can reach it; the separating row is the transpose, `let s = "a"` / `assign s = hs()`. M14 (Python assign line drops `_check_abort()`) survives because neither queued-abort fence fixture places its abort on an assign statement, so the one-statement-late cancellation is unobservable. All three are advisory test-gap findings with a named missing fixture, not blockers. |
+| 2026-09-02 | **All three survivors closed; battery re-run at 19/19; corpus 75 → 82.** One discriminating fixture each, and in every case the re-applied mutant moved exactly one row, so each fixture is a minimal separator. **T19** `neg-integer-list-into-integer` (`let n = 1` / `assign n = [1, 2]`) kills M04 — verified `KIR_ASSIGN_TYPE_MISMATCH n` at `entry.function.handler.children[1]`, and under M04 that admission row alone flips to `'admitted'`. **T20** `neg-call-typed-list-into-text` (`let s = "a"` / `assign s = hs()`) kills M18 — same label, and under M18 T18 stays refused while T20 alone flips. Both project at base, so both are link decisions. **M14 needed a different mechanism than the design named, and the reason is a real finding about the emitted Python:** the assign's `_check_abort()` can never be the first observer of an abort, because (i) the `_meter.step()` that precedes it on every statement already runs `_deadline.check()` through `_Meter.check_interruption`, making the deadline half redundant, and (ii) the external-signal half can only change state at a suspension point, and every suspension the emitted Python has (`await asyncio.wait` inside `_invoke_capability`, and the async helper calls containing one) is immediately followed by its own `_check_abort()`, with **no** suspension between a predecessor statement's final check and the assign's. Confirmed empirically: under M14 the entire `behavior` suite, all ten queued-abort fences and the pre-cancel row stayed green. The killer is therefore the **checkpoint census** on the RT-4 precedent (`kern-5-rt4-user-fn-call/tick-discipline.test.mjs`, *every callee statement carries a cancellation checkpoint on both emitted legs*), counting `_check_abort()` / `__checkAbort()` in the specialized-handler statement region and pinning each leg absolutely and against its let-shaped control. The legs are pinned separately — `ordering-print` is 7 in JavaScript and 8 in Python — because the Python `print` form carries a second checkpoint before `_events.append` that the JavaScript form does not; that asymmetry is pre-existing and belongs to `print`, not to `assign`. Also corrected in RT9-C5: three of its MISMATCH rows carried `—` in the cross-call column as though only the static half fired; in fact both halves fire on all three, and exactly two rows in the whole corpus are single-half (`let n=1`/`[1, 2]` static-only, `let ys=[flag,flag]`/`"x"` cross-call-only). |
+| 2026-09-02 | **Worktree environment finding — stale pnpm symlinks block the build, not the code.** In `/Users/nicolascukas/KERN/.worktrees/kern-5-rt9`, `pnpm --filter @kernlang/core build` failed with `error TS2688: Cannot find type definition file for 'node'` because `node_modules/@types/node` still pointed at `.pnpm/@types+node@26.1.1`, which the store no longer holds (it holds `26.4.0`); `node_modules/@biomejs/biome` was stale the same way (`2.5.4` vs `2.5.11`). `pnpm install --frozen-lockfile` refuses to repair it non-interactively (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`), so the fix is to re-point the two symlinks at the versions actually present under `node_modules/.pnpm`. Nothing in the slice is implicated — this is a worktree-local `node_modules` drift and it must be cleared before any RT-9 gate is believed. |
+| 2026-09-02 | **Rider to resolution (A) landed as code — `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs`, 2 tests.** Both golden pre-images are now consuming assertions rather than log prose: undo the licensed RT-9 edit, require the result to hash to the pre-image. Three derivation findings. (1) The `assign target=held` → `assign target="held"` re-quoting landed in `kern-5-rt2-boolean-if/k0-golden.test.mjs`'s `PROBE_BODIES`, **not** in `k0-golden.json`, so the undo transform on the RT-2 golden is exactly two edits — `admission.assign` back to `projection-rejected` and `"assign"` filtered out of `linkedStatementKinds` — and reproduces `aa7f116d…`. (2) The `ac690563…` → `c8a94cc4…` pair was verified to belong to `scripts/kern-5-rt3-binary-expression/k0-golden.json` before being pinned; its only RT-9 change is its own `rt2GoldenSha256` literal, so resetting that one field reproduces `ac690563…`. (3) The two pre-images chain: the RT-2 pre-image digest is the value substituted into the RT-3 golden, so the second assertion consumes the first constant. Both reconstructions were checked byte-exact against `git show 0bd48136:` for each file, not merely digest-equal. `RT3_PRE_SLICE_SHA256` is deliberately not duplicated here — it is a digest of a derived pre-image already recomputed by an additive-only guard. |

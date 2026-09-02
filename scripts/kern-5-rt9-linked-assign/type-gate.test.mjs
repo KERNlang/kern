@@ -12,10 +12,12 @@ const REFUSALS = Object.freeze([
   ['neg-bool-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-text-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-integer-into-text', 'KIR_ASSIGN_TYPE_MISMATCH'],
+  ['neg-integer-list-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-list-into-text', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-integer-into-call-typed', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-call-typed-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-text-into-call-typed-list', 'KIR_ASSIGN_TYPE_MISMATCH'],
+  ['neg-call-typed-list-into-text', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-text-into-capability', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-param-target', 'KIR_ASSIGN_TARGET_NOT_LET'],
   ['neg-op-compound', 'KIR_ASSIGN_OP_UNSUPPORTED'],
@@ -95,4 +97,23 @@ test('the cross-call half of the gate separates the two assigns into one call-ty
   const admitted = await admission(POSITIONS['call-typed-list']());
   assert.equal(admitted.rt1, 'admitted');
   await assertLinkLabel(POSITIONS['neg-text-into-call-typed-list'](), 'KIR_ASSIGN_TYPE_MISMATCH');
+});
+
+// `neg-bool-into-integer` cannot separate the halves: `crossCallExpressionType` answers
+// `boolean` for a boolean literal, so both halves fire on it independently. An integer list
+// is the mirror of `neg-list-into-text` — `undefined` in both cross-call directions — so the
+// static table is the only one that can refuse it.
+test('the static half of the gate separates the two assigns into one integer binding', async () => {
+  const admitted = await admission(POSITIONS['integer-from-identifier']());
+  assert.equal(admitted.rt1, 'admitted');
+  await assertLinkLabel(POSITIONS['neg-integer-list-into-integer'](), 'KIR_ASSIGN_TYPE_MISMATCH');
+});
+
+// The transpose of the call-typed-list row above: here the *value* is the call, so this is the
+// only fixture a mutation confined to the tables' user-call arm can reach. Both sides read
+// `undefined` from the static table, so again only the cross-call half can refuse.
+test('the cross-call half of the gate refuses a call-typed value assigned into a text binding', async () => {
+  const admitted = await admission(POSITIONS['simple-reassign']());
+  assert.equal(admitted.rt1, 'admitted');
+  await assertLinkLabel(POSITIONS['neg-call-typed-list-into-text'](), 'KIR_ASSIGN_TYPE_MISMATCH');
 });

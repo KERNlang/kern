@@ -64,11 +64,19 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "neg-call-typed-list-into-text": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "neg-integer-into-call-typed": {
       "diagnostics": [],
       "status": "projected"
     },
     "neg-integer-into-text": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-integer-list-into-integer": {
       "diagnostics": [],
       "status": "projected"
     },
