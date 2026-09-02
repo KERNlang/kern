@@ -192,6 +192,18 @@ function capabilitySource(
       ${local}=__slot${local.slice(3)}.value;`;
 }
 
+function assignSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'assign' }>,
+  bindings: ReadonlyMap<string, string>,
+  calls: CallLocals,
+): string {
+  const local = bindings.get(statement.target);
+  if (local === undefined) throw new Error('a linked assign target must already own a host local');
+  return `
+      __meter.step(); __checkAbort();
+      ${local}=${statementValueSource(statement.value, bindings, calls)};`;
+}
+
 function leafSource(
   statement: LinkedKernKirStatement,
   local: string,
@@ -228,6 +240,7 @@ function blockSource(
   return statements
     .map((statement) => {
       if (statement.kind === 'return') return returnSource(statementValueSource(statement.value, scope, calls));
+      if (statement.kind === 'assign') return assignSource(statement, scope, calls);
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
