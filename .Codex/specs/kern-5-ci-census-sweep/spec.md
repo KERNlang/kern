@@ -1,8 +1,8 @@
 # KERN 5 CI Census Sweep
 
-**Status:** IN REVIEW
+**Status:** DONE
 **Date:** 2026-09-02
-**Confidence:** 0.97
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -83,7 +83,7 @@ improving the acceptance contract, so it is rejected for this slice.
 - [x] Workflow/static contract validation, typecheck/build, every family leaf,
   and the full corpus sweep pass locally from the fresh worktree.
 - [x] No lane-1 or hard-boundary file changes.
-- [ ] Automatic-risk Agon review with primary `codex` and mechanical mutation
+- [x] Automatic-risk Agon review with primary `codex` and mechanical mutation
   completes after local gates; every finding is verified against source.
 
 ## Out of Scope
@@ -130,3 +130,23 @@ CI lane; no runtime or public API compatibility changes.
   instructed worktree copied package-level dependency symlinks outside the
   Turbopack filesystem root; package build/typecheck completed before that
   environment-only failure.
+
+## Post-review Verification
+
+- **[VERIFIED]** Automatic routing selected the complete six-engine usable
+  roster at high risk. Review `review-1788337363141-t20qc8` found one verified
+  blocker: `probe-crashed` was not in the copied infrastructure-code set.
+- **[VERIFIED]** The fix classifies every `probe` or `timeout` stage as an
+  infrastructure failure, cross-checks `admittedCount` against admitted result
+  rows, rejects invalid sweep defaults, and runs the policy suite from the
+  required `test:ci-contract` workflow command. The resulting combined CI
+  contract passed 16/16.
+- **[VERIFIED]** The review's R0 omission concern is outside the exact requested
+  R1/R2/C-PY/CLI/RT2-RT8 family. Its fitness omission premise is false because
+  `test:infra:contracts` invokes `test:kern-5-fitness` and CI runs that aggregate
+  (`package.json:124`; `.github/workflows/ci.yml:72-73`).
+- **[VERIFIED]** Post-fix mechanical mutation killed 6/6 changed-line mutants,
+  with zero survivors (`mutate-1788337726831-3f061n`).
+- **[VERIFIED]** The targeted post-review full sweep completed 240/240 with one
+  admitted file and no infrastructure-stage result (`pnpm census:sweep`, Node
+  22.22.0, 2026-09-02).

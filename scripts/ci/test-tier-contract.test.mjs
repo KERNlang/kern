@@ -199,7 +199,10 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
     assert.match(aggregator, new RegExp(`\\b${lane}\\b`, 'u'));
   }
 
-  assert.equal(packageJson.scripts['test:ci-contract'], 'node --test scripts/ci/test-tier-contract.test.mjs');
+  assert.equal(
+    packageJson.scripts['test:ci-contract'],
+    'node --test scripts/ci/test-tier-contract.test.mjs scripts/ci/kern-5-census-sweep.test.mjs',
+  );
   assert.match(workflow, /pnpm test:ci-contract/u);
   assert.doesNotMatch(workflowJob(workflow, 'quality'), /pnpm test:kern-runtime-contract-v1/u);
   const contracts = workflowJob(workflow, 'infrastructure-contracts');

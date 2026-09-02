@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const RATCHET_PATH = resolve(ROOT, 'scripts/kern-5-admission-census/admitted.json');
-const INFRASTRUCTURE_CODES = new Set(['probe-timeout', 'probe-overflow', 'probe-exit', 'probe-unparsable']);
 
 export function fullSweepOptions(files, out, defaults) {
+  if (!Number.isInteger(defaults.jobs) || defaults.jobs <= 0) throw new Error('census jobs must be a positive integer');
+  if (!Number.isInteger(defaults.timeoutMs) || defaults.timeoutMs <= 0) {
+    throw new Error('census timeout must be a positive integer');
+  }
   return { files, jobs: defaults.jobs, out, timeoutMs: defaults.timeoutMs, update: false };
 }
 
@@ -19,14 +22,18 @@ export function validateReport(report, ratchet, files) {
   if (new Set(resultFiles).size !== files.length || files.some((file) => !resultFiles.includes(file))) {
     throw new Error('census incomplete: report does not contain each tracked file exactly once');
   }
-  const failures = report.results.filter((result) => INFRASTRUCTURE_CODES.has(result.code));
+  const admittedCount = report.results.filter((result) => result.admitted).length;
+  if (report.admittedCount !== admittedCount) {
+    throw new Error(`census admitted count mismatch: report=${report.admittedCount} results=${admittedCount}`);
+  }
+  const failures = report.results.filter((result) => result.stage === 'probe' || result.stage === 'timeout');
   if (failures.length > 0) throw new Error(`census infrastructure failure: ${failures.map((result) => result.file).join(', ')}`);
-  const results = new Map(report.results.map((result) => [result.file, result]));
-  const missing = ratchet.admitted.filter((row) => !results.get(row.file)?.admitted).map((row) => row.file);
-  if (missing.length > 0) throw new Error(`census ratchet regression: ${missing.join(', ')}`);
   if (report.admittedCount < ratchet.admitted.length) {
     throw new Error(`census admitted count regressed: ${report.admittedCount} < ${ratchet.admitted.length}`);
   }
+  const results = new Map(report.results.map((result) => [result.file, result]));
+  const missing = ratchet.admitted.filter((row) => !results.get(row.file)?.admitted).map((row) => row.file);
+  if (missing.length > 0) throw new Error(`census ratchet regression: ${missing.join(', ')}`);
   return report;
 }
 
