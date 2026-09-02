@@ -2,30 +2,117 @@ import type { KernKirLimits, KernKirValue } from '../contracts.js';
 
 export const KERN_LINKED_KIR_PROGRAM_FORMAT = 'kern.linked-kir-program.v1' as const;
 
-export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=';
+export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '+' | '-' | '*';
 
 export type LinkedKernKirStaticType = 'boolean' | 'integer';
 
 export interface LinkedKernKirBinaryOperatorContract {
-  readonly family: 'logical' | 'equality' | 'ordering';
+  readonly family: 'arithmetic' | 'logical' | 'equality' | 'ordering';
   readonly javascriptHelper: string;
   readonly operandType: LinkedKernKirStaticType | 'either';
   readonly pythonHelper: string;
+  readonly resultType: LinkedKernKirStaticType;
 }
 
 export const LINKED_KIR_BINARY_OPERATORS = Object.freeze({
-  '&&': { family: 'logical', javascriptHelper: '__and', operandType: 'boolean', pythonHelper: '_and' },
-  '||': { family: 'logical', javascriptHelper: '__or', operandType: 'boolean', pythonHelper: '_or' },
-  '==': { family: 'equality', javascriptHelper: '__eq', operandType: 'either', pythonHelper: '_eq' },
-  '!=': { family: 'equality', javascriptHelper: '__ne', operandType: 'either', pythonHelper: '_ne' },
-  '<': { family: 'ordering', javascriptHelper: '__lt', operandType: 'integer', pythonHelper: '_lt' },
-  '<=': { family: 'ordering', javascriptHelper: '__le', operandType: 'integer', pythonHelper: '_le' },
-  '>': { family: 'ordering', javascriptHelper: '__gt', operandType: 'integer', pythonHelper: '_gt' },
-  '>=': { family: 'ordering', javascriptHelper: '__ge', operandType: 'integer', pythonHelper: '_ge' },
+  '&&': {
+    family: 'logical',
+    javascriptHelper: '__and',
+    operandType: 'boolean',
+    pythonHelper: '_and',
+    resultType: 'boolean',
+  },
+  '||': {
+    family: 'logical',
+    javascriptHelper: '__or',
+    operandType: 'boolean',
+    pythonHelper: '_or',
+    resultType: 'boolean',
+  },
+  '==': {
+    family: 'equality',
+    javascriptHelper: '__eq',
+    operandType: 'either',
+    pythonHelper: '_eq',
+    resultType: 'boolean',
+  },
+  '!=': {
+    family: 'equality',
+    javascriptHelper: '__ne',
+    operandType: 'either',
+    pythonHelper: '_ne',
+    resultType: 'boolean',
+  },
+  '<': {
+    family: 'ordering',
+    javascriptHelper: '__lt',
+    operandType: 'integer',
+    pythonHelper: '_lt',
+    resultType: 'boolean',
+  },
+  '<=': {
+    family: 'ordering',
+    javascriptHelper: '__le',
+    operandType: 'integer',
+    pythonHelper: '_le',
+    resultType: 'boolean',
+  },
+  '>': {
+    family: 'ordering',
+    javascriptHelper: '__gt',
+    operandType: 'integer',
+    pythonHelper: '_gt',
+    resultType: 'boolean',
+  },
+  '>=': {
+    family: 'ordering',
+    javascriptHelper: '__ge',
+    operandType: 'integer',
+    pythonHelper: '_ge',
+    resultType: 'boolean',
+  },
+  '+': {
+    family: 'arithmetic',
+    javascriptHelper: '__add',
+    operandType: 'integer',
+    pythonHelper: '_add',
+    resultType: 'integer',
+  },
+  '-': {
+    family: 'arithmetic',
+    javascriptHelper: '__sub',
+    operandType: 'integer',
+    pythonHelper: '_sub',
+    resultType: 'integer',
+  },
+  '*': {
+    family: 'arithmetic',
+    javascriptHelper: '__mul',
+    operandType: 'integer',
+    pythonHelper: '_mul',
+    resultType: 'integer',
+  },
 }) satisfies Record<LinkedKernKirBinaryOperator, LinkedKernKirBinaryOperatorContract>;
 
 export function linkedKirBinaryOperator(op: string): LinkedKernKirBinaryOperator | undefined {
   return Object.hasOwn(LINKED_KIR_BINARY_OPERATORS, op) ? (op as LinkedKernKirBinaryOperator) : undefined;
+}
+
+export type LinkedKernKirUnaryOperator = '-';
+
+export interface LinkedKernKirUnaryOperatorContract {
+  readonly javascriptHelper: string;
+  readonly operandType: LinkedKernKirStaticType;
+  readonly pythonHelper: string;
+  readonly resultType: LinkedKernKirStaticType;
+}
+
+export const LINKED_KIR_UNARY_OPERATORS = Object.freeze({
+  '-': { javascriptHelper: '__neg', operandType: 'integer', pythonHelper: '_neg', resultType: 'integer' },
+}) satisfies Record<LinkedKernKirUnaryOperator, LinkedKernKirUnaryOperatorContract>;
+
+export function linkedKirUnaryOperator(op: string): LinkedKernKirUnaryOperator | undefined {
+  return Object.hasOwn(LINKED_KIR_UNARY_OPERATORS, op) ? (op as LinkedKernKirUnaryOperator) : undefined;
 }
 
 export type LinkedKernKirCrossCallType = 'boolean' | 'list<boolean>' | 'list<text>' | 'text';
@@ -92,6 +179,7 @@ export type LinkedKernKirExpression =
       readonly op: LinkedKernKirBinaryOperator;
       readonly right: LinkedKernKirExpression;
     }
+  | { readonly kind: 'unary'; readonly argument: LinkedKernKirExpression; readonly op: LinkedKernKirUnaryOperator }
   | { readonly kind: 'literal'; readonly value: KernKirValue }
   | { readonly kind: 'list'; readonly items: readonly LinkedKernKirExpression[] }
   | {
@@ -215,6 +303,8 @@ function expressionInvokesCapability(
         expressionInvokesCapability(expression.left, helpers, walk) ||
         expressionInvokesCapability(expression.right, helpers, walk)
       );
+    case 'unary':
+      return expressionInvokesCapability(expression.argument, helpers, walk);
     case 'list':
       return expression.items.some((item) => expressionInvokesCapability(item, helpers, walk));
     case 'record':
@@ -277,6 +367,8 @@ function expressionCallDepth(
         expressionCallDepth(expression.left, helpers, depths, active),
         expressionCallDepth(expression.right, helpers, depths, active),
       );
+    case 'unary':
+      return expressionCallDepth(expression.argument, helpers, depths, active);
     case 'list':
       return Math.max(0, ...expression.items.map((item) => expressionCallDepth(item, helpers, depths, active)));
     case 'record':

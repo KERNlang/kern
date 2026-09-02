@@ -14,6 +14,7 @@ import type {
   LinkedKernKirHandler,
   LinkedKernKirParameterType,
   LinkedKernKirStatement,
+  LinkedKernKirUnaryOperator,
 } from './linked-kir-program/index.js';
 
 export interface ExpressionRuntime {
@@ -71,6 +72,8 @@ export function matchesType(value: KernKirValue, type: LinkedKernKirParameterTyp
 
 type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue) => KernKirValue;
 
+type UnaryEvaluator = (operand: KernKirValue) => KernKirValue;
+
 function operandFault(): never {
   throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_BINARY_OPERAND_TYPE');
 }
@@ -96,6 +99,10 @@ function booleanValue(flag: boolean): KernKirValue {
   return Object.freeze({ tag: 'boolean', value: flag });
 }
 
+function integerValue(value: bigint): KernKirValue {
+  return Object.freeze({ tag: 'integer', value: String(value) });
+}
+
 const BINARY_EVALUATORS = Object.freeze({
   '&&': (left, right) => (booleanOperand(left).value === false ? left : booleanOperand(right())),
   '||': (left, right) => (booleanOperand(left).value === true ? left : booleanOperand(right())),
@@ -105,7 +112,14 @@ const BINARY_EVALUATORS = Object.freeze({
   '<=': (left, right) => booleanValue(integerOperand(left) <= integerOperand(right())),
   '>': (left, right) => booleanValue(integerOperand(left) > integerOperand(right())),
   '>=': (left, right) => booleanValue(integerOperand(left) >= integerOperand(right())),
+  '+': (left, right) => integerValue(integerOperand(left) + integerOperand(right())),
+  '-': (left, right) => integerValue(integerOperand(left) - integerOperand(right())),
+  '*': (left, right) => integerValue(integerOperand(left) * integerOperand(right())),
 }) satisfies Record<LinkedKernKirBinaryOperator, BinaryEvaluator>;
+
+const UNARY_EVALUATORS = Object.freeze({
+  '-': (operand) => integerValue(-integerOperand(operand)),
+}) satisfies Record<LinkedKernKirUnaryOperator, UnaryEvaluator>;
 
 export function calleeBindings(
   handler: LinkedKernKirHandler,
@@ -237,6 +251,8 @@ export function evaluateExpression(
       return BINARY_EVALUATORS[expression.op](evaluateExpression(expression.left, bindings, meter, runtime), () =>
         evaluateExpression(expression.right, bindings, meter, runtime),
       );
+    case 'unary':
+      return UNARY_EVALUATORS[expression.op](evaluateExpression(expression.argument, bindings, meter, runtime));
     case 'user-call': {
       if (runtime.asyncHelpers.has(expression.handlerName)) {
         throw new KernKirFault('handler-link-error', 'execution', 'KIR_ASYNC_CALL_EXPRESSION_POSITION');

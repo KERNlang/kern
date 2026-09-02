@@ -476,7 +476,12 @@ function compileHandler(
       const name = propertyText(props, 'name', childLabel, meter);
       if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
       const type = parameterType(props.get('type'), `${childLabel}.type`, meter);
-      bindName(scope, name, type.kind === 'boolean' ? 'boolean' : undefined, linkedKirCrossCallType(type));
+      bindName(
+        scope,
+        name,
+        type.kind === 'boolean' || type.kind === 'integer' ? type.kind : undefined,
+        linkedKirCrossCallType(type),
+      );
       parameters.push(Object.freeze({ name, type }));
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;

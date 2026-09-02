@@ -160,6 +160,26 @@ def _ge(left, right):
     return _bool_value(_int_operand(left) >= _int_operand(right))
 
 
+def _int_value(value):
+    return {"tag": "integer", "value": str(value)}
+
+
+def _add(left, right):
+    return _int_value(_int_operand(left) + _int_operand(right))
+
+
+def _sub(left, right):
+    return _int_value(_int_operand(left) - _int_operand(right))
+
+
+def _mul(left, right):
+    return _int_value(_int_operand(left) * _int_operand(right))
+
+
+def _neg(operand):
+    return _int_value(-_int_operand(operand))
+
+
 def _expression(meter, thunk):
     meter.step()
     return thunk()
