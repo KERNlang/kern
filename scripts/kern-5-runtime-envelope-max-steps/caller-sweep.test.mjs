@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { ENVELOPE_LIMIT_KEYS, envelopeShapedFiles, REPO_ROOT } from './support.mjs';
+import { ENVELOPE_LIMIT_KEYS, envelopeShapedFiles, kirShapedLimitFiles, REPO_ROOT } from './support.mjs';
 
 const shaped = envelopeShapedFiles();
 
@@ -38,12 +38,17 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
   ]) {
     assert.ok(paths.includes(expected), `sweep must cover ${expected}`);
   }
-  assert.ok(shaped.length >= 84, `sweep found only ${shaped.length} envelope-shaped files`);
+  assert.ok(shaped.length >= 78, `sweep found only ${shaped.length} envelope-shaped files`);
 });
 
 test('L5: every envelope-shaped limits record carries maxIterations', () => {
   const missing = shaped.filter((row) => !row.hasMaxIterations).map((row) => row.path);
   assert.deepEqual(missing, [], `${missing.length} file(s) still lack maxIterations:\n${missing.join('\n')}`);
+});
+
+test('L5: no KIR-shaped limits record learns the envelope iteration key', () => {
+  const leaked = kirShapedLimitFiles().filter((path) => text(path).includes('maxIterations'));
+  assert.deepEqual(leaked, [], `${leaked.length} KIR-shaped file(s) carry maxIterations:\n${leaked.join('\n')}`);
 });
 
 test('L5: the runtime constitution records the widened public limits key set', () => {

@@ -188,6 +188,11 @@ function* sourceFiles(directory) {
   }
 }
 
+const MIXED_LIMIT_FILES = Object.freeze([
+  'packages/core/tests/kern-kir-runner-composed-evidence.test.ts',
+  'packages/core/tests/kern-kir-runtime-binding.test.ts',
+]);
+
 const KIR_ONLY_LIMIT_FILES = new Set([
   'packages/core/src/kir-runtime/contracts.ts',
   'packages/core/src/kir-runtime/inspect.ts',
@@ -201,6 +206,14 @@ const KIR_ONLY_LIMIT_FILES = new Set([
   'scripts/kern-5-admission-census/admission.json',
   'scripts/kern-5-admission-census/admitted.json',
   'scripts/kern-5-admission-census/support.mjs',
+  'scripts/kern-5-c-py-1-contract/behavior.test.mjs',
+  'scripts/kern-5-c-py-1-contract/support.mjs',
+  'scripts/kern-5-cli-compiler-runtime-shadow/cli-shadow.test.mjs',
+  'scripts/kern-5-r1-runtime-owner/review-regressions.test.mjs',
+  'scripts/kern-5-r1-runtime-owner/runtime-behavior.test.mjs',
+  'scripts/kern-5-r2-js-lowering/support.mjs',
+  'scripts/kern-5-rt2-boolean-if/behavior.test.mjs',
+  'scripts/kern-5-rt2-boolean-if/k0-support.mjs',
 ]);
 
 export function envelopeShapedFiles() {
@@ -214,4 +227,8 @@ export function envelopeShapedFiles() {
     }
   }
   return shaped;
+}
+
+export function kirShapedLimitFiles() {
+  return [...KIR_ONLY_LIMIT_FILES].filter((path) => !MIXED_LIMIT_FILES.includes(path)).sort();
 }
