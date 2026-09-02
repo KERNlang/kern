@@ -194,6 +194,7 @@ export function envelopeShapedFiles() {
     for (const path of sourceFiles(join(REPO_ROOT, root))) {
       const text = readFileSync(path, 'utf8');
       if (!LEGACY_ENVELOPE_LIMIT_KEYS.every((key) => text.includes(key))) continue;
+      if (text.includes('maxSteps')) continue;
       shaped.push({ hasMaxSteps: text.includes('maxIterations'), path: relative(REPO_ROOT, path) });
     }
   }
