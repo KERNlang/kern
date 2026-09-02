@@ -13,13 +13,13 @@ const PATHS = Object.freeze({
 
 const EXPECTED_HASHES = Object.freeze({
   constitution:
-    "f626dfe8c55bec728d2d84b88dee9e07f53b82ea54ffc8083c2f7eaffdb4ad20",
+    "f25716593bbb2d9417ab004438baf34085befb0cfc25f4bf22276b6277ec6d96",
   proofInventory:
-    "993f490d13840d972ee7998c87f52afea5c0b044849585bf32d7e4a263cf4f86",
+    "4a8dbec281ac89709431e26f9e142ce15f14958310d233f88a393bba46212a57",
   declarationSchema:
-    "f611dbdd9d7cb688cf6c990203faf97188302dfa7e3d5cc78bdebc0844f855c3",
-  goldens: "1ab12a799ff03725d810b677bb8597df19045488e0eca524af3f370c3b9e79da",
-  lineage: "63410f3120b01217f9efaf75b66513f15be1cf0ac5ec3cbcb41ca97ea8db00a3",
+    "e541d11673e78174dcbaab7ae5fc8e2af1ab4543603a63be53d9d806252962bf",
+  goldens: "bb2e3b34ec936a9f88b45a94a80500f110f18ed3e7be7e7caf4062de2610f15c",
+  lineage: "6fea5882e6b8d83008e0fb8a7a760f55c431b64c252906c36e772b80cc93ae59",
 });
 
 const EXPECTED = Object.freeze({
@@ -74,6 +74,7 @@ const EXPECTED = Object.freeze({
     "maxDepth",
     "maxDiagnostics",
     "maxEvents",
+    "maxIterations",
     "maxStringBytes",
   ],
   enforcement: [

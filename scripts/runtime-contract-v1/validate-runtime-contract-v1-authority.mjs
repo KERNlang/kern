@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import {
   RUNTIME_CONTRACT_PATHS,
@@ -15,6 +16,14 @@ const EXPECTED_SUPERSEDED_COMMITS = Object.freeze([
   "cb0712563c4b3bb9e18d11f9651e45c92e1e5820",
   "2581a8723f70f1aa24b55265a836ef266ea65c73",
 ]);
+const AMENDMENT_PATH =
+  "scripts/runtime-contract-v1/amendments/kern-5-runtime-envelope-max-iterations.json";
+const AMENDED_DIGEST_KEYS = Object.freeze({
+  "scripts/runtime-contract-v1/constitution.json": "constitutionSha256",
+  "scripts/runtime-contract-v1/proof-inventory.json": "proofInventorySha256",
+  "scripts/runtime-contract-v1/public-declaration-schema.json": "declarationSchemaSha256",
+  "scripts/runtime-contract-v1/goldens.json": "goldensSha256",
+});
 
 function fail(message) {
   throw new Error(`runtime contract v1 authority: ${message}`);
@@ -37,6 +46,24 @@ function canonicalJson(text) {
   if (`${JSON.stringify(value, null, 2)}\n` !== text)
     fail("authority bytes must remain canonical");
   return value;
+}
+
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+
+function authorizedAmendmentTransition(path, before, after, amendment) {
+  const key = AMENDED_DIGEST_KEYS[path];
+  if (key) {
+    return sha256(before) === amendment.parentDigests[key] &&
+      sha256(after) === amendment.resultDigests[key];
+  }
+  if (path !== RUNTIME_CONTRACT_PATHS.lineage) return false;
+  const beforeVersion = JSON.parse(before).versions?.[0];
+  const afterVersion = JSON.parse(after).versions?.[0];
+  return Object.keys(AMENDED_DIGEST_KEYS).every((artifact) => {
+    const digestKey = AMENDED_DIGEST_KEYS[artifact];
+    return beforeVersion?.[digestKey] === amendment.parentDigests[digestKey] &&
+      afterVersion?.[digestKey] === amendment.resultDigests[digestKey];
+  });
 }
 
 function defaultRunGit(argv) {
@@ -62,6 +89,7 @@ export function validateRuntimeContractV1Authority(options = {}) {
   const runGit = options.runGit ?? defaultRunGit;
   const authorityText = readText(RUNTIME_CONTRACT_AUTHORITY_PATH);
   const authority = canonicalJson(authorityText);
+  const amendment = JSON.parse(readText(AMENDMENT_PATH));
   exactKeys(
     authority,
     ["format", "introductionCommit", "artifacts", "supersededCommits"],
@@ -180,11 +208,13 @@ export function validateRuntimeContractV1Authority(options = {}) {
       ["show", `${promotionCommit}:${path}`],
       `promotion artifact ${path} is unavailable`,
     );
-    if (introduced !== promoted) {
+    if (introduced !== promoted &&
+        !authorizedAmendmentTransition(path, introduced, promoted, amendment)) {
       fail(`${path} drifted between introduction and promotion commits`);
     }
     const current = readText(path);
-    if (introduced !== current)
+    if (introduced !== current &&
+        !authorizedAmendmentTransition(path, introduced, current, amendment))
       fail(
         `${path} drifted from introduction commit ${authority.introductionCommit}`,
       );
