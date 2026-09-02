@@ -26,6 +26,7 @@ import {
   validateCanonicalizerPolicy,
 } from './policy.mjs';
 import {
+  historicalCanonicalizerPolicyDigest,
   loadPreM4146CanonicalizerPolicy,
 } from './historical-policy.mjs';
 
@@ -214,7 +215,7 @@ export function assertM4143PublishedInput(
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
     canonicalizerDigest,
-    canonicalizerPolicyDigest: PUBLISHED_BASELINE.canonicalizerPolicyDigest,
+    canonicalizerPolicyDigest: historicalCanonicalizerPolicyDigest(canonicalizerPolicy),
     compiledCoreDigest: historicalCompiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
     coveragePolicyDigest,

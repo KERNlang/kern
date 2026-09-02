@@ -210,7 +210,7 @@ export function envelopeShapedFiles() {
       const text = readFileSync(path, 'utf8');
       if (!LEGACY_ENVELOPE_LIMIT_KEYS.every((key) => text.includes(key))) continue;
       if (KIR_ONLY_LIMIT_FILES.has(relative(REPO_ROOT, path))) continue;
-      shaped.push({ hasMaxSteps: text.includes('maxIterations'), path: relative(REPO_ROOT, path) });
+      shaped.push({ hasMaxIterations: text.includes('maxIterations'), path: relative(REPO_ROOT, path) });
     }
   }
   return shaped;

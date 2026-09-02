@@ -42,7 +42,7 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
 });
 
 test('L5: every envelope-shaped limits record carries maxIterations', () => {
-  const missing = shaped.filter((row) => !row.hasMaxSteps).map((row) => row.path);
+  const missing = shaped.filter((row) => !row.hasMaxIterations).map((row) => row.path);
   assert.deepEqual(missing, [], `${missing.length} file(s) still lack maxIterations:\n${missing.join('\n')}`);
 });
 

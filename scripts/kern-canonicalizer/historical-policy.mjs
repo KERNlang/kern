@@ -61,42 +61,40 @@ export function loadHistoricalCanonicalizerPolicy({
     ...structuredClone(runtimeLimitOverrides),
   };
   validateCanonicalizerPolicy(policy);
-  const maxIterations = policy.runtimeLimits.maxIterations;
-  delete policy.runtimeLimits.maxIterations;
-  const reconstructedBytes = Buffer.from(`${JSON.stringify(policy, null, 2)}\n`);
-  if (digest(reconstructedBytes) !== expectedDigest) {
+  if (historicalCanonicalizerPolicyDigest(policy) !== expectedDigest) {
     throw new TypeError(
       `${milestone} historical policy rejection: unreconstructed policy fields must remain exact`,
     );
   }
-  policy.runtimeLimits.maxIterations = maxIterations;
   return policy;
 }
 
 export function loadPreM4130CanonicalizerPolicy() {
-  const policy = loadHistoricalCanonicalizerPolicy({
+  return loadHistoricalCanonicalizerPolicy({
     expectedDigest: PRE_M4130_POLICY_DIGEST,
     kirLimitOverrides: PRE_M4130_KIR_LIMITS,
     milestone: 'pre-M4.130',
     profileLimits: PRE_M4130_PROFILE_LIMITS,
     runtimeLimitOverrides: PRE_M4130_RUNTIME_BYTE_LIMITS,
   });
-  return policy;
 }
 
 export function loadPreM4146CanonicalizerPolicy() {
-  const policy = loadHistoricalCanonicalizerPolicy({
+  return loadHistoricalCanonicalizerPolicy({
     expectedDigest: PRE_M4146_POLICY_DIGEST,
     kirLimitOverrides: PRE_M4146_KIR_LIMITS,
     milestone: 'pre-M4.146',
     profileLimits: PRE_M4146_PROFILE_LIMITS,
     runtimeLimitOverrides: PRE_M4146_RUNTIME_BYTE_LIMITS,
   });
-  return policy;
 }
 
 export function historicalCanonicalizerPolicyBytes(policy) {
   const historical = structuredClone(policy);
   delete historical.runtimeLimits.maxIterations;
   return Buffer.from(`${JSON.stringify(historical, null, 2)}\n`);
+}
+
+export function historicalCanonicalizerPolicyDigest(policy) {
+  return digest(historicalCanonicalizerPolicyBytes(policy));
 }
