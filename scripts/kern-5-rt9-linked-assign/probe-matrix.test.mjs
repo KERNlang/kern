@@ -54,6 +54,14 @@ test('a compound operator reaches the linker as a property and a trailing commen
   assert.deepEqual(matrix.shapes['trailing-comment'][0].properties, ['target', 'value']);
 });
 
+test('F5 projects an assign inside a helper body, so RT9-O1 is a link decision and not a frontend gap', async () => {
+  const matrix = JSON.parse(await readFile(MATRIX_URL, 'utf8'));
+  assert.deepEqual(matrix.shapes['helper-body-assign'], [
+    { children: 0, properties: ['target', 'value'], targetKind: 'identifier', valueKind: 'text' },
+  ]);
+  assert.equal(matrix.positions['helper-body-assign'].status, 'projected');
+});
+
 test('an assign carries no children, so the leaf gate cannot fire on it', async () => {
   const matrix = JSON.parse(await readFile(MATRIX_URL, 'utf8'));
   for (const [name, shapes] of Object.entries(matrix.shapes)) {

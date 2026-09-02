@@ -12,6 +12,10 @@ function textResult(value) {
   return { presence: 'value', value: { tag: 'text', value } };
 }
 
+function boolResult(value) {
+  return { presence: 'value', value: { tag: 'boolean', value } };
+}
+
 test('a reassigned let carries the assigned value, not the declared one', async () => {
   const result = await envelope('simple-reassign', {}, 'rt9-simple');
   assert.equal(result.outcome, 'success');
@@ -107,4 +111,63 @@ test('a trailing comment on an assign line is dropped by F5 and changes nothing 
 test('the list assign is not silently a no-op: the declaration has two elements and the result has one', async () => {
   const result = await envelope('list-assign', flagArgs(false), 'rt9-list-len');
   assert.equal(result.result.value.value.length, 1, 'a two-element declaration must be replaced by one');
+});
+
+test('an assign whose value reads its own target sees the pre-assign value under &&', async () => {
+  const result = await envelope('self-referential-and', {}, 'rt9-self-and');
+  assert.deepEqual(result.result, boolResult(false), 'true && false is false: the target was read before it was written');
+  assert.deepEqual([...result.events], []);
+});
+
+test('an assign whose value reads its own target sees the pre-assign value under ||', async () => {
+  assert.deepEqual((await envelope('self-referential-or', flagArgs(true), 'rt9-self-or-true')).result, boolResult(true));
+  assert.deepEqual((await envelope('self-referential-or', flagArgs(false), 'rt9-self-or-false')).result, boolResult(false));
+});
+
+test('a target holding true still holds it while its own value is evaluated', async () => {
+  const held = await envelope('self-referential-or-held', flagArgs(false), 'rt9-self-or-held');
+  assert.deepEqual(held.result, boolResult(true), 'true || false is true; a target cleared to false would answer false');
+  assert.deepEqual((await envelope('self-referential-or-held', flagArgs(true), 'rt9-self-or-held-true')).result, boolResult(true));
+});
+
+test('a call-typed binding accepts another call of the same helper', async () => {
+  const result = await envelope('call-typed-positive', {}, 'rt9-call-typed');
+  assert.deepEqual(result.result, boolResult(true));
+  assert.deepEqual([...result.events], []);
+});
+
+test('a call-typed binding accepts a literal of the type the call signature recorded', async () => {
+  assert.deepEqual((await envelope('call-typed-literal', {}, 'rt9-call-typed-lit')).result, boolResult(false));
+});
+
+test('a call-typed list binding accepts a list literal of the same element type', async () => {
+  const result = await envelope('call-typed-list', flagArgs(false), 'rt9-call-typed-list');
+  assert.deepEqual(result.result, {
+    presence: 'value',
+    value: { tag: 'list', value: [{ tag: 'boolean', value: false }] },
+  });
+});
+
+test('an assign after an async suspension writes the resumed frame, and a later branch assign overrides it', async () => {
+  const { legs } = await threeLegBytes(
+    POSITIONS['after-async-suspension'](),
+    runtimeRequest('rt9-after-async-true', { ...textArgs('q'), ...flagArgs(true) }),
+  );
+  const taken = legs.direct.envelope;
+  assert.deepEqual(taken.result, textResult('c'));
+  assert.equal(taken.events.length, 1);
+  assert.equal(taken.events[0].op, 'capability', 'the capability dispatch is ordered before both assigns');
+  const skipped = await envelope(
+    'after-async-suspension',
+    { ...textArgs('q'), ...flagArgs(false) },
+    'rt9-after-async-false',
+  );
+  assert.deepEqual(skipped.result, textResult('reply-value'), 'the fetched text survives the assign that copied it');
+  assert.equal(skipped.events[0].op, 'capability');
+});
+
+test('an assign inside a helper body rebinds the helper local and the caller observes the result', async () => {
+  const result = await envelope('helper-body-assign', {}, 'rt9-helper-body');
+  assert.deepEqual(result.result, textResult('q'));
+  assert.deepEqual([...result.events], []);
 });

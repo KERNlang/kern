@@ -13,6 +13,9 @@ const REFUSALS = Object.freeze([
   ['neg-text-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-integer-into-text', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-list-into-text', 'KIR_ASSIGN_TYPE_MISMATCH'],
+  ['neg-integer-into-call-typed', 'KIR_ASSIGN_TYPE_MISMATCH'],
+  ['neg-call-typed-into-integer', 'KIR_ASSIGN_TYPE_MISMATCH'],
+  ['neg-text-into-call-typed-list', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-text-into-capability', 'KIR_ASSIGN_TYPE_MISMATCH'],
   ['neg-param-target', 'KIR_ASSIGN_TARGET_NOT_LET'],
   ['neg-op-compound', 'KIR_ASSIGN_OP_UNSUPPORTED'],
@@ -72,4 +75,24 @@ test('an assign that preserves both recorded types is admitted on every leg', as
     assert.equal(row.javascript, 'admitted', position);
     assert.equal(row.python, 'admitted', position);
   }
+});
+
+// A binding declared from a user call carries the type record the callee's signature
+// produced, so the gate has to resolve the call arm of both tables — not just the
+// literal arms — or every one of these is refused for a type the binding really has.
+test('a binding typed through a call signature is assignable through both tables', async () => {
+  for (const position of ['call-typed-positive', 'call-typed-literal', 'call-typed-list']) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    assert.equal(row.python, 'admitted', position);
+  }
+});
+
+// Both rows read `undefined` from the static table, so the cross-call table is the only
+// one that can separate them: dropping that half admits the text row.
+test('the cross-call half of the gate separates the two assigns into one call-typed list binding', async () => {
+  const admitted = await admission(POSITIONS['call-typed-list']());
+  assert.equal(admitted.rt1, 'admitted');
+  await assertLinkLabel(POSITIONS['neg-text-into-call-typed-list'](), 'KIR_ASSIGN_TYPE_MISMATCH');
 });

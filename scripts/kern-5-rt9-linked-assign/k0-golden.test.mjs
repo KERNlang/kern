@@ -9,15 +9,23 @@ const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
 
 const ADMITTED = Object.freeze([
+  'after-async-suspension',
   'async-value',
   'binary-value',
   'branch-else',
   'branch-return',
   'branch-then',
+  'call-typed-list',
+  'call-typed-literal',
+  'call-typed-positive',
   'capability-to-capability',
+  'helper-body-assign',
   'integer-from-identifier',
   'list-assign',
   'ordering-print',
+  'self-referential-and',
+  'self-referential-or',
+  'self-referential-or-held',
   'simple-reassign',
   'trailing-comment',
   'two-assigns',

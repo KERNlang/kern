@@ -17,6 +17,10 @@ export const BOOL_FLAG = Object.freeze([Object.freeze({ name: 'flag', type: 'boo
 export const TEXT_PARAM = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);
 export const LIST_PARAM = Object.freeze([Object.freeze({ name: 'xs', type: 'boolean[]' })]);
 export const NAMED_TEXT_PARAM = Object.freeze([Object.freeze({ name: 'p', type: 'string' })]);
+export const TEXT_AND_FLAG = Object.freeze([
+  Object.freeze({ name: 't', type: 'string' }),
+  Object.freeze({ name: 'flag', type: 'boolean' }),
+]);
 
 export const CAPABILITY_FIRST = 'capability namespace=fixture operation=resolve name=first';
 export const CAPABILITY_SECOND = 'capability namespace=fixture operation=resolve name=second';
@@ -26,6 +30,31 @@ export const ASYNC_TEXT_HELPER = Object.freeze({
   body: Object.freeze([CAPABILITY_REPLY, 'return value="reply"']),
   name: 'fetchIt',
   parameters: TEXT_PARAM,
+  returns: 'string',
+});
+
+// An integer-returning helper is not callable at all on this base: `linkedKirCrossCallType`
+// has no integer row, so `expression.ts:148` refuses the call with KIR_CALL_SIGNATURE_TYPE
+// before any assign gate can be reached. The call-typed fixtures therefore carry the two
+// cross-call shapes that do resolve: boolean and list<boolean>.
+export const SYNC_BOOL_HELPER = Object.freeze({
+  body: Object.freeze(['return value="true"']),
+  name: 'h',
+  parameters: Object.freeze([]),
+  returns: 'boolean',
+});
+
+export const SYNC_LIST_HELPER = Object.freeze({
+  body: Object.freeze(['return value="[true]"']),
+  name: 'hs',
+  parameters: Object.freeze([]),
+  returns: 'boolean[]',
+});
+
+export const SYNC_ASSIGN_HELPER = Object.freeze({
+  body: Object.freeze([`let name=x value=${lit('p')}`, `assign target="x" value=${lit('q')}`, 'return value="x"']),
+  name: 'g',
+  parameters: Object.freeze([]),
   returns: 'string',
 });
 
@@ -106,6 +135,19 @@ export function assignShapes(source) {
 const T = lit;
 
 export const POSITIONS = Object.freeze({
+  'after-async-suspension': () =>
+    withHelper(
+      ASYNC_TEXT_HELPER,
+      [
+        `let name=s value=${T('a')}`,
+        'let name=r value="fetchIt(t)"',
+        'assign target="s" value="r"',
+        'if cond="flag"',
+        `  assign target="s" value=${T('c')}`,
+        'return value="s"',
+      ],
+      { parameters: TEXT_AND_FLAG },
+    ),
   'async-value': () =>
     withHelper(ASYNC_TEXT_HELPER, [`let name=a value=${T('x')}`, 'assign target="a" value="fetchIt(t)"', 'return value="a"'], {
       parameters: TEXT_PARAM,
@@ -139,8 +181,22 @@ export const POSITIONS = Object.freeze({
     route([`let name=s value=${T('a')}`, 'if cond="flag"', `  assign target="s" value=${T('b')}`, 'return value="s"'], {
       parameters: BOOL_FLAG,
     }),
+  'call-typed-list': () =>
+    withHelper(SYNC_LIST_HELPER, ['let name=ys value="hs()"', 'assign target="ys" value="[flag]"', 'return value="ys"'], {
+      parameters: BOOL_FLAG,
+      returns: 'boolean[]',
+    }),
+  'call-typed-literal': () =>
+    withHelper(SYNC_BOOL_HELPER, ['let name=n value="h()"', 'assign target="n" value="false"', 'return value="n"'], {
+      returns: 'boolean',
+    }),
+  'call-typed-positive': () =>
+    withHelper(SYNC_BOOL_HELPER, ['let name=n value="h()"', 'assign target="n" value="h()"', 'return value="n"'], {
+      returns: 'boolean',
+    }),
   'capability-to-capability': () =>
     route([CAPABILITY_FIRST, CAPABILITY_SECOND, 'assign target="first" value="second"', 'return value="first"']),
+  'helper-body-assign': () => withHelper(SYNC_ASSIGN_HELPER, ['return value="g()"']),
   'integer-from-identifier': () =>
     route(['let name=n value="1"', 'let name=m value="2"', 'assign target="n" value="m"', 'return value="n"'], {
       returns: 'number',
@@ -154,6 +210,14 @@ export const POSITIONS = Object.freeze({
     route([`assign target="s" value=${T('b')}`, `let name=s value=${T('a')}`, 'return value="s"']),
   'neg-bool-into-integer': () =>
     route(['let name=n value="1"', 'assign target="n" value="true"', 'return value="n"'], { returns: 'number' }),
+  'neg-call-typed-into-integer': () =>
+    withHelper(SYNC_BOOL_HELPER, ['let name=n value="1"', 'assign target="n" value="h()"', 'return value="n"'], {
+      returns: 'number',
+    }),
+  'neg-integer-into-call-typed': () =>
+    withHelper(SYNC_BOOL_HELPER, ['let name=n value="h()"', 'assign target="n" value="2"', 'return value="n"'], {
+      returns: 'boolean',
+    }),
   'neg-integer-into-text': () =>
     route([`let name=s value=${T('a')}`, 'assign target="s" value="1"', 'return value="s"']),
   'neg-list-into-text': () =>
@@ -189,6 +253,10 @@ export const POSITIONS = Object.freeze({
     route([`let name=s value=${T('a')}`, `assign target="s[0]" value=${T('b')}`, 'return value="s"']),
   'neg-target-member': () =>
     route([`let name=s value=${T('a')}`, `assign target="s.x" value=${T('b')}`, 'return value="s"']),
+  'neg-text-into-call-typed-list': () =>
+    withHelper(SYNC_LIST_HELPER, ['let name=ys value="hs()"', `assign target="ys" value=${T('x')}`, 'return value="ys"'], {
+      returns: 'boolean[]',
+    }),
   'neg-text-into-capability': () =>
     route([CAPABILITY_REPLY, `assign target="reply" value=${T('x')}`, 'return value="reply"']),
   'neg-text-into-integer': () =>
@@ -203,6 +271,23 @@ export const POSITIONS = Object.freeze({
       `assign target="s" value=${T('c')}`,
       'return value="s"',
     ]),
+  'self-referential-and': () =>
+    route(
+      ['let name=b value="true"', 'let name=c value="false"', 'assign target="b" value="b && c"', 'return value="b"'],
+      { returns: 'boolean' },
+    ),
+  'self-referential-or': () =>
+    route(['let name=b value="false"', 'assign target="b" value="b || flag"', 'return value="b"'], {
+      parameters: BOOL_FLAG,
+      returns: 'boolean',
+    }),
+  // The one row whose answer differs from a target cleared to `false` rather than to unset:
+  // true || false is true, a cleared target gives false.
+  'self-referential-or-held': () =>
+    route(['let name=b value="true"', 'assign target="b" value="b || flag"', 'return value="b"'], {
+      parameters: BOOL_FLAG,
+      returns: 'boolean',
+    }),
   'simple-reassign': () => route([`let name=s value=${T('a')}`, `assign target="s" value=${T('b')}`, 'return value="s"']),
   'trailing-comment': () =>
     route([`let name=s value=${T('a')}`, `assign target="s" value=${T('b')} # note`, 'return value="s"']),
@@ -232,9 +317,12 @@ export const CONTROL_POSITIONS = Object.freeze({
     }),
 });
 
+// `assignShapes` reads the first `fn` root, which for a two-function module is the helper, so
+// `helper-body-assign` is the row that proves F5 projects an assign inside a helper body.
 export const SHAPE_POSITIONS = Object.freeze([
   'simple-reassign',
   'binary-value',
+  'helper-body-assign',
   'neg-op-compound',
   'neg-target-member',
   'neg-target-index',

@@ -218,6 +218,46 @@ The last row is the one surprise and is deliberate: a capability result carries 
 type record, so only another untyped value may be assigned into it. It is pinned as a
 negative rather than left as a discovery.
 
+#### The call-resolved rows — the `crossCallTypes` seam RT-8 → RT-9
+
+Both tables have a `user-call` arm (`expression.ts:78-80`, `:89-92`) that reads the
+callee's signature out of `scope.calls.linked`, so a binding declared from a helper call
+carries whatever type record that signature produced. That arm is a **separate code path**
+from the literal arms and has to be exercised on both sides of the gate, or a linker that
+resolves only literals refuses assigns for types the binding genuinely has.
+
+**[RT9-C5a VERIFIED] An integer-returning helper is not callable at all on this base.**
+`linkedKirCrossCallType` has no `integer` row (`contracts.ts:38-43`) and
+`expression.ts:148` refuses any user call whose return type has no cross-call row with
+`KIR_CALL_SIGNATURE_TYPE`. Verified today, assign-free:
+`fn h export=false returns=number` returning `1`, called as `let n = h(); return n`
+→ `entry.function.handler.children[0].value: KIR_CALL_SIGNATURE_TYPE`. A *call-typed
+integer* binding is therefore unrepresentable, and the call-typed fixtures carry the two
+cross-call shapes that do resolve: `boolean` (`h()`) and `list<boolean>` (`hs()`).
+
+| Binding | Value | `types` | `crossCallTypes` | Verdict |
+| --- | --- | --- | --- | --- |
+| `let n = h()` (h→boolean) | `h()` | `boolean` = `boolean` | `boolean` = `boolean` | admitted |
+| `let n = h()` | `false` | `boolean` = `boolean` | `boolean` = `boolean` | admitted |
+| `let ys = hs()` (hs→boolean[]) | `[flag]` | undefined = undefined | `list<boolean>` = `list<boolean>` | admitted |
+| `let n = h()` | `2` | `boolean` ≠ `integer` | `boolean` ≠ undefined | **MISMATCH** |
+| `let n = 1` | `h()` | `integer` ≠ `boolean` | undefined ≠ `boolean` | **MISMATCH** |
+| `let ys = hs()` | `"x"` | undefined = undefined | `list<boolean>` ≠ `text` | **MISMATCH** |
+
+The last row is the only fixture in the corpus where the **`crossCallTypes` half fires
+alone on a record that came from a call signature**: both sides read `undefined` from
+`types`, so dropping that half admits it. Its admitted sibling (`[flag]` into the same
+binding) is the row a linker resolving only the literal arms would wrongly refuse.
+
+`let n = h()` / `assign n = 2` is over-strict, and **deliberately so**: the binding's
+static record is `boolean`, the rule is strict equality, and no widening is possible even
+though nothing at RT-1 inspects the assigned tag. That is the price of RT9-C5's central
+invariant — an `assign` never rebinds a link-time type record — which is what keeps the
+`if` condition gate, the binary operand gate and the call argument gate valid without
+re-derivation. Relaxing it needs a real binding-type lattice with a widening relation and
+a re-run of every downstream gate after each assign; **that is an rt10+ slice, not a gate
+tweak.**
+
 This gate is not a value-type guarantee — nothing at RT-1 checks an assigned value's tag
 — but it does not need to be. A type-wrong value that slipped through would be caught
 identically on all three legs at the `return` (`matchesType` at
@@ -291,9 +331,27 @@ net of the link budget:
 | `let s = "a"; if flag { let t = "b" }; return s`, flag=false | 7 |
 
 Derived model (matches every row): a leaf statement costs 1 + one step per expression
-node; a text/boolean/integer literal or an identifier is 1 node; a binary is 3
-(operator plus two operands); an executed `if` costs 3 and a skipped `if` costs 2, both
-including its condition.
+node; a text/boolean/integer literal or a `let`-bound identifier is 1 node; a **parameter
+read is 2 nodes**; a binary is 1 (the operator) plus its two operands; an `if` costs 1 +
+its condition, plus its body when taken.
+
+**[RT9-C8a VERIFIED] The parameter-read premium.** The "3 / 2" figures for an executed
+and a skipped `if` above are not constants — they are 1 + the condition cost, and every
+measured `if` row happens to test a *parameter*. Measured **today**, four fresh rows that
+isolate it:
+
+| Program | `execution` | Reading |
+| --- | --- | --- |
+| `return "a"` | 2 | 1 stmt + 1 literal |
+| `param flag`; `return flag` | 3 | 1 stmt + **2** for a parameter read |
+| `let s = "a"; return s` | 4 | 2 + (1 stmt + 1 let-bound identifier) |
+| `param flag`; `let b = flag; return b` | 5 | (1 + 2) + (1 + 1) |
+
+So a skipped `if` over a parameter condition is 1 + 2 = 3 (matching the measured 7-row),
+and the `assign-in-skipped-branch` = 7 / `assign-in-taken-branch` = 9 pins below are
+unchanged. The distinction is load-bearing only for the new self-referential rows, where
+one fixture's binary operands are both `let`-bound and the other's second operand is a
+parameter.
 
 Hand-computed expectations for the RT-9 metering fixtures, all of them *deltas against
 a row measured above*:
@@ -311,6 +369,31 @@ The two control rows are the load-bearing pins: **an `assign` costs exactly what
 `let` of the same value costs** (`assign-literal` = `let-literal-control` = 6,
 `assign-binary` = `let-binary-control` = 8). They cannot drift with the shared entry
 constant.
+
+Eight further rows cover the self-referential and post-suspension fixtures. Every one has
+a `let`-shaped control **measured today at base** (all four control values below were
+confirmed by running `directStepBudget`), so each assign row is a substitution delta, not
+a free-standing guess:
+
+| Fixture | Program | Expected `execution` | Derivation |
+| --- | --- | --- | --- |
+| `assign-self-and` | `let b=true; let c=false; assign b = b && c; return b` | **10** | 2 + 2 + (1 + 1op + 1b + 1c) + 2 |
+| `let-self-and-control` | same with `let d = b && c; return d` | 10 (measured) | — |
+| `assign-self-or` | `param flag`; `let b=false; assign b = b \|\| flag; return b`, flag=true | **9** | 2 + (1 + 1op + 1b + **2**flag) + 2 |
+| `let-self-or-control` | same with `let d = b \|\| flag; return d` | 9 (measured) | — |
+| `assign-after-async-taken` | `let s="a"; let r=fetchIt(t); assign s=r; if flag { assign s="c" }; return s`, flag=true | **19** | 2 + **8** + 2 + (1 + 2flag + 2) + 2 |
+| `let-after-async-taken-control` | same with `let u=r` and `let v="c"`, returning `u` | 19 (measured) | fixes the `let r = fetchIt(t)` cost at 8 by subtraction |
+| `assign-after-async-skipped` | same as the taken row, flag=false | **17** | 2 + 8 + 2 + (1 + 2flag) + 2 |
+| `let-after-async-skipped-control` | the let-shaped twin, flag=false | 17 (measured) | — |
+
+`assign-self-and` − `assign-self-or` = 1 is the parameter-read premium of RT9-C8a plus one
+extra `let`, and it is asserted as two separate identities rather than as that one
+difference. The async rows are the only ones whose derivation leans on a *subtracted*
+constant (the 8-step cost of `let r = fetchIt(t)`, which the spec's leaf formula does not
+cover because it says nothing about user-call or capability-dispatch nodes); the two
+measured controls are what make that subtraction exact, and the parity assertion
+`assign-after-async-* == let-after-async-*-control` is the pin that survives if the
+call-dispatch cost itself ever moves.
 
 ### [RT9-C9 VERIFIED] Zero new await points on RT-1
 
@@ -477,6 +560,10 @@ Link column from `linkVerifiedKernKirProgramOrThrow(verified, ENTRY, new Runtime
 | `assign target="s" value="1 < 2"` | projected | — | idem |
 | `assign` with an async-helper-call value | projected | — | idem |
 | `assign` inside a `returns=void` handler | projected | — | idem |
+| `assign target="b" value="b && c"` (target read in its own value) | projected | — | idem |
+| `assign target="n" value="h()"` (sync helper call value) | projected | — | idem |
+| `assign` after a `let` bound to an async call, plus one inside the following `if` | projected | — | `…children[2]: statement kind assign is outside RT-1` |
+| `assign` **inside a helper body** (`export=false`) | projected | — | `helper.g.handler.children[1]: statement kind assign is outside RT-1` |
 
 Projected node shapes (the frontier this slice builds on):
 
@@ -487,8 +574,9 @@ Projected node shapes (the frontier this slice builds on):
 | `target="b" value="1 < 2"` | `["target","value"]` | `identifier` | `binary` | 0 |
 | `target="s.x" value="\"b\""` | `["target","value"]` | `member` | `text` | 0 |
 | `target="s[0]" value="\"b\""` | `["target","value"]` | `index` | `text` | 0 |
+| helper body `target="x" value="\"q\""` | `["target","value"]` | `identifier` | `text` | 0 |
 
-Every one of the 27 projected fixtures this oracle uses was confirmed
+Every one of the 38 projected fixtures this oracle uses was confirmed
 `status: "projected"` at base; the only two frontend walls are the unquoted target and
 the value-less postfix form, both `UNEXPECTED_TOKEN`. **No F1–F5 edit is required and
 none is licensed.** No F5 composition pin moves, so
@@ -581,11 +669,11 @@ adds only RT-9 fixtures and two helpers; no harness is duplicated.
 
 | Suite | Tests | What it pins | At base |
 | --- | --- | --- | --- |
-| `probe-matrix.test.mjs` | 5 | F5 facts only — projection status, diagnostic codes and the projected node/target shapes across 29 positions and 4 control positions | **GREEN 5/5** (F5 already projects `assign`; the matrix pins the frontier and must stay green after the build too) |
-| `k0-golden.test.mjs` | 5 | `linkedStatementKinds` scraped from `contracts.ts`, the 33-row admission map, the `assign` catalog schema, the untouched loop/`set` controls | **RED 4/5** |
-| `behavior.test.mjs` | 15 | three-leg byte-identical envelopes for the twelve positive fixtures | **RED 0/15** |
-| `type-gate.test.mjs` | 19 | 13 refusals, each with its **label text** pinned, plus the label-disambiguation rows and two admitted rows | **RED 1/19** |
-| `tick-discipline.test.mjs` | 15 | exact `execution` step counts, `assign` = `let` parity, queued-abort fences at microtask depths 0–4 on two fixtures, pre-cancel fail-closed | **RED 3/15** |
+| `probe-matrix.test.mjs` | 6 | F5 facts only — projection status, diagnostic codes and the projected node/target shapes across 40 positions and 4 control positions, including the helper-body assign | **GREEN 6/6** (F5 already projects `assign`; the matrix pins the frontier and must stay green after the build too) |
+| `k0-golden.test.mjs` | 5 | `linkedStatementKinds` scraped from `contracts.ts`, the 44-row admission map, the `assign` catalog schema, the untouched loop/`set` controls | **RED 4/5** |
+| `behavior.test.mjs` | 23 | three-leg byte-identical envelopes for the twenty positive fixtures | **RED 0/23** |
+| `type-gate.test.mjs` | 24 | 16 refusals, each with its **label text** pinned, plus the label-disambiguation rows, the call-resolved admitted rows and the two-table separation row | **RED 1/24** |
+| `tick-discipline.test.mjs` | 17 | exact `execution` step counts on 14 rows, `assign` = `let` parity on six pairs, queued-abort fences at microtask depths 0–4 on two fixtures, pre-cancel fail-closed | **RED 5/17** |
 
 `probe-matrix` runs first: it is the sequencing gate, and it proves every negative is a
 link decision rather than a frontend gap.
@@ -612,10 +700,39 @@ closed, so a suite that only asserts the code cannot tell which gate fired"). RT
 | B10 | `list-assign` | `let ys=[flag,flag]` / `assign ys=[flag]` / `return ys` | a one-element boolean list |
 | B11 | `async-value` | helper `fetchIt(t)` invoking a capability; `let a="x"` / `assign a = fetchIt(t)` / `return a` | result `{"tag":"text","value":"reply-value"}`, one capability event (matches the measured assign-free twin) |
 | B12 | `void-with-assign` | `returns=void`; `let s="a"` / `assign s="b"` / `print s` | completion `{"kind":"return"}`, result `{"presence":"absent"}`, events `[{"op":"stdout","text":"b"}]` |
+| B13 | `self-referential-and` | `let b=true` / `let c=false` / `assign b = b && c` / `return b` | `{"tag":"boolean","value":false}`, events `[]` |
+| B14 | `self-referential-or` (flag=true / false) | `param flag`; `let b=false` / `assign b = b \|\| flag` / `return b` | `true` / `false` |
+| B14b | `self-referential-or-held` (flag=false / true) | `param flag`; `let b=true` / `assign b = b \|\| flag` / `return b` | `true` / `true` |
+| B15 | `call-typed-positive` | helper `h() -> boolean` returning `true`; `let n = h()` / `assign n = h()` / `return n` | `{"tag":"boolean","value":true}`, events `[]` |
+| B16 | `call-typed-literal` | same helper; `let n = h()` / `assign n = false` / `return n` | `{"tag":"boolean","value":false}` |
+| B17 | `call-typed-list` (flag=false) | helper `hs() -> boolean[]` returning `[true]`; `let ys = hs()` / `assign ys = [flag]` / `return ys` | a one-element list `[{"tag":"boolean","value":false}]` |
+| B18 | `after-async-suspension` (flag=true / false) | helper `fetchIt(t)`; `let s="a"` / `let r = fetchIt(t)` / `assign s = r` / `if flag { assign s="c" }` / `return s` | `"c"` / `"reply-value"`; exactly one event, `events[0].op === "capability"` |
+| B19 | `helper-body-assign` | helper `g() -> string` whose body is `let x="p"` / `assign x="q"` / `return x`; entry is `return g()` | `{"tag":"text","value":"q"}`, events `[]` |
 
 B1's expectation is hand-derived from the semantics, and every leg is asserted
 byte-identical against RT-1 via `threeLegBytes`; B11's and B12's are anchored on the
 assign-free twins measured at base (RT9-C12, RT9-C13).
+
+B13, B14 and B14b are the **self-referential** rows: their value expression reads the
+assign target itself, which is the only thing that makes evaluation order observable.
+Every other positive has a target-free RHS, so an implementation that rebinds the target
+before evaluating the value passes all of B1–B12. The two flavours of that mutant are
+separated deliberately:
+
+- **target left unset / undefined before evaluation** — B13 and B14 both kill it: the
+  operand read is an unset binding, so RT-1 faults and the emitters read `undefined` into
+  `__and`/`__or`, and no leg can produce the contracted clean `success` envelope.
+- **target cleared to a `false` default before evaluation** — B13 (`true && false`) and
+  B14 (`false || flag`) both *coincide* with the correct answer, so neither kills it.
+  **B14b is the one row that does:** the correct answer is `true || false = true`, and a
+  target cleared to `false` answers `false`. It is in the corpus for exactly that reason
+  and must not be dropped as a duplicate of B14.
+
+B18's flag=false expectation is anchored on the measured assign-free twin
+(`let s="a"; let r=fetchIt(t); let u=r; if flag { let v="c" }; return u`), which returns
+`{"tag":"text","value":"reply-value"}` with one capability event at base. B19's is
+anchored on the same twin shape with the helper body's `assign` replaced by a second
+`let` — measured `{"tag":"text","value":"q"}` at base.
 
 B6 is the discriminating fixture for evaluation order, and the one that kills a RT-1
 implementation that mistakes an assign for a return: such an implementation returns
@@ -640,12 +757,15 @@ implementation that mistakes an assign for a return: such an implementation retu
 | T13 | `assign s[0] = "b"` | `KIR_ASSIGN_TARGET_NOT_IDENTIFIER` |
 | T14 | `let s="a"` / `if flag { let s="c"; print s }` (RT9-C7, no assign) | `duplicate binding s` — pinned **now**, passes at base, must keep passing |
 | T15 | two capabilities / `assign first = second` / `return first` | **admitted**; three-leg byte-identical, two capability events, result `{"tag":"text","value":"reply-value"}` |
+| T16 | `let n = h()` (h→boolean) / `assign n = 2` | `KIR_ASSIGN_TYPE_MISMATCH` (deliberately over-strict, RT9-C5) |
+| T17 | `let n = 1` / `assign n = h()` | `KIR_ASSIGN_TYPE_MISMATCH` |
+| T18 | `let ys = hs()` (hs→boolean[]) / `assign ys = "x"` | `KIR_ASSIGN_TYPE_MISMATCH` — the `crossCallTypes` half firing alone on a call-resolved record |
 
-All 15 project at base (verified), so every refusal is a link decision.
+All 18 project at base (verified), so every refusal is a link decision.
 
 ### Metering fixtures
 
-Exactly the six rows of RT9-C8. `tick-discipline.test.mjs` asserts each absolute
+The six rows of RT9-C8 plus the eight self-referential / post-suspension rows. `tick-discipline.test.mjs` asserts each absolute
 `execution` count, then the two parity identities
 (`assign-literal == let-literal-control`, `assign-binary == let-binary-control`), then
 reuses the RT-2 queued-abort fence (`kern-5-rt2-boolean-if/tick-discipline.test.mjs:43-70`)
@@ -655,7 +775,7 @@ byte-identical direct vs emitted JS).
 
 ## Mutant list
 
-Twelve mutants, each argued non-equivalent against the real JS/Python/RT-1 semantics
+Nineteen mutants, each argued non-equivalent against the real JS/Python/RT-1 semantics
 rather than against the spec text.
 
 | # | Mutant | Why it is not equivalent | Killed by |
@@ -675,8 +795,15 @@ rather than against the spec text.
 | M13 | either emitter uses `expressionSource` instead of `statementValueSource`/`statementValue` | the async assign emits with no `await`, so the local holds a pending promise and the returned value fails `__matches`/`_matches` — that leg only | B11 |
 | M14 | the Python emitter omits `_check_abort()` on the assign line | the emitted Python stops observing cancellation at an assign, so a queued abort lands one statement later than at RT-1 | `tick-discipline` queued-abort fence, pre-cancel row |
 
-M13 and M14 bring the table to fourteen; twelve is the tribunal's floor, and the two
-extra are the cheapest emitter-only kills.
+| M15 | the target is rebound (or its host local cleared) **before** the value is evaluated | `assign b = b && c` reads an unset binding, so RT-1 faults and both emitters feed `undefined` into `__and`/`__or`; no leg can produce the contracted clean envelope. Every other positive has a target-free RHS and cannot see it | B13, B14 |
+| M16 | as M15, but the target is cleared to a `false` default rather than to unset | B13 (`true && false`) and B14 (`false \|\| flag`) both coincide with the correct answer, so the ordering is still unobservable on them. `true \|\| false` is the only shape that separates them | **B14b alone** |
+| M17 | the type gate resolves only the literal arms of the two tables and treats a `user-call` value as untyped | `let n = h()` records nothing, so `assign n = false` and `assign ys = [flag]` are refused for a type the binding genuinely has — a fail-closed refusal of legal programs, invisible to every literal-only fixture | B15, B16, B17, and the type-gate admitted-through-a-call-signature row |
+| M18 | drop the `crossCallTypes` half **on the call path only** (M03's narrower sibling) | `let ys = hs(); assign ys = "x"` links, because the `types` half reads `undefined` on both sides. The `[flag,flag]` list-literal binding of M03/T7 does not reach the call arm, so T7 cannot see this | T18 |
+| M19 | `assign` is admitted in an entry handler but refused (or ignored) inside a helper body | `compileHandler` is shared, so a per-position gate is an added special case; the helper's local rebinding is then never emitted and `g()` returns `"p"` on the leg that skipped it | B19 |
+
+M13–M19 bring the table to nineteen; twelve is the tribunal's floor. M13/M14 are the
+cheapest emitter-only kills, and M15–M19 are the five the nero pass added — the two
+evaluation-order flavours, the two call-resolution paths, and the helper-body position.
 
 No mutant in this list relies on a `const`-vs-`let` JS analysis, on a `int()` coercion,
 or on mixed-BigInt arithmetic — the three phantom classes the tribunal's `for` contract
@@ -686,7 +813,7 @@ produced.
 
 ## Acceptance criteria
 
-1. `pnpm test:kern-5-rt9-linked-assign` — 59/59.
+1. `pnpm test:kern-5-rt9-linked-assign` — 75/75.
 2. `pnpm test:kern-5-rt2-boolean-if` 35/35, `test:kern-5-rt3-binary-expression` 142/142,
    `test:kern-5-rt4-user-fn-call` 50/50, `test:kern-5-rt5-async-user-fn-call` 86/86,
    `test:kern-5-rt6-void-fallthrough` 52/52, `test:kern-5-rt8-integer-signatures` 28/28.
@@ -707,17 +834,22 @@ produced.
 
 | Suite | Tests | Pass | Fail |
 | --- | --- | --- | --- |
-| `probe-matrix.test.mjs` | 5 | **5** | 0 |
+| `probe-matrix.test.mjs` | 6 | **6** | 0 |
 | `k0-golden.test.mjs` | 5 | 4 | **1** |
-| `behavior.test.mjs` | 15 | 0 | **15** |
-| `type-gate.test.mjs` | 19 | 1 | **18** |
-| `tick-discipline.test.mjs` | 15 | 3 | **12** |
-| total | 59 | 13 | **46** |
+| `behavior.test.mjs` | 23 | 0 | **23** |
+| `type-gate.test.mjs` | 24 | 1 | **23** |
+| `tick-discipline.test.mjs` | 17 | 5 | **12** |
+| total | 75 | 16 | **59** |
 
-The 13 that pass at base are load-bearing and must keep passing: the whole F5 probe
-matrix, the four K0 control assertions (loop kinds still outside RT-1, `set` still an
-excluded host, the `assign` catalog schema), the shadowing refusal (RT9-C7), and the
-three arithmetic identities over the pinned metering constants.
+Before the nero pass the corpus was 59 tests / 46 RED. The sixteen added tests are 13 new
+RED rows and three that pass at base and must keep passing: the helper-body F5 shape row,
+and the two new metering identities over the pinned constants.
+
+The 16 that pass at base are load-bearing and must keep passing: the whole F5 probe
+matrix including the helper-body assign shape, the four K0 control assertions (loop kinds
+still outside RT-1, `set` still an excluded host, the `assign` catalog schema), the
+shadowing refusal (RT9-C7), and the five arithmetic identities over the pinned metering
+constants.
 
 **Every failure is the link fault, for the right reason. Two verbatim assertion texts:**
 
@@ -833,9 +965,22 @@ reviewer should check `git diff` for any new `await`, `setImmediate`, `queueMicr
 
 ## Open questions
 
-- **[RT9-O1 OPEN]** Whether `assign` should also be admitted in a *helper* body. The
-  contract above places no restriction, and `compileHandler` is shared, so helpers get
-  it for free; the oracle does not cover a helper-body assign. Not a blocker: a helper
-  body has the same flat scope, the same emitter local scheme, and `HELPER_WALK_POLICY`
-  differs only in whether the `return` is metered. Flagged so the reviewer knows the
-  coverage boundary rather than assuming it was gated.
+- **[RT9-O1 CLOSED — admitted, and now covered]** `assign` **is** admitted in a helper
+  body, and the oracle covers it. `compileHandler` is shared, so helpers get it for free,
+  and the contract adds no per-position gate. Verified today that F5 projects a
+  helper-body assign and the link fault names the helper frame:
+  `helper.g.handler.children[1]: statement kind assign is outside RT-1`. The projected
+  node is the same `{target:identifier, value:text}` shape the entry produces, pinned in
+  `probe-matrix.json` under `shapes["helper-body-assign"]`. Behavior row B19 pins the
+  semantics (`let x="p"` / `assign x="q"` / `return x`, called as `return g()` → `"q"`),
+  and mutant M19 pins that a per-position gate is a defect rather than a choice.
+
+## Corrections Log
+
+| Date | Correction |
+| --- | --- |
+| 2026-09-02 | Nero pass added 11 discriminating fixtures (self-referential RHS, call-typed gate path, assign across async suspension, helper-body assign) — 16 tests, 13 of them new RED. Challenges 2 and 4 of the critique are inapplicable on this base: linked KIR has no `fn` values so nothing can capture a binding, and a helper body is its own flat scope so no `nonlocal` emit path exists. Challenges 1, 3 and 5 were real gaps and are now closed by B13/B14/B14b, T16–T18 with B15–B17, and B18 respectively. |
+| 2026-09-02 | **RT9-C5a VERIFIED** — an integer-returning helper is not callable at all on this base (`KIR_CALL_SIGNATURE_TYPE`, `expression.ts:148`, because `linkedKirCrossCallType` has no integer row). The critique's proposed integer-helper fixture is unbuildable; the call-typed rows use the `boolean` and `list<boolean>` signatures instead. RT-8 admitted integer *signatures*, not integer *cross-calls*. |
+| 2026-09-02 | **RT9-C8a VERIFIED** — the metering model in RT9-C8 was incomplete: a **parameter** read costs 2 expression steps where a `let`-bound identifier costs 1. Measured on four fresh rows. The "executed `if` costs 3 / skipped costs 2" phrasing was really "1 + the condition cost" over a parameter condition; every previously pinned constant is unchanged. |
+| 2026-09-02 | **RT9-O1 CLOSED** — F5 projects a helper-body assign (verified), so the coverage boundary the open question flagged is now a pinned row rather than an assumption. |
+| 2026-09-02 | Mutant list 14 → 19: M15 (target cleared to unset before evaluation), M16 (cleared to a `false` default — killed by B14b alone), M17 (type gate resolves literal arms only), M18 (cross-call half dropped on the call path only), M19 (assign gated out of helper bodies). |

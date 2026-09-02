@@ -1,5 +1,9 @@
 {
   "positions": {
+    "after-async-suspension": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "async-value": {
       "diagnostics": [],
       "status": "projected"
@@ -20,7 +24,23 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "call-typed-list": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "call-typed-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "call-typed-positive": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "capability-to-capability": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "helper-body-assign": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -37,6 +57,14 @@
       "status": "projected"
     },
     "neg-bool-into-integer": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-call-typed-into-integer": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-integer-into-call-typed": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -82,6 +110,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "neg-text-into-call-typed-list": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "neg-text-into-capability": {
       "diagnostics": [],
       "status": "projected"
@@ -101,6 +133,18 @@
       "status": "rejected"
     },
     "ordering-print": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "self-referential-and": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "self-referential-or": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "self-referential-or-held": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -131,6 +175,17 @@
         ],
         "targetKind": "identifier",
         "valueKind": "binary"
+      }
+    ],
+    "helper-body-assign": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "identifier",
+        "valueKind": "text"
       }
     ],
     "neg-op-compound": [
