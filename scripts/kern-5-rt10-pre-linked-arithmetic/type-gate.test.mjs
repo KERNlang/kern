@@ -1,0 +1,131 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { FRONTEND_WALLS, POSITIONS, admission, assertLinkLabel } from './k0-support.mjs';
+
+// Every row is (position, label). The closed link code is the same for all of them, so the
+// label text is the only thing that says which gate fired.
+const REFUSALS = Object.freeze([
+  ['refuse-div', 'KIR_BINARY_OP_UNSUPPORTED'],
+  ['refuse-mod', 'KIR_BINARY_OP_UNSUPPORTED'],
+  ['refuse-pow', 'KIR_BINARY_OP_UNSUPPORTED'],
+  ['refuse-shift', 'KIR_BINARY_OP_UNSUPPORTED'],
+  ['refuse-unary-not', 'KIR_UNARY_OP_UNSUPPORTED'],
+  ['refuse-unary-plus', 'KIR_UNARY_OP_UNSUPPORTED'],
+  ['refuse-text-operands', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-int-text', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-text-int', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-bool-operands', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-bool-param-left', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-bool-param-right', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-decimal-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-list-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-text-param-operands', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-capability-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-call-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-chained-comparison', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-unary-text-param', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-bool-param', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-decimal', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-list-param', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-capability', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-call', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-arith-if-cond', 'KIR_IF_COND_NOT_BOOLEAN'],
+  ['refuse-arith-call-argument', 'KIR_CALL_ARGUMENT_TYPE'],
+  ['refuse-integer-helper-call', 'KIR_CALL_SIGNATURE_TYPE'],
+  ['refuse-integer-helper-operand', 'KIR_CALL_SIGNATURE_TYPE'],
+  ['refuse-integer-param-helper-call', 'KIR_CALL_SIGNATURE_TYPE'],
+]);
+
+const ADMITTED = Object.freeze([
+  'add-in-let',
+  'add-in-print-tag',
+  'add-in-return',
+  'add-under-comparison-in-if',
+  'add-under-comparison-in-let',
+  'arith-return-type-mismatch',
+  'helper-body-arith',
+  'local-add',
+  'mul-in-return',
+  'neg-in-let',
+  'neg-in-return',
+  'neg-of-local',
+  'neg-through-binding-zero',
+  'param-add',
+  'param-add-under-comparison-in-if',
+  'param-neg',
+  'param-ordering',
+  'sub-in-return',
+]);
+
+for (const [position, label] of REFUSALS) {
+  test(`${position} is refused at link with ${label}`, async () => {
+    await assertLinkLabel(POSITIONS[position](), label);
+  });
+}
+
+test('every admitted arithmetic position links on all three legs', async () => {
+  for (const position of ADMITTED) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'projected', position);
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    assert.equal(row.python, 'admitted', position);
+  }
+});
+
+test('an out-of-profile binary operator reports the operator label, never the operand label', async () => {
+  for (const position of ['refuse-div', 'refuse-mod', 'refuse-pow', 'refuse-shift']) {
+    const message = await assertLinkLabel(POSITIONS[position](), 'KIR_BINARY_OP_UNSUPPORTED');
+    assert.ok(
+      !message.includes('KIR_BINARY_OPERAND_TYPE'),
+      `${position}: the operator is checked before the operands, so only the operator label may fire`,
+    );
+  }
+});
+
+test('an out-of-profile unary operator reports the operator label, never the operand label', async () => {
+  for (const position of ['refuse-unary-not', 'refuse-unary-plus']) {
+    const message = await assertLinkLabel(POSITIONS[position](), 'KIR_UNARY_OP_UNSUPPORTED');
+    assert.ok(!message.includes('KIR_UNARY_OPERAND_TYPE'), position);
+  }
+});
+
+test('a unary over a non-integer operand reports the operand label, never the operator label', async () => {
+  for (const position of ['refuse-unary-text-param', 'refuse-unary-bool-param', 'refuse-unary-call']) {
+    const message = await assertLinkLabel(POSITIONS[position](), 'KIR_UNARY_OPERAND_TYPE');
+    assert.ok(!message.includes('KIR_UNARY_OP_UNSUPPORTED'), position);
+  }
+});
+
+// The two rows that separate the static-type answer from the cross-call answer: an arithmetic
+// result must be `integer` statically (so a comparison accepts it and an `if` does not) and
+// must have no cross-call type at all (so a boolean parameter refuses it at link, not at run
+// time). A gate that answers `boolean` for an arithmetic binary passes both of these.
+test('the arithmetic result type is integer statically and absent across a call boundary', async () => {
+  const admittedUnderComparison = await admission(POSITIONS['add-under-comparison-in-let']());
+  assert.equal(admittedUnderComparison.rt1, 'admitted');
+  await assertLinkLabel(POSITIONS['refuse-arith-if-cond'](), 'KIR_IF_COND_NOT_BOOLEAN');
+  await assertLinkLabel(POSITIONS['refuse-arith-call-argument'](), 'KIR_CALL_ARGUMENT_TYPE');
+});
+
+// The integer-parameter static type (RT10P-C6) is the one gate whose base refusal is the
+// operand gate rather than the operator gate, so it gets its own non-vacuous pairing: the
+// ordering operator RT-3 already owns must accept two integer parameters.
+test('an integer parameter is a legal operand for both an RT-3 comparison and an RT-10-pre operator', async () => {
+  for (const position of ['param-ordering', 'param-add', 'param-neg']) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    assert.equal(row.python, 'admitted', position);
+  }
+  await assertLinkLabel(POSITIONS['refuse-bool-param-left'](), 'KIR_BINARY_OPERAND_TYPE');
+  await assertLinkLabel(POSITIONS['refuse-unary-bool-param'](), 'KIR_UNARY_OPERAND_TYPE');
+});
+
+test('the two negative-literal and leading-zero forms are frontend walls, not link decisions', async () => {
+  for (const position of FRONTEND_WALLS) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'not-projected', position);
+  }
+});
