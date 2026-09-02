@@ -1,6 +1,6 @@
 # KERN 5: `maxIterations` — a dedicated iteration budget for the runtime envelope
 
-**Status:** SPEC — RED ORACLE LANDED
+**Status:** IMPLEMENTED
 **Date:** 2026-09-02
 **Base:** `1a88c705` (`origin/main`, CI census sweep merged)
 **Confidence:** 0.93 (was 0.89; the RC-v1 re-pin OPEN that capped it is resolved as MS-R7)
@@ -660,6 +660,20 @@ None is an incidental failure or an unrelated assertion.
 - Build `amend.mjs`, its amendment record and its chain tests (MS-R7). L7 fences it.
 - Re-run `scripts/check-source-runner-convergence.mjs` (MS-R6 narrow OPEN).
 
+## Implementation Evidence
+
+Measured on 2026-09-02 after the complete caller and pin sweep:
+
+- `pnpm test:kern-5-runtime-envelope-max-steps`: 47 passed, 0 failed.
+- `pnpm test:kern-runtime-contract-v1`: 86 passed, 0 failed, 1 skipped.
+- `pnpm test:kern-frontend-f5-projection`: 67 passed, 0 failed.
+- `pnpm test:kern-frontend-closure`: 5 passed, 0 failed, plus the closure validator.
+- `node --test scripts/runtime-contract-v1/amend.test.mjs`: 5 passed, 0 failed.
+- `node --test scripts/ci/test-tier-contract.test.mjs`: 9 passed, 0 failed.
+- `pnpm test:kern-5-r0-contracts`: 42 passed, 0 failed, plus the R0 bundle check.
+- `pnpm test:kern-5-admission-census`: 10 passed, 0 failed; the admitted set remains one file.
+- `pnpm test:kern-runtime-envelope`: package tests and 39 import-closure tests passed, plus the runtime-envelope checker.
+
 ## Out of Scope
 
 - Raising `profileLimits.maxWorkSteps`. Separate F5 policy slice; sweep still measuring.
@@ -678,7 +692,7 @@ None is an incidental failure or an unrelated assertion.
   unknown.
 - **OPEN:** the 4× budget sweep has 3 of 13 rows. Nothing in this slice depends on its
   outcome (MS-R1), but the follow-up `maxWorkSteps` slice does.
-- **OPEN:** should `maxIterations` also gate non-loop step consumption, as `KernKirLimits.maxIterations`
+- **OPEN:** should `maxIterations` also gate non-loop step consumption, as `KernKirLimits.maxSteps`
   does in `kir-runtime/inspect.ts:45-48`? Today the effect machine only decrements on loop
   frames, so envelope `maxIterations` is an *iteration* budget wearing a *step* name. Keeping the
   KIR name is right for consistency; widening what it counts is a semantic change and is out
@@ -708,3 +722,7 @@ which is precisely why the required key is affordable now and would not be later
 | The iteration budget has one consumer family (the envelope). | There are two paths: the envelope (defective) and the source runner, whose `iterationBudget` is already an explicit option (`source-runner-engine.ts:29,51,76,88`). Also ~30 canonicalizer measurement scripts set `maxCollectionLength` *in order to* move the budget. | MS-R6 enumerates 12 consumer classes; leg L6 tests cross-runner convergence rather than recording it OPEN; the measurement scripts join the blast radius. |
 | `check-runner-browser-budget.mjs` may be an iteration-budget consumer. | It is a performance gate — milliseconds and gzip bytes from `runner-browser-budget-policy.json` (`:18,106,128-141`), no `iterationBudget`, no limits record. | Dismissed with evidence in MS-R6. |
 | A 17-element list at `maxCollectionLength: 16` is a clean second failure mode in any handler. | Only via *arguments*, which yield `invalid-handler-arguments`. In-KERN list growth (`assign op="+=" target=out value="[i]"`) and `len(rows)` both fail as `unsupported-runtime-input` at base and would have made the leg non-discriminating. | L2 uses an argument list and asserts the two distinct codes. |
+| The seven initially named KIR-only paths exhausted the L5 false-positive set. | Five more KIR-only census/test records carry the same six shared names plus `maxSteps`; adding `maxIterations` made compiler requests invalid and regressed the admission ratchet. | The path-based L5 semantic exclusion now enumerates all twelve KIR-only files; `KernKirLimits` remains unchanged and the census is 10/10 green. |
+| The repo-wide limits sweep would not move F1-F4 policy pins. | Adding the required key changes those policy bytes, so F4's predecessor digests and F5's F4 digest had to move even though no composition source changed. | The transitive policy pins were updated; the frontend closure amendment protocol was not invoked because it governs F5 `composition` rows, not policy-input fields. F5 is 67/67 green. |
+| R0 caller records needed only literal key insertion. | Its generated JS/Python artifacts embed the widened exact-key validator, changing the frozen corpus artifact and manifest digests and the R0 bundle inventory. | The frozen corpus was regenerated from the existing generator and `rebind-manifest.mjs --write` updated the bundle inventory; 42/42 tests and the bundle check pass. |
+| Existing envelope tests were behavior-preserving after only adding the new base-record key. | Five tests intentionally overrode `maxCollectionLength` to exercise the formerly overloaded iteration budget. | Those budget-intent overrides and direct machine options now use `maxIterations`; genuine collection-ceiling assertions remain on `maxCollectionLength`. |

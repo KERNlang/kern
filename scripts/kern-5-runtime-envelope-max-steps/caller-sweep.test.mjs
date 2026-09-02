@@ -38,7 +38,7 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
   ]) {
     assert.ok(paths.includes(expected), `sweep must cover ${expected}`);
   }
-  assert.ok(shaped.length >= 88, `sweep found only ${shaped.length} envelope-shaped files`);
+  assert.ok(shaped.length >= 84, `sweep found only ${shaped.length} envelope-shaped files`);
 });
 
 test('L5: every envelope-shaped limits record carries maxIterations', () => {

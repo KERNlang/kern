@@ -196,6 +196,11 @@ const KIR_ONLY_LIMIT_FILES = new Set([
   'packages/core/src/compiler/kir-python/request.ts',
   'packages/core/src/compiler/kir-python/target-base.ts',
   'packages/cli/src/kir-shadow/limits.ts',
+  'packages/core/tests/kern-kir-runner-composed-evidence.test.ts',
+  'packages/core/tests/kern-kir-runtime-binding.test.ts',
+  'scripts/kern-5-admission-census/admission.json',
+  'scripts/kern-5-admission-census/admitted.json',
+  'scripts/kern-5-admission-census/support.mjs',
 ]);
 
 export function envelopeShapedFiles() {
