@@ -1,0 +1,193 @@
+{
+  "positions": {
+    "async-value": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "binary-value": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "branch-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "branch-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "branch-then": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "capability-to-capability": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "integer-from-identifier": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "list-assign": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-assign-before-let": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-bool-into-integer": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-integer-into-text": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-list-into-text": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-op-compound": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-op-equals": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-param-target": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-postfix-op": {
+      "diagnostics": [
+        "UNEXPECTED_TOKEN"
+      ],
+      "status": "rejected"
+    },
+    "neg-shadow-branch-let": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-sibling-branch": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-target-index": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-target-member": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-text-into-capability": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-text-into-integer": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-undeclared": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-unquoted-target": {
+      "diagnostics": [
+        "UNEXPECTED_TOKEN"
+      ],
+      "status": "rejected"
+    },
+    "ordering-print": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "simple-reassign": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "trailing-comment": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "two-assigns": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "void-with-assign": {
+      "diagnostics": [],
+      "status": "projected"
+    }
+  },
+  "shapes": {
+    "binary-value": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "identifier",
+        "valueKind": "binary"
+      }
+    ],
+    "neg-op-compound": [
+      {
+        "children": 0,
+        "properties": [
+          "op",
+          "target",
+          "value"
+        ],
+        "targetKind": "identifier",
+        "valueKind": "integer"
+      }
+    ],
+    "neg-target-index": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "index",
+        "valueKind": "text"
+      }
+    ],
+    "neg-target-member": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "member",
+        "valueKind": "text"
+      }
+    ],
+    "simple-reassign": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "identifier",
+        "valueKind": "text"
+      }
+    ],
+    "trailing-comment": [
+      {
+        "children": 0,
+        "properties": [
+          "target",
+          "value"
+        ],
+        "targetKind": "identifier",
+        "valueKind": "text"
+      }
+    ]
+  }
+}
