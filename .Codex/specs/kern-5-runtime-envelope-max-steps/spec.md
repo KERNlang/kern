@@ -1,7 +1,7 @@
 # KERN 5: `maxIterations` — a dedicated iteration budget for the runtime envelope
 
 **Status:** IMPLEMENTED
-**Date:** 2026-09-02
+**Date:** 2026-09-02 (evidence remeasured 2026-09-03)
 **Base:** `1a88c705` (`origin/main`, CI census sweep merged)
 **Confidence:** 0.93 (was 0.89; the RC-v1 re-pin OPEN that capped it is resolved as MS-R7)
 
@@ -662,17 +662,55 @@ None is an incidental failure or an unrelated assertion.
 
 ## Implementation Evidence
 
-Measured on 2026-09-02 after the complete caller and pin sweep:
+Measured on 2026-09-03 at HEAD `8c6fb1c7`, after the historical-identity reconstruction, the
+MS-R0 correction and the survivor fixtures. Every suite below was run in this worktree; the
+`test:kern-canonicalizer` CLI build step completed cleanly, so no step had to be run
+piecewise.
 
-- `pnpm test:kern-5-runtime-envelope-max-steps`: 47 passed, 0 failed.
-- `pnpm test:kern-runtime-contract-v1`: 86 passed, 0 failed, 1 skipped.
-- `pnpm test:kern-frontend-f5-projection`: 67 passed, 0 failed.
-- `pnpm test:kern-frontend-closure`: 5 passed, 0 failed, plus the closure validator.
-- `node --test scripts/runtime-contract-v1/amend.test.mjs`: 5 passed, 0 failed.
-- `node --test scripts/ci/test-tier-contract.test.mjs`: 9 passed, 0 failed.
-- `pnpm test:kern-5-r0-contracts`: 42 passed, 0 failed, plus the R0 bundle check.
-- `pnpm test:kern-5-admission-census`: 10 passed, 0 failed; the admitted set remains one file.
-- `pnpm test:kern-runtime-envelope`: package tests and 39 import-closure tests passed, plus the runtime-envelope checker.
+| Gate | Tests | Pass | Fail | Skip |
+|---|---|---|---|---|
+| `pnpm test:kern-5-runtime-envelope-max-steps` | 50 | 50 | 0 | 0 |
+| `pnpm test:kern-runtime-contract-v1` | 88 | 87 | 0 | 1 |
+| `pnpm --filter @kernlang/core test` | 6910 | 6910 | 0 | 0 |
+| `pnpm test:kern-canonicalizer` | 872 | 872 | 0 | 0 |
+| `pnpm test:kern-5-rt2-boolean-if` | 35 | 35 | 0 | 0 |
+| `pnpm test:kern-frontend-f5-projection` | 67 | 67 | 0 | 0 |
+| `pnpm test:kern-5-rt3-binary-expression` | 142 | 142 | 0 | 0 |
+| `pnpm test:kern-5-rt8-integer-signatures` | 28 | 28 | 0 | 0 |
+| `pnpm test:infra:contracts` | 573 | 572 | 0 | 1 |
+| `node --test scripts/ci/test-tier-contract.test.mjs` | 9 | 9 | 0 | 0 |
+
+The four suites that the MS-R0 correction touched were re-run individually:
+`test:kern-5-r1-runtime-owner` 22/22, `test:kern-5-r2-js-lowering` 16/16,
+`test:kern-5-c-py-1-contract` 29/29, `test:kern-5-cli-compiler-runtime-shadow` 16/16.
+`check-runtime-contract-v1.mjs` reports PASS at anchor `8d2859a6`, 12 literal goldens,
+22 public symbols, `frozen=false`.
+
+### Mutant battery (kill table)
+
+Twelve mutants, applied one at a time by byte-copy restore, each with a rebuild of
+`@kernlang/core` where the mutated file was TypeScript. Ten died on the first pass; two
+survived and were closed by new fixtures, after which both die.
+
+| # | Mutant | Verdict | Killed by |
+|---|---|---|---|
+| M1 | `execute.ts` sync site maps `iterationBudget` from `maxCollectionLength` | KILLED | L2 `the ignored-key trap — a tiny maxIterations must flip a known-good program` |
+| M2 | `execute.ts` async site maps `iterationBudget` from `maxCollectionLength` | KILLED | L2 same, plus `differential pair A` |
+| M3 | `execute-compat.ts` sync site maps `iterationBudget` from `maxCollectionLength` | KILLED | L2 same |
+| M4 | `execute-compat.ts` async site maps `iterationBudget` from `maxCollectionLength` | KILLED | L2 same |
+| M5 | `value.ts` drops `maxIterations` from the exact-key list | KILLED | L1 `the envelope limits record refuses a record without maxIterations` |
+| M6 | F5 `policy-validation.mjs` drops the `maxWorkSteps <= maxIterations` clause | KILLED | L4 `validatePolicy refuses maxWorkSteps greater than maxIterations` |
+| M7 | `amend.mjs` skips the pending-amendment parent-digest comparison | SURVIVED → KILLED | new `a pending amendment must name the current pin as its parent` |
+| M8 | `amend.mjs` recomputes the terminal digest by hand instead of reading the amendment record | KILLED | `a consumed amendment cannot authorize later artifact drift` |
+| M9 | KIR runtime exact-key list learns `maxIterations` | SURVIVED → KILLED | new L1 `every shipped KIR limits key list still declares maxSteps and refuses maxIterations` |
+| M10 | `KernKirLimits` interface learns `maxIterations` | KILLED | `tsc -b`: TS2741 in `compiler/kir-js-esm/request.ts` |
+| M11 | F5 policy sets `maxIterations` below `maxWorkSteps` | KILLED | L4 `the shipped F5 policy carries maxIterations equal to maxWorkSteps` |
+| M12 | A pure-KIR limits record keeps `maxIterations` | KILLED | new L5 `no KIR-shaped limits record learns the envelope iteration key` |
+
+M9 mattered: the MS-R0 fixtures asserted the invariant over the test file's own key
+literals, so the shipped KIR validator could be widened with the whole slice fence green.
+The replacement reads the three shipped KIR `LIMIT_KEYS` declarations and the two envelope
+ones out of source and pins each.
 
 ## Out of Scope
 
@@ -729,4 +767,12 @@ which is precisely why the required key is affordable now and would not be later
 | The L5 KIR-only path exclusion meant every record in those files was outside the envelope sweep. | Two excluded core tests also define a distinct `InternalRuntimeEnvelopeLimits` record consumed by the KIR handler; the full core suite rejected both records for lacking `maxIterations`. | Added `maxIterations: 64`, matching each record's `maxCollectionLength`, without changing the separate KIR limits; the focused 22 tests pass. |
 | The implementation commits were ready for the repository L0 gate. | Two CLI policy interfaces contained malformed mechanically inserted TypeScript, and two changed effect-machine tests were not Biome-formatted. | Corrected the declarations and formatting; forced core/CLI TypeScript builds and repository lint pass. |
 | The canonicalizer CLI inherited the runtime policy sweep through its mapped handler limits. | Its exact policy-key list still rejected `maxIterations`, and its handler mapping synthesized the iteration limit from `maxCollectionLength` instead of consuming the new policy field. | Added the required exact key and mapped `maxIterations` directly, restoring the canonicalize command suite and preserving collection-limit independence. |
+| The repository-wide caller sweep would leave the canonicalizer's historical proof chain unaffected. | Historical policy, runtime-handler, envelope executor, and exact-key validator digests intentionally describe pre-amendment bytes; live measurement overrides also still used `maxCollectionLength` as an iteration budget. | Added explicit pre-amendment byte reconstruction at the historical boundary, kept current summaries on current digests, and moved budget-intent performance overrides to `maxIterations`. The complete 872-test canonicalizer run then passed its previously failing classes in a focused 70-test replay (70/70). |
 | Adding the RC-v1 amendment directory affected only the runtime-contract amendment suites. | The Alpha receipt treats `scripts/runtime-contract-v1` as a mechanically closed authority and rejected any direct directory, so `test:kern-alpha-receipt` failed before collecting its bindings. | Extended receipt discovery to a closed recursive regular-file tree and bound the writer, chain test, anchor, and amendment record in the receipt policy; symlinks and empty directories still fail closed. |
+| Every polluted limits record was an envelope record, so the sweep only had to add the key. | Eight records are sent only to a KIR compiler or KIR runtime request, whose exact-key validators carry `maxSteps`; the extra key turned every K0 admission in the RT2 golden into `invalid-compiler-request`, and the C-PY-1 seven-key pin was edited to eight to match. | MS-R0 violation, caught by running `test:kern-5-rt2-boolean-if` rather than by the slice fence. `maxIterations` removed from all eight, the C-PY-1 pin restored, the pure-KIR paths fenced by a new L5 assertion that none of them ever carries the key, and the sweep floor corrected from 84 to the true 78 envelope-shaped files. |
+| The historical-chain blast radius was limited to policy bytes. | The canonicalizer's historical proofs hash the live `runtime-handler.ts`, both envelope executors, the exact-key validator and the policy JSON directly, across ~29 measurement, transition-chain and performance files. The spec's blast radius named none of them. | Pre-amendment six-key reconstruction added at each historical boundary; no pinned digest was moved and no performance floor changed — the `*-performance.test.mjs` edits only rename the budget parameter from `maxCollectionLength` to `maxIterations` at unchanged thresholds. |
+| Normalizing `canonicalizerPolicyDigest` before comparing to a frozen summary is equivalent to reconstructing it. | Copying the published digest over the measured one makes that field unfailable at M4.141, M4.143 and M4.148 — three assertions silently became tautologies. | The digest is now derived as `sha256` of the live policy minus `maxIterations`, which proves the added key is the only difference from each frozen milestone; the live `coverageImplementationDigest` was regenerated through `check-kern-canonicalizer-coverage.mjs --write`. |
+| The two excluded core KIR tests carry only KIR limits records. | Each also builds a distinct `InternalRuntimeEnvelopeLimits` record for the KIR handler, and `packages/core/tsconfig.json` includes only `src`, so no type-checker guards them; the envelope's runtime exact-key validation is what rejects a missing key there. | Both records carry `maxIterations`; the files stay path-excluded from the textual sweep and are listed as mixed, so the new pure-KIR assertion does not fire on them. |
+| `packages/cli/src/kir-shadow/limits.ts` needed the new key. | It is a `KernKirLimits` record with `maxSteps`; an earlier pass added `maxIterations: 100` to it. | Reverted before this session and fenced by path instead; `pnpm --filter @kernlang/cli build` type-checks the file clean, and the CLI build has no `react`/`ink` problem in this worktree. |
+| The Alpha receipt's closed authority over `scripts/runtime-contract-v1` was flat. | The amendments directory made `readdirSync` return a directory entry, which the receipt rejected outright. | Discovery now walks the tree, admitting regular files only; symlinks and non-regular entries still throw, empty directories still fail closed, and the exact sorted binding list in `alpha-receipt-policy.json` — not flatness — is what keeps the authority closed. |
+| The autonomous builder would carry the slice to a green repository gate. | It builder-failed on turn 4 with the work nearly complete: four commits landed and 29 files were left uncommitted mid-replay of the 872-test canonicalizer gate, with the RT2/C-PY-1 MS-R0 regression unnoticed. | The dirty diff was audited rather than committed as found, which is what surfaced the tautological digest normalization and the KIR shape violation. |
