@@ -9,16 +9,21 @@ const RT4_PROBE_MATRIX_URL = new URL('../kern-5-rt4-user-fn-call/probe-matrix.js
 const RT4_COMPATIBILITY_URL = new URL('../kern-5-rt4-user-fn-call/compatibility.test.mjs', import.meta.url);
 const RT5_VARIANT_COVERAGE_URL = new URL('../kern-5-rt5-async-user-fn-call/variant-coverage.test.mjs', import.meta.url);
 const RT6_COMPATIBILITY_URL = new URL('../kern-5-rt6-void-fallthrough/compatibility.test.mjs', import.meta.url);
+const RT9_COMPATIBILITY_URL = new URL('../kern-5-rt9-linked-assign/compatibility.test.mjs', import.meta.url);
 const F5_POLICY_URL = new URL('../kern-frontend-f5-projection/policy.json', import.meta.url);
 
 // The RT-2 golden scrapes the statement union only, so this slice may not move it at all.
-const RT2_GOLDEN_SHA256 = 'aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0';
+const RT2_GOLDEN_SHA256 = 'cc7fb869d3f51ca6222521df52dd70e2364a83c8f97365f8db0a8c83cc2f9908';
 
 // The frontend is frozen in this slice: no composition, policy or amendment moves.
 const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4223df80519';
 
 // The one licensed prior-slice golden move: `linkedExpressionKinds` gains "unary".
-const RT3_GOLDEN_PRE_SLICE_SHA256 = 'ac690563c41feb50dc889c580de6cb763390484183c3795a513ec63a674a12cf';
+const RT3_GOLDEN_PRE_SLICE_SHA256 = 'c8a94cc48ebc1e0a7c5364ab6b218a9471b30df02ef60e6fe8ab2d72d677d3f3';
+
+// RT-9 carried the RT-2 golden's digest into the RT-3 golden and preserved the pre-RT-9
+// pre-image, so the RT-3 move in this slice drags that derived constant too.
+const RT2_GOLDEN_PRE_RT9_SHA256 = 'aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -93,6 +98,11 @@ test('every digest derived from the RT-3 golden is re-pinned to the moved value'
     current,
     'RT10PRE_DERIVED_PIN_DRIFT: rt6 RT3_GOLDEN_SHA256',
   );
+  assert.equal(
+    literal(await readFile(RT9_COMPATIBILITY_URL, 'utf8'), 'RT3_GOLDEN_SHA256', 'the RT-9 compatibility guard'),
+    current,
+    'RT10PRE_DERIVED_PIN_DRIFT: rt9 RT3_GOLDEN_SHA256',
+  );
   const rt4PreImage = {
     ...golden,
     linkedExpressionKinds: golden.linkedExpressionKinds.filter((kind) => kind !== 'user-call'),
@@ -101,6 +111,12 @@ test('every digest derived from the RT-3 golden is re-pinned to the moved value'
     literal(await readFile(RT4_COMPATIBILITY_URL, 'utf8'), 'RT3_PRE_SLICE_SHA256', 'the RT-4 compatibility guard'),
     sha256(`${JSON.stringify(rt4PreImage, null, 2)}\n`),
     'RT10PRE_DERIVED_PIN_DRIFT: rt4 RT3_PRE_SLICE_SHA256 is a digest of a derived pre-image and moves with the golden',
+  );
+  const rt9PreImage = { ...golden, rt2GoldenSha256: RT2_GOLDEN_PRE_RT9_SHA256 };
+  assert.equal(
+    literal(await readFile(RT9_COMPATIBILITY_URL, 'utf8'), 'RT3_K0_GOLDEN_PRE_RT9_SHA256', 'the RT-9 pre-image guard'),
+    sha256(`${JSON.stringify(rt9PreImage, null, 2)}\n`),
+    'RT10PRE_DERIVED_PIN_DRIFT: rt9 RT3_K0_GOLDEN_PRE_RT9_SHA256 is a digest of a derived pre-image',
   );
 });
 

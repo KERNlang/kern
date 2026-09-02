@@ -24,6 +24,18 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "assign-arith": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "assign-arith-params": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "assign-neg": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "helper-body-arith": {
       "diagnostics": [],
       "status": "projected"
@@ -73,6 +85,14 @@
       "status": "projected"
     },
     "refuse-arith-if-cond": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-binary-async-operand": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-binary-async-operand-right": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -188,6 +208,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "refuse-unary-over-async-call": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "refuse-unary-plus": {
       "diagnostics": [],
       "status": "projected"
@@ -272,6 +296,86 @@
           "value": {
             "kind": "text",
             "value": "z"
+          }
+        }
+      }
+    ],
+    "assign-arith": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "n",
+          "value": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      },
+      {
+        "kind": "assign",
+        "properties": {
+          "target": {
+            "kind": "identifier",
+            "name": "n"
+          },
+          "value": {
+            "kind": "binary",
+            "left": {
+              "kind": "identifier",
+              "name": "n"
+            },
+            "op": "+",
+            "right": {
+              "kind": "integer",
+              "value": "1"
+            }
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "n"
+          }
+        }
+      }
+    ],
+    "assign-neg": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "n",
+          "value": {
+            "kind": "integer",
+            "value": "5"
+          }
+        }
+      },
+      {
+        "kind": "assign",
+        "properties": {
+          "target": {
+            "kind": "identifier",
+            "name": "n"
+          },
+          "value": {
+            "kind": "unary",
+            "argument": {
+              "kind": "identifier",
+              "name": "n"
+            },
+            "op": "-"
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "n"
           }
         }
       }
@@ -422,14 +526,6 @@
     ]
   },
   "table": {
-    "add-b64": {
-      "diagnostics": [],
-      "status": "projected"
-    },
-    "add-b64-cancel": {
-      "diagnostics": [],
-      "status": "projected"
-    },
     "add-both-neg": {
       "diagnostics": [],
       "status": "projected"
@@ -454,6 +550,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "add-sub-i64-max": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "add-zero": {
       "diagnostics": [],
       "status": "projected"
@@ -470,11 +570,15 @@
       "diagnostics": [],
       "status": "projected"
     },
-    "mul-b64-square": {
+    "mul-both-neg": {
       "diagnostics": [],
       "status": "projected"
     },
-    "mul-both-neg": {
+    "mul-i64-near-max": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "mul-i64-near-max-neg": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -490,14 +594,6 @@
       "diagnostics": [],
       "status": "projected"
     },
-    "mul-s53-neg-square": {
-      "diagnostics": [],
-      "status": "projected"
-    },
-    "mul-s53-square": {
-      "diagnostics": [],
-      "status": "projected"
-    },
     "mul-small": {
       "diagnostics": [],
       "status": "projected"
@@ -506,11 +602,11 @@
       "diagnostics": [],
       "status": "projected"
     },
-    "neg-b64": {
+    "neg-double": {
       "diagnostics": [],
       "status": "projected"
     },
-    "neg-double": {
+    "neg-i64-max": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -534,11 +630,7 @@
       "diagnostics": [],
       "status": "projected"
     },
-    "sub-b64": {
-      "diagnostics": [],
-      "status": "projected"
-    },
-    "sub-b64-self": {
+    "sub-i64-max-minus-s53": {
       "diagnostics": [],
       "status": "projected"
     },

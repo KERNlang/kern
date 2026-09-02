@@ -33,6 +33,7 @@ function tableRow(name) {
 const METERING = Object.freeze({
   'add-in-let': { args: () => ({}), source: POSITIONS['add-in-let']() },
   'add-in-return': { args: () => ({}), source: POSITIONS['add-in-return']() },
+  'assign-arith': { args: () => ({}), source: POSITIONS['assign-arith']() },
   'local-add': { args: () => ({}), source: POSITIONS['local-add']() },
   'mixed-neg-mul': { args: () => ({}), source: tableSource(tableRow('mixed-neg-mul')) },
   'neg-in-return': { args: () => ({}), source: POSITIONS['neg-in-return']() },
@@ -57,6 +58,7 @@ const METERING = Object.freeze({
 const EXECUTION_STEPS = Object.freeze({
   'add-in-let': 6,
   'add-in-return': 4,
+  'assign-arith': 8,
   'let-literal-control': 4,
   'local-add': 8,
   'mixed-neg-mul': 6,
@@ -98,6 +100,11 @@ test('the meter is precedence-blind, which is why the frozen value table is the 
 
 test('an arithmetic initializer costs its let plus exactly its two operand nodes', () => {
   assert.equal(EXECUTION_STEPS['add-in-let'] - EXECUTION_STEPS['let-literal-control'], 2);
+});
+
+test('an arithmetic assign is metered as one statement tick plus its value, exactly as a let is', () => {
+  assert.equal(EXECUTION_STEPS['assign-arith'] - EXECUTION_STEPS['add-in-let'], 2, 'one extra let plus its literal');
+  assert.equal(EXECUTION_STEPS['assign-arith'] - EXECUTION_STEPS['let-literal-control'], 4, 'one tick plus three nodes');
 });
 
 test('an integer parameter operand is charged once for inspection and once per read', () => {

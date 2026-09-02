@@ -6,6 +6,9 @@
     "add-under-comparison-in-if": "admitted",
     "add-under-comparison-in-let": "admitted",
     "arith-return-type-mismatch": "admitted",
+    "assign-arith": "admitted",
+    "assign-arith-params": "admitted",
+    "assign-neg": "admitted",
     "helper-body-arith": "admitted",
     "local-add": "admitted",
     "mul-in-return": "admitted",
@@ -19,6 +22,8 @@
     "param-ordering": "admitted",
     "refuse-arith-call-argument": "handler-entry-unsupported",
     "refuse-arith-if-cond": "handler-entry-unsupported",
+    "refuse-binary-async-operand": "handler-entry-unsupported",
+    "refuse-binary-async-operand-right": "handler-entry-unsupported",
     "refuse-bool-operands": "handler-entry-unsupported",
     "refuse-bool-param-left": "handler-entry-unsupported",
     "refuse-bool-param-right": "handler-entry-unsupported",
@@ -46,11 +51,12 @@
     "refuse-unary-decimal": "handler-entry-unsupported",
     "refuse-unary-list-param": "handler-entry-unsupported",
     "refuse-unary-not": "handler-entry-unsupported",
+    "refuse-unary-over-async-call": "handler-entry-unsupported",
     "refuse-unary-plus": "handler-entry-unsupported",
     "refuse-unary-text-param": "handler-entry-unsupported",
     "sub-in-return": "admitted"
   },
-  "behaviorTableSha256": "2b246c90fb715e6c576d88631aad1e7e83cd60b976cd636d0550249f5279ac57",
+  "behaviorTableSha256": "f7383415241fd86c33f6c6aec72f8033788771cc47308093bf15bd79b7311dfc",
   "binaryOperatorContracts": {
     "!=": {
       "family": "equality",
@@ -143,5 +149,6 @@
   ],
   "linkedUnaryOperators": [
     "-"
-  ]
+  ],
+  "precisionProbeSha256": "d60b49ec8d410e0501d99c533fc9e7cecdfb6ff698945fcd631110d71a382757"
 }

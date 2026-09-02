@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { LINKED_KIR_BINARY_OPERATORS } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
-import { BEHAVIOR_TABLE_RAW, POSITIONS, TABLE_ROWS, admission } from './k0-support.mjs';
+import { BEHAVIOR_TABLE_RAW, POSITIONS, PRECISION_PROBE_RAW, TABLE_ROWS, admission } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
@@ -71,6 +71,7 @@ async function recompute() {
     binaryOperatorContracts: binaryOperatorContracts(),
     linkedExpressionKinds: linkedExpressionKinds(contracts),
     linkedUnaryOperators: declaredUnion(contracts, 'LinkedKernKirUnaryOperator'),
+    precisionProbeSha256: sha256(PRECISION_PROBE_RAW),
   };
 }
 
@@ -143,6 +144,11 @@ test('the frozen behavior table is sealed by digest and every row is distinct', 
     sha256(BEHAVIOR_TABLE_RAW),
     'RT10PRE_TABLE_DRIFT: an expected value moved without its digest',
   );
+  assert.equal(
+    committed.precisionProbeSha256,
+    sha256(PRECISION_PROBE_RAW),
+    'RT10PRE_TABLE_DRIFT: the non-gating precision probe moved without its digest',
+  );
   assert.equal(new Set(TABLE_ROWS.map((row) => row.name)).size, TABLE_ROWS.length, 'row names must be unique');
   assert.equal(
     new Set(TABLE_ROWS.map((row) => row.expression)).size,
@@ -169,7 +175,7 @@ test('every position the golden calls admitted links, and every refusal is the c
   );
   assert.equal(
     Object.values(committed.admission).filter((value) => value === 'admitted').length,
-    18,
-    'eighteen positions are admitted by this slice',
+    21,
+    'twenty-one positions are admitted by this slice',
   );
 });

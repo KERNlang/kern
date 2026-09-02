@@ -36,16 +36,6 @@
       "name": "add-s53-twice"
     },
     {
-      "expected": "18446744073709551618",
-      "expression": "18446744073709551617 + 1",
-      "name": "add-b64"
-    },
-    {
-      "expected": "0",
-      "expression": "-18446744073709551617 + 18446744073709551617",
-      "name": "add-b64-cancel"
-    },
-    {
       "expected": "4",
       "expression": "7 - 3",
       "name": "sub-small"
@@ -74,16 +64,6 @@
       "expected": "1",
       "expression": "9007199254740993 - 9007199254740992",
       "name": "sub-s53"
-    },
-    {
-      "expected": "1",
-      "expression": "18446744073709551617 - 18446744073709551616",
-      "name": "sub-b64"
-    },
-    {
-      "expected": "0",
-      "expression": "-18446744073709551617 - -18446744073709551617",
-      "name": "sub-b64-self"
     },
     {
       "expected": "5",
@@ -121,21 +101,6 @@
       "name": "mul-neg-zero"
     },
     {
-      "expected": "81129638414606699710187514626049",
-      "expression": "9007199254740993 * 9007199254740993",
-      "name": "mul-s53-square"
-    },
-    {
-      "expected": "-81129638414606699710187514626049",
-      "expression": "-9007199254740993 * 9007199254740993",
-      "name": "mul-s53-neg-square"
-    },
-    {
-      "expected": "340282366920938463500268095579187314689",
-      "expression": "18446744073709551617 * 18446744073709551617",
-      "name": "mul-b64-square"
-    },
-    {
       "expected": "-7",
       "expression": "-7",
       "name": "neg-small"
@@ -144,11 +109,6 @@
       "expected": "-9007199254740993",
       "expression": "-9007199254740993",
       "name": "neg-s53"
-    },
-    {
-      "expected": "-18446744073709551617",
-      "expression": "-18446744073709551617",
-      "name": "neg-b64"
     },
     {
       "expected": "-3",
@@ -184,6 +144,31 @@
       "expected": "-25",
       "expression": "(2 + 3) * (4 - 9)",
       "name": "mixed-deep"
+    },
+    {
+      "expected": "9223372036854775807",
+      "expression": "4611686018427387904 + 4611686018427387904 - 1",
+      "name": "add-sub-i64-max"
+    },
+    {
+      "expected": "9214364837600034814",
+      "expression": "9223372036854775807 - 9007199254740993",
+      "name": "sub-i64-max-minus-s53"
+    },
+    {
+      "expected": "9223372030926249001",
+      "expression": "3037000499 * 3037000499",
+      "name": "mul-i64-near-max"
+    },
+    {
+      "expected": "-9223372030926249001",
+      "expression": "-3037000499 * 3037000499",
+      "name": "mul-i64-near-max-neg"
+    },
+    {
+      "expected": "-9223372036854775807",
+      "expression": "-9223372036854775807",
+      "name": "neg-i64-max"
     }
   ]
 }

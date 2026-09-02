@@ -23,6 +23,8 @@ const REFUSALS = Object.freeze([
   ['refuse-text-param-operands', 'KIR_BINARY_OPERAND_TYPE'],
   ['refuse-capability-operand', 'KIR_BINARY_OPERAND_TYPE'],
   ['refuse-call-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-binary-async-operand', 'KIR_BINARY_OPERAND_TYPE'],
+  ['refuse-binary-async-operand-right', 'KIR_BINARY_OPERAND_TYPE'],
   ['refuse-chained-comparison', 'KIR_BINARY_OPERAND_TYPE'],
   ['refuse-unary-text-param', 'KIR_UNARY_OPERAND_TYPE'],
   ['refuse-unary-bool-param', 'KIR_UNARY_OPERAND_TYPE'],
@@ -30,6 +32,7 @@ const REFUSALS = Object.freeze([
   ['refuse-unary-list-param', 'KIR_UNARY_OPERAND_TYPE'],
   ['refuse-unary-capability', 'KIR_UNARY_OPERAND_TYPE'],
   ['refuse-unary-call', 'KIR_UNARY_OPERAND_TYPE'],
+  ['refuse-unary-over-async-call', 'KIR_UNARY_OPERAND_TYPE'],
   ['refuse-arith-if-cond', 'KIR_IF_COND_NOT_BOOLEAN'],
   ['refuse-arith-call-argument', 'KIR_CALL_ARGUMENT_TYPE'],
   ['refuse-integer-helper-call', 'KIR_CALL_SIGNATURE_TYPE'],
@@ -44,6 +47,9 @@ const ADMITTED = Object.freeze([
   'add-under-comparison-in-if',
   'add-under-comparison-in-let',
   'arith-return-type-mismatch',
+  'assign-arith',
+  'assign-arith-params',
+  'assign-neg',
   'helper-body-arith',
   'local-add',
   'mul-in-return',
@@ -121,6 +127,32 @@ test('an integer parameter is a legal operand for both an RT-3 comparison and an
   }
   await assertLinkLabel(POSITIONS['refuse-bool-param-left'](), 'KIR_BINARY_OPERAND_TYPE');
   await assertLinkLabel(POSITIONS['refuse-unary-bool-param'](), 'KIR_UNARY_OPERAND_TYPE');
+});
+
+// The static-type resolver has to see through the call before the async position gate is
+// consulted: `compileLinkedExpression` finishes the whole operand tree, and only then does
+// `link.ts` call `assertAsyncCallPosition`. So an async call under a unary or as an arithmetic
+// operand is refused for its *type*, and the async-position label is unreachable for
+// arithmetic in this slice. Both rows fail if the unary arm forgets to resolve its argument.
+test('an async call under a unary or as an arithmetic operand is refused by the type gate first', async () => {
+  for (const position of ['refuse-unary-over-async-call']) {
+    const message = await assertLinkLabel(POSITIONS[position](), 'KIR_UNARY_OPERAND_TYPE');
+    assert.ok(!message.includes('KIR_ASYNC_CALL_EXPRESSION_POSITION'), position);
+  }
+  for (const position of ['refuse-binary-async-operand', 'refuse-binary-async-operand-right']) {
+    const message = await assertLinkLabel(POSITIONS[position](), 'KIR_BINARY_OPERAND_TYPE');
+    assert.ok(!message.includes('KIR_ASYNC_CALL_EXPRESSION_POSITION'), position);
+  }
+});
+
+test('an arithmetic value is admitted in an assign, the position rt10 accumulation needs', async () => {
+  for (const position of ['assign-arith', 'assign-arith-params', 'assign-neg']) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'projected', position);
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    assert.equal(row.python, 'admitted', position);
+  }
 });
 
 test('the two negative-literal and leading-zero forms are frontend walls, not link decisions', async () => {

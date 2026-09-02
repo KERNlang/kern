@@ -14,11 +14,22 @@ const F5_CANONICAL_LIMITS = JSON.parse(
 ).canonicalLimits;
 
 const TABLE_URL = new URL('./behavior-table.json', import.meta.url);
+const PRECISION_PROBE_URL = new URL('./precision-probe.json', import.meta.url);
 
 export const BEHAVIOR_TABLE_RAW = readFileSync(TABLE_URL, 'utf8');
 export const TABLE_ROWS = Object.freeze(
   JSON.parse(BEHAVIOR_TABLE_RAW).rows.map((row) => Object.freeze({ ...row })),
 );
+
+// Every gating row stays inside the signed 64-bit range the number-model tribunal reserved.
+// The rows beyond it live here, are executed and reported, and are asserted by nothing: their
+// contract belongs to the resource-governance slice that decides whether i64 overflow faults.
+export const PRECISION_PROBE_RAW = readFileSync(PRECISION_PROBE_URL, 'utf8');
+export const PRECISION_ROWS = Object.freeze(
+  JSON.parse(PRECISION_PROBE_RAW).rows.map((row) => Object.freeze({ ...row })),
+);
+
+export const INT64_LIMIT = 2n ** 63n;
 
 export const BOOL_FLAG = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
 export const TEXT_PARAM = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);
@@ -69,6 +80,13 @@ export const INT_PARAM_HELPER = Object.freeze({
 
 // The helper-body position returns a boolean, because an integer-returning helper cannot be
 // called: the arithmetic lives inside the helper and leaves it through a comparison.
+export const ASYNC_BOOL_HELPER = Object.freeze({
+  body: Object.freeze([CAPABILITY_REPLY, 'return value="true"']),
+  name: 'ah',
+  parameters: Object.freeze([]),
+  returns: 'boolean',
+});
+
 export const ARITHMETIC_BODY_HELPER = Object.freeze({
   body: Object.freeze(['let name=x value="1 + 2"', 'return value="x > 2"']),
   name: 'g',
@@ -174,6 +192,15 @@ export const POSITIONS = Object.freeze({
   'add-under-comparison-in-if': () =>
     route(['if cond="1 + 2 > 2"', `  print value=${lit('y')}`, `return value=${lit('z')}`]),
   'add-under-comparison-in-let': () => route(['let name=b value="1 + 2 > 2"', 'return value="b"'], { returns: 'boolean' }),
+  'assign-arith': () =>
+    route(['let name=n value="1"', 'assign target="n" value="n + 1"', 'return value="n"'], { returns: 'integer' }),
+  'assign-arith-params': () =>
+    route(['let name=n value="0"', 'assign target="n" value="a + b"', 'return value="n"'], {
+      parameters: INT_AB,
+      returns: 'integer',
+    }),
+  'assign-neg': () =>
+    route(['let name=n value="5"', 'assign target="n" value="-n"', 'return value="n"'], { returns: 'integer' }),
   'arith-return-type-mismatch': () => route(['return value="1 + 2"'], { returns: 'boolean' }),
   'helper-body-arith': () => withHelper(ARITHMETIC_BODY_HELPER, ['return value="g()"'], { returns: 'boolean' }),
   'local-add': () =>
@@ -193,6 +220,9 @@ export const POSITIONS = Object.freeze({
   'refuse-arith-call-argument': () =>
     withHelper(SYNC_BOOL_PARAM_HELPER, ['return value="hb(1 + 2)"'], { returns: 'boolean' }),
   'refuse-arith-if-cond': () => route(['if cond="1 + 2"', `  print value=${lit('y')}`, `return value=${lit('z')}`]),
+  'refuse-binary-async-operand': () => withHelper(ASYNC_BOOL_HELPER, ['return value="ah() + 1"'], { returns: 'integer' }),
+  'refuse-binary-async-operand-right': () =>
+    withHelper(ASYNC_BOOL_HELPER, ['return value="1 + ah()"'], { returns: 'integer' }),
   'refuse-bool-operands': () => route(['return value="true + true"'], { returns: 'integer' }),
   'refuse-bool-param-left': () => route(['return value="flag + 1"'], { parameters: BOOL_FLAG, returns: 'integer' }),
   'refuse-bool-param-right': () => route(['return value="1 + flag"'], { parameters: BOOL_FLAG, returns: 'integer' }),
@@ -220,6 +250,8 @@ export const POSITIONS = Object.freeze({
   'refuse-unary-call': () => withHelper(SYNC_BOOL_HELPER, ['return value="-h()"'], { returns: 'integer' }),
   'refuse-unary-capability': () => route([CAPABILITY_REPLY, 'return value="-reply"'], { returns: 'integer' }),
   'refuse-unary-decimal': () => route(['return value="-1.5"'], { returns: 'integer' }),
+  'refuse-unary-over-async-call': () =>
+    withHelper(ASYNC_BOOL_HELPER, ['return value="-(ah())"'], { returns: 'integer' }),
   'refuse-unary-list-param': () => route(['return value="-xs"'], { parameters: INT_LIST_PARAM, returns: 'integer' }),
   'refuse-unary-not': () => route(['return value="!flag"'], { parameters: BOOL_FLAG, returns: 'boolean' }),
   'refuse-unary-plus': () => route(['return value="+5"'], { returns: 'integer' }),
@@ -227,6 +259,7 @@ export const POSITIONS = Object.freeze({
 });
 
 export const POSITION_ARGUMENTS = Object.freeze({
+  'assign-arith-params': () => intArgs({ a: '4', b: '5' }),
   'param-add': () => intArgs({ a: '9007199254740993', b: '1' }),
   'param-add-under-comparison-in-if': () => intArgs({ a: '1', b: '2', c: '2' }),
   'param-neg': () => intArgs({ a: '9007199254740993' }),
@@ -238,6 +271,8 @@ export const POSITION_ARGUMENTS = Object.freeze({
 // node over a non-negative canonical payload.
 export const SHAPE_POSITIONS = Object.freeze([
   'add-in-let',
+  'assign-arith',
+  'assign-neg',
   'add-under-comparison-in-if',
   'helper-body-arith',
   'neg-in-return',

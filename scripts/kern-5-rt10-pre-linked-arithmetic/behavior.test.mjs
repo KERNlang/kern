@@ -2,12 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  INT64_LIMIT,
   POSITIONS,
   POSITION_ARGUMENTS,
+  PRECISION_ROWS,
   TABLE_ROWS,
   between,
   emittedArtifacts,
   integerResult,
+  route,
   runtimeRequest,
   tableSource,
   threeLegBytes,
@@ -17,6 +20,16 @@ async function envelope(source, args, requestId) {
   const { legs } = await threeLegBytes(source, runtimeRequest(requestId, args));
   return legs.direct.envelope;
 }
+
+test('every gating row stays inside the signed 64-bit range the number model reserves', () => {
+  for (const row of TABLE_ROWS) {
+    const value = BigInt(row.expected);
+    assert.ok(value < INT64_LIMIT && value >= -INT64_LIMIT, `${row.name} result must stay inside i64`);
+    for (const operand of row.expression.matchAll(/[0-9]{10,}/gu)) {
+      assert.ok(BigInt(operand[0]) < INT64_LIMIT, `${row.name} operand ${operand[0]} must stay inside i64`);
+    }
+  }
+});
 
 for (const row of TABLE_ROWS) {
   test(`${row.expression} evaluates to the frozen constant ${row.expected} on all three legs`, async () => {
@@ -30,6 +43,26 @@ for (const row of TABLE_ROWS) {
     assert.deepEqual([...result.events], []);
   });
 }
+
+// Non-gating by ruling: the range contract beyond i64 belongs to the resource-governance
+// slice, which may turn these into fault rows. The probe still runs on all three legs and
+// prints observed against frozen so a divergence is visible without gating this slice.
+test('the beyond-i64 precision probe reports observed against frozen and asserts nothing', async () => {
+  const observations = [];
+  for (const row of PRECISION_ROWS) {
+    let observed;
+    try {
+      const result = await envelope(tableSource(row), {}, `rt10-pre-precision-${row.name}`);
+      observed =
+        result.outcome === 'success' ? (result.result?.value?.value ?? '<no integer payload>') : `<${result.diagnostics[0]?.code}>`;
+    } catch (error) {
+      observed = `<${error.message.split('\n')[0]}>`;
+    }
+    observations.push(`${row.name}\t${row.expression}\tfrozen=${row.expected}\tobserved=${observed}`);
+  }
+  console.log(['RT10PRE_PRECISION_PROBE (non-gating)', ...observations].join('\n'));
+  assert.equal(observations.length, PRECISION_ROWS.length);
+});
 
 test('the only reachable neg(0) canonicalizes to "0", never to "-0"', async () => {
   const result = await envelope(POSITIONS['neg-through-binding-zero'](), {}, 'rt10-pre-neg-zero');
@@ -49,6 +82,19 @@ test('integer parameters are arithmetic operands, so the operands can come throu
     'rt10-pre-param-neg',
   );
   assert.deepEqual(negated.result, integerResult('-9007199254740993'));
+});
+
+test('an assign rebinds a let through an arithmetic value on all three legs', async () => {
+  const selfReferential = await envelope(POSITIONS['assign-arith'](), {}, 'rt10-pre-assign-arith');
+  assert.deepEqual(selfReferential.result, integerResult('2'), 'the target is read before it is written');
+  const negated = await envelope(POSITIONS['assign-neg'](), {}, 'rt10-pre-assign-neg');
+  assert.deepEqual(negated.result, integerResult('-5'));
+  const fromParameters = await envelope(
+    POSITIONS['assign-arith-params'](),
+    POSITION_ARGUMENTS['assign-arith-params'](),
+    'rt10-pre-assign-params',
+  );
+  assert.deepEqual(fromParameters.result, integerResult('9'));
 });
 
 test('an arithmetic result is admissible under a comparison in every condition position', async () => {
@@ -139,6 +185,58 @@ test('unary negation lowers to the named helper on both emitted legs', async () 
   const regions = specializedRegions(await emittedArtifacts(POSITIONS['neg-in-return']()));
   assert.equal(occurrences(regions.javascript, '__neg('), 1);
   assert.equal(occurrences(regions.python, '_neg('), 1);
+});
+
+test('all four helpers appear on both emitted legs across one arithmetic corpus', async () => {
+  const sources = [
+    tableSource(TABLE_ROWS.find((row) => row.name === 'add-small')),
+    tableSource(TABLE_ROWS.find((row) => row.name === 'sub-small')),
+    tableSource(TABLE_ROWS.find((row) => row.name === 'mul-small')),
+    POSITIONS['neg-in-return'](),
+  ];
+  const javascript = [];
+  const python = [];
+  for (const source of sources) {
+    const regions = specializedRegions(await emittedArtifacts(source));
+    javascript.push(regions.javascript);
+    python.push(regions.python);
+  }
+  const joinedJavaScript = javascript.join('\n');
+  const joinedPython = python.join('\n');
+  for (const helper of ['__add(', '__sub(', '__mul(', '__neg(']) {
+    assert.ok(joinedJavaScript.includes(helper), `the emitted JavaScript must call ${helper}`);
+  }
+  for (const helper of ['_add(', '_sub(', '_mul(', '_neg(']) {
+    assert.ok(joinedPython.includes(helper), `the emitted Python must call ${helper}`);
+  }
+});
+
+// A host-infix lowering would put a bare arithmetic operator between two tagged operands in
+// the statement region. Diagnostic codes carry hyphens inside string literals, so the scan
+// strips quoted text first; helper *names* carry no arithmetic character at all, which is why
+// the arithmetic-free control measures zero and every arithmetic region must too.
+function hostArithmetic(region) {
+  return region.replace(/'[^']*'/gu, "''").replace(/"[^"]*"/gu, '""').match(/[+*-]/gu);
+}
+
+test('neither emitted leg applies a host arithmetic operator to a KIR integer', async () => {
+  const control = specializedRegions(await emittedArtifacts(route(['return value="7"'], { returns: 'integer' })));
+  for (const leg of ['javascript', 'python']) {
+    assert.deepEqual(hostArithmetic(control[leg]), null, `the ${leg} control region must be operator free`);
+  }
+  const fixtures = ['add-small', 'sub-small', 'mul-small', 'mixed-deep'].map((name) =>
+    tableSource(TABLE_ROWS.find((row) => row.name === name)),
+  );
+  for (const source of [...fixtures, POSITIONS['neg-in-return']()]) {
+    const regions = specializedRegions(await emittedArtifacts(source));
+    for (const leg of ['javascript', 'python']) {
+      assert.deepEqual(
+        hostArithmetic(regions[leg]),
+        null,
+        `RT10PRE_HOST_INFIX: the emitted ${leg} used a host operator instead of a named helper`,
+      );
+    }
+  }
 });
 
 // Order is unobservable behaviourally in this slice — every operator is total and no operand

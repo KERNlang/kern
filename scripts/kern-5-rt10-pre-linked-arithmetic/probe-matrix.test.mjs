@@ -141,3 +141,25 @@ test('F5 projects arithmetic inside a helper body, so the helper position is a l
     right: { kind: 'integer', value: '2' },
   });
 });
+
+test('F5 projects an arithmetic and a unary value into an assign, the rt10 accumulator shape', async () => {
+  const committed = await matrix();
+  assert.equal(committed.positions['assign-arith'].status, 'projected');
+  assert.deepEqual(committed.shapes['assign-arith'][1], {
+    kind: 'assign',
+    properties: {
+      target: { kind: 'identifier', name: 'n' },
+      value: {
+        kind: 'binary',
+        left: { kind: 'identifier', name: 'n' },
+        op: '+',
+        right: { kind: 'integer', value: '1' },
+      },
+    },
+  });
+  assert.deepEqual(committed.shapes['assign-neg'][1].properties.value, {
+    argument: { kind: 'identifier', name: 'n' },
+    kind: 'unary',
+    op: '-',
+  });
+});
