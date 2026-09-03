@@ -37,6 +37,14 @@ function decimalDigitsFloor(magnitude: bigint): number {
   return bits <= 1 ? 0 : Number((BigInt(bits - 1) * 30102n) / 100000n);
 }
 
+// True only when the binary size alone proves the canonical decimal text cannot fit, so the
+// quadratic conversion is skipped. `false` means inconclusive, not "fits": the exact conversion
+// and `text` still decide. Both emitted kernels carry a transliteration of this predicate.
+export function arithmeticResultExceedsLimit(value: bigint, maxStringBytes: number): boolean {
+  const sign = value < 0n ? 1 : 0;
+  return decimalDigitsFloor(sign === 1 ? -value : value) + sign >= maxStringBytes + 1;
+}
+
 export class RuntimeMeter {
   readonly limits: KernKirLimits;
   private readonly checkInterruption: () => void;
@@ -72,8 +80,7 @@ export class RuntimeMeter {
   // rather than by the operand magnitude. The byte count includes the sign, here and in `text`.
   integerText(value: bigint, label: string): string {
     this.check();
-    const sign = value < 0n ? 1 : 0;
-    if (decimalDigitsFloor(sign === 1 ? -value : value) + sign >= this.limits.maxStringBytes + 1) {
+    if (arithmeticResultExceedsLimit(value, this.limits.maxStringBytes)) {
       throw new KernKirFault('runtime-limit-exceeded', 'execution', `${label} exceeds string limit`);
     }
     return this.text(String(value), label);

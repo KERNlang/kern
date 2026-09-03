@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { arithmeticResultExceedsLimit } from '../../packages/core/dist/kir-runtime/inspect.js';
 import {
   INT64_LIMIT,
   POSITIONS,
@@ -409,4 +410,52 @@ test('the emitted Python kernel leaves the process int/str digit limit exactly a
     CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
     'RT10PRE_DIGIT_WINDOW_LEAK: the conversion window must be restored in its finally',
   );
+});
+
+// The pre-check is the cost bound: a result the binary size alone proves cannot fit is refused
+// without paying its quadratic decimal conversion. `false` means inconclusive, never "fits" - the
+// exact conversion and `meter.text` still decide - so these rows pin the boundary at which the
+// cheap path takes over, which is the only thing that can silently degrade to "never fires".
+test('the size pre-check is decisive exactly from its designed boundary, sign included', () => {
+  assert.equal(
+    arithmeticResultExceedsLimit(2n ** 70n, SIZE_LIMIT_BYTES),
+    true,
+    'RT10PRE_PRECHECK_BOUNDARY: the pre-check must fire at its boundary, not defer to the conversion',
+  );
+  assert.equal(arithmeticResultExceedsLimit(2n ** 69n, SIZE_LIMIT_BYTES), false, '2^69 is inconclusive');
+  assert.equal(
+    arithmeticResultExceedsLimit(-(2n ** 69n), SIZE_LIMIT_BYTES),
+    true,
+    'RT10PRE_PRECHECK_SIGN: the minus sign is one of the counted bytes in the pre-check too',
+  );
+  assert.equal(
+    arithmeticResultExceedsLimit(squaringChainValue(), SIZE_LIMIT_BYTES),
+    true,
+    'the far case is the one the cost bound exists for',
+  );
+});
+
+test('the size pre-check never refuses a result that fits, and defers when it cannot prove', () => {
+  for (const value of [0n, 1n, -1n, 9999999999n * 9999999999n, -(1000000000n * 1000000000n)]) {
+    assert.equal(
+      arithmeticResultExceedsLimit(value, SIZE_LIMIT_BYTES),
+      false,
+      `RT10PRE_PRECHECK_UNSOUND: ${value} fits in ${SIZE_LIMIT_BYTES} bytes and must not be pre-refused`,
+    );
+  }
+  assert.equal(
+    arithmeticResultExceedsLimit(10000000000n * 10000000000n, SIZE_LIMIT_BYTES),
+    false,
+    'one byte over is inconclusive from the bit length alone, so the exact conversion decides it',
+  );
+  for (let exponent = 0n; exponent <= 512n; exponent += 1n) {
+    for (const value of [2n ** exponent, -(2n ** exponent)]) {
+      if (arithmeticResultExceedsLimit(value, SIZE_LIMIT_BYTES)) {
+        assert.ok(
+          value.toString().length > SIZE_LIMIT_BYTES,
+          `RT10PRE_PRECHECK_UNSOUND: ${value} was pre-refused but its canonical text fits`,
+        );
+      }
+    }
+  }
 });
