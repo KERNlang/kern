@@ -122,8 +122,8 @@ CI lane; no runtime or public API compatibility changes.
 - **[VERIFIED]** The complete Node 22 family aggregate passed: R1 22, R2 16,
   C-PY-1 29, CLI shadow 16, RT2 35, RT3 142, RT4 50, RT5 86, RT6 52,
   full census 1/240, focused census 10, and RT8 28
-  (`PATH=/Users/nicolascukas/.nvm/versions/node/v22.22.0/bin:$PATH pnpm
-  test:kern-5-script-family`, 2026-09-02).
+  (`pnpm test:kern-5-script-family` on the repository's pinned Node 22 toolchain,
+  2026-09-02).
 - **[VERIFIED]** `pnpm build:packages`, `pnpm lint`, `git diff --check`, and
   Ruby YAML parsing of `.github/workflows/ci.yml` passed on the candidate. The
   root playground build alone is not evidence for this slice because the
