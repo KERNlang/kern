@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { decodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
 import { ENTRY, moduleSource } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
@@ -134,6 +137,17 @@ export function limitRequest(requestId, maxStringBytes) {
 // is past CPython's 4300-digit int/str conversion cap and inside the suite's maxStringBytes.
 export const SQUARING_CHAIN = Object.freeze({ depth: 9, seed: '9999999999' });
 
+// The size fixtures all run at this limit. The three products below are the whole sign contract:
+// 20 unsigned digits fit exactly, 19 digits plus a minus sign fit exactly, and 20 digits plus a
+// minus sign do not — so the byte count is the canonical text including the sign, not the digits.
+export const SIZE_LIMIT_BYTES = 20;
+const AT_LIMIT_PRODUCT = '9999999999 * 9999999999';
+const OVER_LIMIT_PRODUCT = '10000000000 * 10000000000';
+const NEGATIVE_AT_LIMIT_PRODUCT = '-1000000000 * 1000000000';
+
+// Longer than SIZE_LIMIT_BYTES, so the literal itself cannot enter the runtime at that limit.
+export const OVERSIZED_INTEGER_LITERAL = '9'.repeat(SIZE_LIMIT_BYTES + 10);
+
 export function squaringChainValue() {
   let value = BigInt(SQUARING_CHAIN.seed);
   for (let index = 0; index < SQUARING_CHAIN.depth; index += 1) value *= value;
@@ -147,6 +161,46 @@ function squaringChainSource() {
   }
   lines.push(`return value="x${SQUARING_CHAIN.depth}"`);
   return route(lines, { returns: 'integer' });
+}
+
+// One committed event before the arithmetic and one statement after it, so the failure envelope
+// says where the fault fired: the first print survives it, the second never runs.
+function faultPosition(expression) {
+  return route(
+    [
+      `print value=${lit('a')}`,
+      `let name=n value="${expression}"`,
+      `print value=${lit('b')}`,
+      'return value="n"',
+    ],
+    { returns: 'integer' },
+  );
+}
+
+// The confined digit window (RT10P-C15a) mutates interpreter state, so its restore has to be
+// observed from outside the envelope: this driver reports the limit at import, after import and
+// after a big-integer execution alongside the envelope the run produced.
+export function pythonDigitWindowRun(artifactBytes, request) {
+  const executable = process.env.KERN_PYTHON312 ?? 'python3.12';
+  const version = spawnSync(executable, ['--version'], { encoding: 'utf8' });
+  assert.equal(version.status, 0, version.stderr);
+  const directory = mkdtempSync(join(tmpdir(), 'kern-rt10-digit-window-'));
+  const entry = join(directory, 'entry.py');
+  const input = join(directory, 'input.json');
+  const output = join(directory, 'output.json');
+  writeFileSync(entry, artifactBytes);
+  writeFileSync(input, JSON.stringify(request));
+  const driver = new URL('./digit-window-driver.py', import.meta.url).pathname;
+  const run = spawnSync(executable, ['-I', driver, entry, input, output], {
+    cwd: directory,
+    encoding: 'utf8',
+    env: { ...process.env, PYTHONNOUSERSITE: '1', PYTHONPATH: '' },
+    timeout: 20_000,
+  });
+  assert.equal(run.signal, null, `digit-window driver timed out: ${run.stderr}`);
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stderr, '', 'the digit-window driver must not emit stderr');
+  return JSON.parse(readFileSync(output, 'utf8'));
 }
 
 export function tableSource(row) {
@@ -245,18 +299,22 @@ export const POSITIONS = Object.freeze({
   'param-ordering': () => route(['return value="a < b"'], { parameters: INT_AB, returns: 'boolean' }),
   'sub-in-return': () => route(['return value="7 - 3"'], { returns: 'integer' }),
   'digits-beyond-cpython-cap': () => squaringChainSource(),
-  'size-at-limit': () => route(['return value="9999999999 * 9999999999"'], { returns: 'integer' }),
-  'size-fault-position': () =>
+  'refuse-oversized-integer-literal': () =>
+    route([`return value="${OVERSIZED_INTEGER_LITERAL} + 1"`], { returns: 'integer' }),
+  'size-at-limit': () => route([`return value="${AT_LIMIT_PRODUCT}"`], { returns: 'integer' }),
+  'size-at-limit-negative': () => route([`return value="${NEGATIVE_AT_LIMIT_PRODUCT}"`], { returns: 'integer' }),
+  'size-fault-position': () => faultPosition(OVER_LIMIT_PRODUCT),
+  'size-negate-fitting': () =>
     route(
-      [
-        `print value=${lit('a')}`,
-        'let name=n value="10000000000 * 10000000000"',
-        `print value=${lit('b')}`,
-        'return value="n"',
-      ],
+      [`let name=n value="${AT_LIMIT_PRODUCT}"`, 'assign target="n" value="-n"', 'return value="n"'],
       { returns: 'integer' },
     ),
-  'size-over-limit': () => route(['return value="10000000000 * 10000000000"'], { returns: 'integer' }),
+  'size-nested-control': () =>
+    route([`return value="(${AT_LIMIT_PRODUCT}) + (2 * 3)"`], { returns: 'integer' }),
+  'size-nested-left': () => faultPosition(`(${OVER_LIMIT_PRODUCT}) + (2 * 3)`),
+  'size-nested-right': () => faultPosition(`(2 * 3) + (${OVER_LIMIT_PRODUCT})`),
+  'size-over-limit': () => route([`return value="${OVER_LIMIT_PRODUCT}"`], { returns: 'integer' }),
+  'size-over-limit-negative': () => route([`return value="-${AT_LIMIT_PRODUCT}"`], { returns: 'integer' }),
   'refuse-arith-call-argument': () =>
     withHelper(SYNC_BOOL_PARAM_HELPER, ['return value="hb(1 + 2)"'], { returns: 'boolean' }),
   'refuse-arith-if-cond': () => route(['if cond="1 + 2"', `  print value=${lit('y')}`, `return value=${lit('z')}`]),

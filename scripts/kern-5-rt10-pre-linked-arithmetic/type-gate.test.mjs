@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { FRONTEND_WALLS, POSITIONS, admission, assertLinkLabel } from './k0-support.mjs';
+import {
+  FRONTEND_WALLS,
+  OVERSIZED_INTEGER_LITERAL,
+  POSITIONS,
+  SIZE_LIMIT_BYTES,
+  admission,
+  assertLinkLabel,
+  limitRequest,
+  threeLegBytes,
+} from './k0-support.mjs';
 
 // Every row is (position, label). The closed link code is the same for all of them, so the
 // label text is the only thing that says which gate fired.
@@ -159,5 +168,45 @@ test('the two negative-literal and leading-zero forms are frontend walls, not li
   for (const position of FRONTEND_WALLS) {
     const row = await admission(POSITIONS[position]());
     assert.equal(row.projection, 'not-projected', position);
+  }
+});
+
+// The result bound (RT10P-C15) is only half a bound: an oversized integer *literal* must not be
+// able to enter the runtime either, or the operand side is unbounded. It cannot — `canonicalScalar`
+// (`linked-kir-program/expression.ts:39-50`) already runs every integer literal's canonical text
+// through `meter.text`, so the refusal is the existing per-string limit fault at link.
+test('an integer literal longer than maxStringBytes is refused before it can be an operand', async () => {
+  assert.ok(
+    OVERSIZED_INTEGER_LITERAL.length > SIZE_LIMIT_BYTES,
+    'the fixture literal must exceed the limit it is tested against',
+  );
+  const { legs } = await threeLegBytes(
+    POSITIONS['refuse-oversized-integer-literal'](),
+    limitRequest('rt10p-big-literal', SIZE_LIMIT_BYTES),
+  );
+  const result = legs.direct.envelope;
+  assert.equal(
+    result.outcome,
+    'failure',
+    'RT10PRE_LITERAL_UNBOUNDED: an oversized integer literal reached the runtime',
+  );
+  assert.deepEqual(
+    [...result.diagnostics],
+    [{ category: 'runtime', code: 'runtime-limit-exceeded', phase: 'execution' }],
+  );
+  assert.deepEqual([...result.events], []);
+});
+
+test('the same literal is admitted under the suite default limit, so the gate is the limit', async () => {
+  const row = await admission(POSITIONS['refuse-oversized-integer-literal']());
+  assert.equal(row.projection, 'projected');
+  assert.equal(row.rt1, 'admitted');
+  assert.equal(row.javascript, 'admitted');
+  assert.equal(row.python, 'admitted');
+});
+
+test('every magnitude-amplifying operator stays fail closed, so the bound cannot be dodged', async () => {
+  for (const position of ['refuse-pow', 'refuse-shift']) {
+    await assertLinkLabel(POSITIONS[position](), 'KIR_BINARY_OP_UNSUPPORTED');
   }
 });

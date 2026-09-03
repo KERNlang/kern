@@ -4,6 +4,8 @@ import test from 'node:test';
 
 import {
   POSITIONS,
+  SIZE_LIMIT_BYTES,
+  limitRequest,
   POSITION_ARGUMENTS,
   TABLE_ROWS,
   between,
@@ -23,6 +25,8 @@ import {
 } from './k0-support.mjs';
 
 const RT1_EXPRESSION_URL = new URL('../../packages/core/src/kir-runtime/expression.ts', import.meta.url);
+
+const SIZE_BUDGETS = Object.freeze(Array.from({ length: 90 }, (_unused, index) => index + 1));
 
 function tableRow(name) {
   const row = TABLE_ROWS.find((entry) => entry.name === name);
@@ -50,6 +54,7 @@ const METERING = Object.freeze({
   'return-binary-control': { args: () => ({}), source: route(['return value="1 < 2"'], { returns: 'boolean' }) },
   'return-literal-control': { args: () => ({}), source: route(['return value="1"'], { returns: 'integer' }) },
   'size-at-limit': { args: () => ({}), source: POSITIONS['size-at-limit']() },
+  'size-nested-control': { args: () => ({}), source: POSITIONS['size-nested-control']() },
 });
 
 // Hand-derived from the base-measured model: execution steps are one per executed statement
@@ -73,6 +78,7 @@ const EXECUTION_STEPS = Object.freeze({
   'return-binary-control': 4,
   'return-literal-control': 2,
   'size-at-limit': 4,
+  'size-nested-control': 8,
 });
 
 test('every RT-10-pre metering fixture consumes exactly the pinned number of execution steps', async () => {
@@ -278,4 +284,72 @@ test('pre-cancellation fails closed before arithmetic runs, byte-identically on 
   assert.equal(direct.diagnostics[0]?.code, 'execution-cancelled');
   assert.deepEqual([...direct.events], []);
   assert.deepEqual(Buffer.from(envelopeBytes(emitted.envelope)), Buffer.from(envelopeBytes(direct)));
+});
+
+// The size fault and the step-limit fault share one code and one envelope shape, so the step at
+// which a nested intermediate faults is not separable from the envelope. What is pinned instead:
+// the structurally identical in-limit twin costs exactly 8 execution steps (EXECUTION_STEPS), and
+// neither overflowing variant succeeds at any budget in the scanned range - so the fault is the
+// result bound, never a step budget the fixture happened to exhaust.
+test('a nested intermediate that overflows never succeeds at any step budget', async () => {
+  for (const position of ['size-nested-left', 'size-nested-right']) {
+    const verified = await project(POSITIONS[position]());
+    assert.ok(verified !== undefined, `${position} must project`);
+    const events = [];
+    for (const maxSteps of SIZE_BUDGETS) {
+      const base = limitRequest(`nest-${maxSteps}`, SIZE_LIMIT_BYTES);
+      const envelope = await executeKernKir(
+        verified,
+        { ...base, limits: { ...base.limits, maxSteps } },
+        provider([]),
+      );
+      assert.equal(
+        envelope.outcome,
+        'failure',
+        `RT10PRE_NESTED_SIZE_ESCAPE: ${position} succeeded at maxSteps ${maxSteps}`,
+      );
+      assert.equal(envelope.diagnostics[0]?.code, 'runtime-limit-exceeded', position);
+      events.push(envelope.events.length);
+    }
+    assert.deepEqual(
+      [...new Set(events)].sort(),
+      [0, 1],
+      `${position} must commit the print ahead of the fault once the budget reaches it`,
+    );
+    assert.ok(
+      events.every((count, index) => index === 0 || count >= events[index - 1]),
+      'committed events must be monotonic in the step budget',
+    );
+    assert.equal(
+      events[events.length - 1],
+      1,
+      `RT10PRE_SIZE_FAULT_POSITION: ${position} must never commit the print after the arithmetic`,
+    );
+  }
+});
+
+test('the in-limit nested twin succeeds exactly once its pinned budget is reached', async () => {
+  const verified = await project(POSITIONS['size-nested-control']());
+  assert.ok(verified !== undefined, 'the nested control must project');
+  const outcomes = [];
+  for (const maxSteps of SIZE_BUDGETS) {
+    const base = limitRequest(`nest-ok-${maxSteps}`, SIZE_LIMIT_BYTES);
+    const envelope = await executeKernKir(
+      verified,
+      { ...base, limits: { ...base.limits, maxSteps } },
+      provider([]),
+    );
+    outcomes.push(envelope.outcome);
+  }
+  const first = outcomes.indexOf('success');
+  assert.ok(first >= 0, 'the nested control must succeed inside the scanned budget range');
+  assert.ok(
+    outcomes.slice(first).every((outcome) => outcome === 'success'),
+    'step consumption must be monotonic in the step budget',
+  );
+  assert.equal(
+    (await directStepBudget(POSITIONS['size-nested-control'](), {}, 'rt10p-nest-link')).execution,
+    EXECUTION_STEPS['size-nested-control'],
+    'RT10PRE_METER_DRIFT: the nested control must cost its pinned execution steps',
+  );
 });

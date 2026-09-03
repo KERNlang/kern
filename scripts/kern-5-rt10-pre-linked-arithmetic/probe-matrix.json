@@ -168,6 +168,10 @@
       ],
       "status": "rejected"
     },
+    "refuse-oversized-integer-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "refuse-pow": {
       "diagnostics": [],
       "status": "projected"
@@ -228,11 +232,35 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "size-at-limit-negative": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "size-fault-position": {
       "diagnostics": [],
       "status": "projected"
     },
+    "size-negate-fitting": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-nested-control": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-nested-left": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-nested-right": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "size-over-limit": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-over-limit-negative": {
       "diagnostics": [],
       "status": "projected"
     },

@@ -6,12 +6,16 @@ import {
   POSITIONS,
   POSITION_ARGUMENTS,
   PRECISION_ROWS,
+  SIZE_LIMIT_BYTES,
   SQUARING_CHAIN,
   TABLE_ROWS,
   between,
   emittedArtifacts,
   integerResult,
+  compilePython,
   limitRequest,
+  project,
+  pythonDigitWindowRun,
   route,
   runtimeRequest,
   squaringChainValue,
@@ -257,8 +261,23 @@ test('the emitted operands stay in source order, left before right', async () =>
   );
 });
 
-const SIZE_LIMIT_BYTES = 20;
 const LIMIT_DIAGNOSTIC = Object.freeze({ category: 'runtime', code: 'runtime-limit-exceeded', phase: 'execution' });
+
+async function sizeLegs(position, requestId) {
+  const { legs } = await threeLegBytes(POSITIONS[position](), limitRequest(requestId, SIZE_LIMIT_BYTES));
+  return legs.direct.envelope;
+}
+
+function assertSizeFault(result, position, events = []) {
+  assert.equal(
+    result.outcome,
+    'failure',
+    `RT10PRE_RESULT_SIZE_UNBOUNDED: ${position} minted an integer payload past maxStringBytes`,
+  );
+  assert.deepEqual([...result.diagnostics], [LIMIT_DIAGNOSTIC], position);
+  assert.deepEqual(result.result, { presence: 'absent' }, position);
+  assert.deepEqual([...result.events], events, `RT10PRE_SIZE_FAULT_POSITION: ${position}`);
+}
 
 test('an arithmetic result exactly at maxStringBytes is admitted on all three legs', async () => {
   const { legs } = await threeLegBytes(
@@ -313,4 +332,81 @@ test('an exact result past CPython\'s 4300-digit conversion cap agrees on all th
   );
   assert.deepEqual(result.result, integerResult(expected));
   assert.equal(SQUARING_CHAIN.depth, 9);
+});
+
+test('a negative result whose canonical text is exactly maxStringBytes is admitted on all three legs', async () => {
+  const result = await sizeLegs('size-at-limit-negative', 'rt10p-neg-ok');
+  assert.equal(result.outcome, 'success');
+  assert.deepEqual(result.result, integerResult('-1000000000000000000'));
+  assert.equal(
+    result.result.value.value.length,
+    SIZE_LIMIT_BYTES,
+    'the sign is one of the counted bytes, so 19 digits plus a minus sign is exactly at the limit',
+  );
+});
+
+test('a negative result one byte over maxStringBytes faults: the sign is counted', async () => {
+  assertSizeFault(await sizeLegs('size-over-limit-negative', 'rt10p-neg-ov'), 'size-over-limit-negative');
+});
+
+test('a product that fits is admitted and its negation is not, which only the sign explains', async () => {
+  const fits = await sizeLegs('size-at-limit', 'rt10p-sign-ok');
+  assert.equal(fits.outcome, 'success');
+  assert.equal(fits.result.value.value.length, SIZE_LIMIT_BYTES);
+  assertSizeFault(await sizeLegs('size-negate-fitting', 'rt10p-sign-neg'), 'size-negate-fitting');
+});
+
+test('a nested left intermediate that overflows faults at its own operator node', async () => {
+  assertSizeFault(await sizeLegs('size-nested-left', 'rt10p-nest-l'), 'size-nested-left', [
+    { op: 'stdout', text: 'a' },
+  ]);
+});
+
+test('a nested right intermediate that overflows faults after the left one is fully evaluated', async () => {
+  assertSizeFault(await sizeLegs('size-nested-right', 'rt10p-nest-r'), 'size-nested-right', [
+    { op: 'stdout', text: 'a' },
+  ]);
+});
+
+test('the nested control with both intermediates in limit succeeds, so the shape is not the fault', async () => {
+  const result = await sizeLegs('size-nested-control', 'rt10p-nest-ok');
+  assert.equal(result.outcome, 'success');
+  assert.deepEqual(result.result, integerResult('99999999980000000007'));
+  assert.equal(result.result.value.value.length, SIZE_LIMIT_BYTES);
+});
+
+// CPython's own default. The window is confined to one conversion, so the interpreter the emitted
+// module is imported into must observe the default everywhere outside it.
+const CPYTHON_DEFAULT_INT_MAX_STR_DIGITS = 4300;
+
+test('the emitted Python kernel leaves the process int/str digit limit exactly as it found it', async () => {
+  const verified = await project(POSITIONS['digits-beyond-cpython-cap']());
+  assert.ok(verified !== undefined, 'the digit-cap fixture must project');
+  const python = compilePython(verified);
+  assert.equal(python.outcome, 'success', python.code);
+  const observed = pythonDigitWindowRun(
+    python.artifact.bytes,
+    runtimeRequest('rt10-pre-digit-window', {}),
+  );
+  assert.equal(
+    observed.atImport,
+    CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
+    'the probe is only meaningful if the interpreter starts at the default cap',
+  );
+  assert.equal(
+    observed.afterImport,
+    CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
+    'RT10PRE_DIGIT_WINDOW_GLOBAL: importing the kernel must not lift the cap process-wide',
+  );
+  assert.equal(
+    observed.envelope.outcome,
+    'success',
+    'the run must actually convert a value past the cap, or the restore is untested',
+  );
+  assert.equal(observed.envelope.result.value.value, squaringChainValue().toString());
+  assert.equal(
+    observed.afterExecution,
+    CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
+    'RT10PRE_DIGIT_WINDOW_LEAK: the conversion window must be restored in its finally',
+  );
 });
