@@ -1,0 +1,608 @@
+# KERN 5 — RT-10 `for`: the bounded integer loop in linked KIR
+
+**Status:** READY TO BUILD
+**Date:** 2026-09-03
+**Confidence:** 0.90
+
+## Executive Summary
+
+RT-10 admits one statement kind — `for` — into `LinkedKernKirStatement` and lowers it on all three
+legs: the RT-1 interpreter, the emitted JavaScript ESM artifact, and the emitted Python artifact.
+The contract is not designed here; it was pinned by tribunal during RT-9 and restated verbatim by
+RT-10-pre and RT-10-X, and this slice inherits it. `to` is exclusive, `step` defaults to `1`, a
+literal zero step is a link refusal and a dynamic one a runtime fault, bounds are evaluated once,
+the counter is read-only and unobservable after the loop, there is no `break` and no `continue`,
+and the meter charge is `1_init + Σ(1_head + body) + 1_exit` against `maxSteps` alone.
+
+Everything the loop needs already exists. F5 projects `for` today (measured), RT-10-pre made
+arithmetic linkable so an accumulator body can be written, RT-9 made `assign` linkable so it can
+be written at all, and RT-10-X made an integer helper callable so the body can call one. Both
+target kernels already carry `__intOperand`/`__intValue` and `_int_operand`/`_int_value`, so the
+loop lowers entirely inside per-program emitted code: **no kernel byte moves and no emitted-artifact
+digest is re-sealed.**
+
+The slice is six code sites: the statement union, the linker's block dispatch, three exhaustive
+walkers, RT-1's statement walk, and one arm in each emitter's `blockSource`.
+
+## Current State / Root Cause
+
+### F5 already projects `for` — this slice is linker + three legs, no frontend edit
+
+**[RT10F-C1 VERIFIED]** `for` is a schema-bound structural node with properties
+`from` (required expression), `name` (required identifier), `to` (required expression),
+`step` (optional expression), and its body as its **children**.
+Evidence: `packages/core/src/kir-structural/catalog.generated.ts:3155-3216`, and measured through
+the F5 worker on 2026-09-03 —
+
+```
+fn name=route export=true returns=integer
+  handler lang=kern
+    let name=acc value="0"
+    for name=i from="0" to="3"
+      assign target="acc" value="acc + i"
+    return value="acc"
+```
+
+projects (`receipt.status === 'projected'`) with the handler's children as
+`[{kind:'let'}, {kind:'for', properties:['from','name','to'], children:['assign']}, {kind:'return'}]`
+and each of `from`/`to`/`step` arriving as a lowered-expression record. With `step="2"` the property
+key set becomes `['from','name','step','to']`. So the frontend hands the linker exactly the shape
+the contract needs, and **no `.kern`, no constitution, no census, no closure ledger and no
+`scripts/kern-frontend-*` file is touched by this slice.**
+
+**[RT10F-C2 VERIFIED]** Nested `for` projects too: an outer `for` whose single child is an inner
+`for` reaches the linker as `{kind:'for', children:['for']}`. Measured 2026-09-03.
+
+### `for`'s `allowedChildren` excludes `print` and `capability` — the brief's two hardest fixtures are unprojectable
+
+**[RT10F-C3 VERIFIED]** `STRUCTURAL_KIR_NODE_CATALOG.get('for').allowedChildren` is a closed
+28-entry list — `comment, fn, let, expression-v1, assign, destructure, do, fmt, clamp, firstTruthy,
+coalesce, firstDefined, objectMerge, objectOmit, objectPick, return, if, else, while, for, each,
+try, with, catch, throw, continue, break, branch` — and it contains **neither `print` nor
+`capability`**, while `handler`'s list contains both and `if`'s `allowedChildren` is `null`
+(unrestricted). Evidence: catalog read out of `packages/core/dist` on 2026-09-03, and confirmed
+behaviourally — `print` in a `for` body and a `capability` in a `for` body both come back
+`receipt.status === 'rejected'`, while the same `capability` inside an `if` body projects.
+
+Two consequences, both load-bearing:
+
+1. **A capability call inside a `for` body cannot be built.** The brief asks for capability event
+   ordering inside the loop; it is unprojectable. This is also the schema ground under the
+   tribunal's own instruction — *"Fixtures must not include a 'cancel mid-loop' row unless the body
+   admits a capability call — it doesn't"* — which turns out to be a fact about `allowedChildren`
+   rather than a convenience. Both facts are pinned as **fences** (`probe-matrix`), so a future
+   schema widening is caught rather than silently admitted.
+2. **A `print` inside a `for` body cannot be built either**, so there is no void-entry
+   print-in-loop fixture and no stdout event ordering inside a loop. Same fence treatment.
+
+The loop body's projectable statement set for this slice is therefore exactly `let`, `assign`,
+`if`/`else`, `return`, and a nested `for`. That is the full body vocabulary the oracle covers.
+
+### The base refusal is `statement must be a leaf`, not `statement kind for is outside RT-1`
+
+**[RT10F-C4 VERIFIED]** `compileStatement` (`link.ts:305-383`) calls `assertLeaf(node, label)` at
+line 314 — **before** any `kind ===` branch — so a `for` node with a body is refused at
+`link.ts:163` with `${label}: statement must be a leaf`, and only an **empty-bodied** `for` reaches
+the trailing `statement kind for is outside RT-1`. Both measured on 2026-09-03 across seventeen
+fixtures; all three legs report the closed code `handler-entry-unsupported`.
+
+This is why `for` must be routed in `compileBlock` (`link.ts:423-444`), next to the existing `if`
+route, and not by adding a branch inside `compileStatement`. A builder who adds a `kind === 'for'`
+branch to `compileStatement` will have it shadowed by `assertLeaf` for every non-empty body.
+
+### The two closure walkers crash, and the third silently under-reports
+
+**[RT10F-C5 VERIFIED]** `statementsInvokeCapability` (`contracts.ts:339-355`) and
+`statementsCallDepth` (`contracts.ts:425-447`) special-case `capability` and `if` and then fall
+through to `statement.value`. They are exhaustive by *typing*, not by `switch`: a `for` member with
+no `value` field makes those two lines a `tsc` error, which is the intended tripwire. Handed a
+hand-built `for` statement at run time both throw
+`TypeError: Cannot read properties of undefined (reading 'kind')` — measured 2026-09-03.
+
+`containsReturn` (`link.ts:152-160`) is worse, because it fails **silently**: it recurses into `if`
+branches only, so a `return` inside a `for` body is invisible to it and a `void` handler whose only
+`return` is inside a loop would link. There is no `tsc` error and no crash — only a wrong answer.
+That asymmetry is why `walker-coverage.test.mjs` pins all three walkers separately.
+
+### What the meter already costs, measured at base
+
+**[RT10F-C6 VERIFIED]** Measured through `directStepBudget` on 2026-09-03 (RT-1 execution steps,
+link steps subtracted):
+
+| Program | Execution steps |
+| --- | --- |
+| `let acc = 0` / `return acc` | 4 |
+| … `+ 1 × assign acc = acc + 1` | 8 |
+| … `+ 2 ×` | 12 |
+| … `+ 3 ×` | 16 |
+| `let acc=0` / `if cond=true { assign acc = acc + 1 }` / `return acc` | 10 |
+| the same `if` not taken | 6 |
+| `let acc=0` / `let i=0` / `assign acc = acc + i` / `return acc` | 10 |
+| `let acc=0` / `let i=0` / `assign acc = acc + idp(i)` / `return acc` | 13 |
+| `let x = 3` / `return x` | 4 |
+| `let x = 1 + 2` / `return x` | 6 |
+
+Derived and frozen as the oracle's metering constants: one `assign acc = acc + 1` costs **4** steps,
+one `assign acc = acc + i` costs **4**, one `assign acc = acc + idp(i)` costs **7**, and replacing a
+literal bound with `1 + 2` costs **2** more, once.
+
+### There is no `maxIterations`, and there never was
+
+**[RT10F-C7 VERIFIED]** `grep -rn maxIterations packages` → **zero hits**, 2026-09-03.
+`KernKirLimits` is a closed seven-field interface — `maxBytes, maxCollectionLength, maxDepth,
+maxDiagnostics, maxEvents, maxSteps, maxStringBytes` (`kir-runtime/contracts.ts:20-28`), mirrored by
+`LIMIT_KEYS` in `inspect.ts:18-26` and by `_positive`/`__positive` in both kernels.
+
+The briefing for this slice asserted that "`maxIterations` is the loop-frame budget: every loop
+iteration must charge it". **That premise is false on this base and is not adopted.** The tribunal
+pin says *"budget = maxSteps only"*, and this slice follows the pin: the loop's only budget is
+`maxSteps`, charged `1_init + Σ(1_head + body) + 1_exit`. Adding a `KernKirLimits` field would be a
+request-shape change, would move every `inspectRequest` fixture and both kernels' limit validators,
+and is explicitly out of scope. See *Corrections Log*.
+
+### Both kernels already have everything the loop needs
+
+**[RT10F-C8 VERIFIED]** `KERNEL_SOURCE` is a module-level constant in both emitters
+(`kir-js-esm/emitter.ts:23`, `kir-python/emitter.ts`), and `TARGET_KERNEL_SHA256 = sha256(KERNEL_SOURCE)`
+is embedded in every emitted artifact — so any kernel byte moves all 70 emitted-artifact digest
+lines across rt4/rt5/rt6/rt10-pre/rt10-X compatibility. It does not have to move here:
+
+| Need | JavaScript | Python |
+| --- | --- | --- |
+| integer operand → host bignum | `__intOperand` (`target-execution.ts:97`) | `_int_operand` (`target-execution.ts:134`) |
+| host bignum → canonical integer value, `maxStringBytes` pre-checked | `__intValue` (`target-execution.ts:124`) | `_int_value` (`target-execution.ts:190`) |
+| labelled fault | `__Fault(code, phase, label)` (`target-base.ts:3-9`) | `_Fault(code, phase, label=None)` (`target-base.ts:18-22`) |
+| step + interruption | `__meter.step()`, `__checkAbort()` | `_meter.step()`, `_check_abort()` |
+
+All four are in scope at the emission point, so **the `for` arm lives entirely in each emitter's
+`blockSource`, which is per-program code, not kernel source.** Both `__Fault` and `_Fault` already
+accept a third `label` argument, so `ERR_KIR_LOOP_ZERO_STEP` needs no kernel change either.
+
+## What Already Works
+
+- **F5.** `for`, `for` with `step`, nested `for`, `let`/`assign`/`if`/`return` in a body, a counter
+  shadowing a `let` or a parameter, and two sequential loops reusing one counter name all project
+  at base (RT10F-C1, RT10F-C2, measured). No frontend work.
+- **The accumulator body.** RT-10-pre made `+`/`-`/`*` linkable and RT-9 made `assign` linkable, so
+  `assign acc = acc + i` links today outside a loop (measured, 4 steps).
+- **The helper call in the body.** RT-10-X admitted integer cross-calls, so `assign acc = acc + idp(i)`
+  links today outside a loop (measured, 7 steps).
+- **The counter's read-only mechanism.** RT-9's `scope.assignable` is exactly the gate; the counter
+  binds in `bindings` and not in `assignable`. **No second mechanism is built.**
+- **The counter's unobservability after the loop.** `branchScope` already gives a body its own
+  binding snapshot, so a post-loop read of the counter dies at
+  `compileLinkedExpression`'s `unknown identifier ${name}` (`expression.ts:200`) with no new gate.
+- **The empty-body refusal.** `compileBranch` already refuses an empty block with
+  `branch block is empty` (`link.ts:392`). Reused, not duplicated.
+- **Both kernels.** RT10F-C8. Zero kernel bytes, zero artifact re-seals.
+- **The `KernKirDiagnosticCode` union.** `unsupported-runtime-input` is the existing family for a
+  labelled execution refusal (`KIR_BINARY_OPERAND_TYPE`, `KIR_CALL_ARGUMENT_TAG`,
+  `KIR_CALL_RETURN_TAG`). No new code is minted.
+
+## Contract (Verified)
+
+> Verified against `packages/core/src/kir-runtime/**`, `packages/core/src/compiler/**`,
+> `packages/core/src/kir-structural/catalog.generated.ts`, and live measurement through
+> `scripts/kern-frontend-f5-projection/worker.mjs` on 2026-09-03.
+
+### The linked statement
+
+| Field / Behavior | Shape | Evidence | Tag |
+| --- | --- | --- | --- |
+| `LinkedKernKirStatement` gains one member | `{ kind: 'for'; body: readonly LinkedKernKirStatement[]; counter: string; from: LinkedKernKirExpression; step: LinkedKernKirExpression; to: LinkedKernKirExpression }` | `contracts.ts:250-267` is the union to extend | VERIFIED |
+| `step` is always materialized | an omitted `step` links as `{kind:'literal', value:{tag:'integer', value:'1'}}` | no leg branches on absence; `valueSource`/`expressionSource` handle a literal already | VERIFIED |
+| field order in the frozen record | `body, counter, from, step, to` — alphabetical, matching every other member's serialization under `canonicalJson` | `digest.ts` `canonicalJson`, `link.ts:594` | VERIFIED |
+| the counter's recorded types | `scope.types` → `'integer'`, `scope.crossCallTypes` → `'integer'` | `bindName` (`link.ts:194-205`) | VERIFIED |
+| the counter is not assignable | bound via `bindName` into the **body** scope, and **never** added to `scope.assignable` | RT-9's gate, `link.ts:353-355` | VERIFIED |
+
+### Link-time decisions (all under the closed code `handler-entry-unsupported`)
+
+| Position | Label | Where | Tag |
+| --- | --- | --- | --- |
+| literal `step` whose canonical integer text is `0` | `KIR_FOR_ZERO_STEP` | new, in `compileFor` | VERIFIED (tribunal pin) |
+| `from`, `to` or `step` whose `staticExpressionType` ≠ `'integer'` | `KIR_FOR_BOUND_NOT_INTEGER` | new, in `compileFor` | VERIFIED (tribunal pin) |
+| `assign` to the counter | `KIR_ASSIGN_TO_LOOP_COUNTER <name>` | RT-9's `scope.assignable` gate at `link.ts:353-355`, second label selected by a new `scope.counters` set | VERIFIED |
+| counter name already bound in the enclosing scope | `duplicate binding <name>` | existing `link.ts:318`/`334` wording, reused | VERIFIED |
+| empty body | `branch block is empty` | existing `link.ts:392` via `compileBranch` | VERIFIED |
+| counter read after the loop | `unknown identifier <name>` | existing `expression.ts:200` | VERIFIED |
+| `return` inside a `for` body of a `void` handler | `KIR_VOID_HANDLER_VALUE_RETURN` | existing `link.ts:498`, once `containsReturn` gains its `for` arm | VERIFIED |
+| an async call in a bound | `KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)` | existing `assertAsyncCallPosition(..., statementValue: false)`, as the `if` condition does at `link.ts:409` | VERIFIED |
+| `break` or `continue` in a body | `statement kind break is outside RT-1` / `… continue …` | existing `link.ts:382` once the body reaches `compileStatement` | VERIFIED |
+| `while` or `each`, anywhere | `statement must be a leaf` — unchanged from base | `assertLeaf` still runs first for them; measured at base | VERIFIED |
+
+**Two labels are the only new strings this slice introduces into the diagnostic surface:**
+`KIR_FOR_ZERO_STEP` and `KIR_FOR_BOUND_NOT_INTEGER`, plus the runtime label
+`ERR_KIR_LOOP_ZERO_STEP`. Everything else reuses an existing string.
+
+### Bound evaluation
+
+| Behavior | Decision | Tag |
+| --- | --- | --- |
+| order | `from`, then `to`, then `step`, left to right, at link and at run time on every leg | VERIFIED (tribunal pin) |
+| scope | the **enclosing** scope, before the counter is bound — so a bound cannot read the counter | VERIFIED |
+| frequency | **once**, before the first head test; a body that mutates a `let` the bound read does not change the trip count | VERIFIED (tribunal pin), fixture `for-bounds-once` |
+
+### Runtime fault
+
+| Condition | Code | Phase | Label | Tag |
+| --- | --- | --- | --- | --- |
+| the evaluated `step` is `0` and was not a literal | `unsupported-runtime-input` | `execution` | `ERR_KIR_LOOP_ZERO_STEP` | VERIFIED |
+| the step budget is exhausted mid-loop | `runtime-limit-exceeded` | `execution` | `runtime step limit exceeded` | VERIFIED (existing `RuntimeMeter.step`) |
+
+**The fault-code family is decided, not invented.** `KernKirDiagnosticCode` is a closed twelve-member
+union (`kir-runtime/contracts.ts:66-78`) and `KernKirEnvelope.diagnostics` carries only
+`{category, code, phase}` — **no message**. So a new *code* would be a contract change with no
+observable benefit, while `unsupported-runtime-input` is precisely the existing family for a
+labelled execution-time value refusal. `ERR_KIR_LOOP_ZERO_STEP` is therefore a **label** on
+`unsupported-runtime-input`/`execution`, observable through the thrown `KernKirFault.message` on
+RT-1 and invisible-but-equal in all three envelopes. This is what makes the three-leg
+byte-identity row for the dynamic-zero-step fixture meaningful rather than vacuous.
+
+Reachability is real: `step="a"` over an `integer` parameter and `step="0 + 0"` both pass
+`staticExpressionType === 'integer'` and are not literals, so both link and both fault. Measured at
+base: `step="0 + 0"` projects and is refused only by the outer `for` gate.
+
+### Loop semantics
+
+| Behavior | Decision |
+| --- | --- |
+| `to` | **exclusive** |
+| positive step | continue while `counter < to` |
+| negative step | continue while `counter > to` |
+| zero step | unreachable at run time except through the dynamic path, which faults before the first head test |
+| empty range | the first head test fails; the body never runs; zero body steps are charged |
+| counter arithmetic | host bignum (`BigInt` on JS, native `int` on Python), materialized per iteration through `__intValue` / `_int_value`, so `maxStringBytes` is pre-checked exactly as arithmetic is |
+| counter visibility | body only |
+| `break` / `continue` | not admitted |
+
+### Meter
+
+`1_init + Σ(1_head + body) + 1_exit`, charged against `maxSteps` and nothing else (RT10F-C7).
+Bound expressions carry their own `evaluateExpression` steps, once, outside the sum.
+
+With `B` the straight-line cost of one body iteration and `n` the trip count, the loop's own
+charge is `2 + n·(1 + B)`. The oracle pins the differences, never a post-slice absolute:
+
+| Identity | Value | Discriminates |
+| --- | --- | --- |
+| `cost(3 trips) − cost(1 trip)`, body `assign acc = acc + 1` | `2 × (1 + 4)` = **10** | a missing head charge (8), a doubled head charge (12), a body charged twice (18) |
+| `cost(1 trip) − cost(0 trips)` | `1 × (1 + 4)` = **5** | an `init`/`exit` charge that scales with trips |
+| `cost(to="1 + 2") − cost(to="3")`, both 3 trips | **2** | bounds re-evaluated per iteration (would be 6) |
+| `cost(3 trips) − cost(1 trip)`, body `assign acc = acc + idp(i)` | `2 × (1 + 7)` = **16** | a per-call surcharge inside a loop |
+| `cost(outer 3 × inner 4) − cost(outer 3 × inner 2)` | `3 × 2 × (1 + 4)` = **30** | a nested loop whose inner `init`/`exit` is hoisted |
+
+All four constants (`4`, `4`, `7`, `2`) are base measurements (RT10F-C6), so **no metering row rests
+on an unmeasured number.**
+
+### Cancellation — the standing review question's answer changes here
+
+**[RT10F-C9 VERIFIED]** RT-9's and RT-10-X's standing answer was "zero new `await` points **and**
+zero new `checkAbort()` sites". This slice keeps the first half and **must break the second**: `for`
+is the first construct on this base whose statement count is not bounded by the program text, so a
+loop with no checkpoint at its head would be uninterruptible for its whole run.
+
+The licensed change is exactly **one** new checkpoint site per leg — the loop head — reached once
+per head test:
+
+- RT-1: `meter.step(); runtime.checkAbort();` at the head, mirroring `walkStatements`' existing
+  per-statement pair at `expression.ts:177-178`.
+- JavaScript: `__meter.step(); __checkAbort();` at the head.
+- Python: `_meter.step()` / `_check_abort()` at the head.
+
+**Zero new `await`, `setImmediate`, `queueMicrotask` or `Promise`.** Because `for`'s
+`allowedChildren` admits no `capability` (RT10F-C3), a loop body contains no suspension point at
+all, so the deadline half of the check is the only half that can fire mid-loop and there is no
+cancel-mid-loop fixture — exactly as the tribunal instructed. The reviewer should expect `git diff`
+under `packages/core/src/kir-runtime/` and `packages/core/src/compiler/` to show **zero** new
+`await`/`setImmediate`/`queueMicrotask`/`Promise` and **exactly one** new `checkAbort()`,
+`__checkAbort()` and `_check_abort()` occurrence each.
+
+### Emitted shape
+
+| Leg | Lowering | Tag |
+| --- | --- | --- |
+| JavaScript | a `for` over host `BigInt` — `for(let c=__intOperand(from); step>0n ? c<bound : c>bound; c+=step)` with the counter local re-materialized per iteration as `__intValue(c, __meter)` | VERIFIED (tribunal pin: "JavaScript lowers to a `for` over `BigInt`") |
+| Python | an **explicit `while`**, never `range`, with a **sign-selected** comparator (two `while` forms or one comparator chosen before the loop), **no chained comparison**, and **no `int()`** anywhere in the specialized region | VERIFIED (tribunal pin) |
+| both | the body block is emitted by the existing `blockSource` recursion, so `return` inside the body is the existing `returnSource` and exits the host function directly | VERIFIED |
+
+`range` is forbidden on the Python leg for two reasons the pin only implies: `range` needs a host
+`int` bound, which reintroduces the coercion RT-10-X's no-`int()` row forbids, and `range` leaks the
+counter into the enclosing function scope after the loop — which the link-time unobservability rule
+makes unobservable, but which would still make the two legs structurally different for no gain.
+
+## Implementation Plan
+
+One option. The decision space collapsed before this document: the statement contract is a
+tribunal pin, the mechanism for every refusal but two is an existing gate, and RT10F-C4 fixes where
+the linker route has to go. Alternatives are strawmen — a `compileStatement` branch is shadowed by
+`assertLeaf`, a second read-only mechanism is forbidden by the RT-9 note, a new `KernKirLimits`
+field is forbidden by RT10F-C7, and a kernel helper would re-seal 70 digests for nothing (RT10F-C8).
+
+Six sites, in deploy order:
+
+1. **`kir-runtime/linked-kir-program/contracts.ts`** — add the `for` member to
+   `LinkedKernKirStatement`. This is the change that makes the next two sites `tsc` errors.
+2. **`kir-runtime/linked-kir-program/contracts.ts`** — `statementsInvokeCapability` and
+   `statementsCallDepth` gain a `for` arm: recurse into `body`, and walk `from`, `to`, `step`
+   through the expression walker. `Math.max` over the three bounds and the body for depth; `some`
+   over them for the capability closure.
+3. **`kir-runtime/linked-kir-program/link.ts`** — `containsReturn` gains a `for` arm (recurse into
+   `body`); `LinkScope` gains `counters: Set<string>`; `branchScope` copies it; the `assign` gate at
+   `link.ts:353` selects `KIR_ASSIGN_TO_LOOP_COUNTER` when the target is in `counters`; a new
+   `compileFor` is routed from `compileBlock` beside the `if` route.
+4. **`kir-runtime/expression.ts`** — `walkStatements` gains a `for` arm **before** the trailing
+   `else` (the trailing `else` is `return`; RT9-C4). The loop is a frame variant on the existing
+   `frames` array — never host recursion — so a nested loop costs no host stack and the generator's
+   yield discipline is untouched.
+5. **`compiler/kir-js-esm/emitter.ts`** — one arm in `blockSource`.
+6. **`compiler/kir-python/emitter.ts`** — one arm in `blockSource`, using the existing `indented()`
+   helper for the body.
+
+Then: wire `test:kern-5-rt10-for` into `test:kern-5-script-family` and into
+`scripts/ci/test-tier-contract.test.mjs`'s `kern5EvidenceCommands`, re-pin `compiledCoreDigest`,
+then run `pnpm write:kern-canonicalizer-coverage` (in that order — the re-pin edits a `.mjs` under
+`scripts/kern-canonicalizer`, which moves `coverageImplementationDigest` as a side effect).
+
+Design estimate: **≤ 130 lines** across the six sites, no file added or removed under
+`packages/core/src` (the compiled-core inventory stays attested at 354).
+
+## Blast Radius
+
+| File | Action | Reason |
+| --- | --- | --- |
+| `packages/core/src/kir-runtime/linked-kir-program/contracts.ts` | edit | the `for` union member; the two closure walkers' `for` arms |
+| `packages/core/src/kir-runtime/linked-kir-program/link.ts` | edit | `containsReturn`, `LinkScope.counters`, the assign label, `compileFor`, the `compileBlock` route |
+| `packages/core/src/kir-runtime/expression.ts` | edit | the RT-1 loop frame |
+| `packages/core/src/compiler/kir-js-esm/emitter.ts` | edit | one `blockSource` arm |
+| `packages/core/src/compiler/kir-python/emitter.ts` | edit | one `blockSource` arm |
+| `scripts/kern-5-rt10-for/**` | add | this slice's oracle: 7 test files, 2 JSON fixtures, 1 support module |
+| `package.json` | edit | `test:kern-5-rt10-for`; appended to `test:kern-5-script-family` |
+| `scripts/ci/test-tier-contract.test.mjs` | edit | `kern5EvidenceCommands` gains one entry; the aggregate must match exactly and in dependency order |
+| `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once; a new leaf needs no workflow change |
+| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` | edit | `compiledCoreDigest` re-pin, five source files moved |
+| `scripts/kern-canonicalizer/*.json` (coverage receipts) | regenerate | `pnpm write:kern-canonicalizer-coverage`, after the re-pin |
+| `scripts/kern-5-rt2-boolean-if/k0-golden.json` | **edit — licensed** | the K0 golden scrapes `linkedStatementKinds`; `"for"` joins it, and the `for` admission rows flip. Same licensed move RT-9 made for `assign` (RT-9 Corrections Log, resolution (A)) |
+| `scripts/kern-5-rt3-binary-expression/k0-golden.json`, `scripts/kern-5-rt4-user-fn-call/probe-matrix.json`, and the `RT2_GOLDEN_SHA256` / `rt2GoldenSha256` literals in rt4/rt5/rt6 | **edit — licensed** | derived digests of the RT-2 golden; they move with it, exactly as in RT-9's `8cb5f0bc`/`3ef731c2` chain |
+| every emitted-artifact digest, `TARGET_KERNEL_SHA256`, manifest digest, `linkedProgramSha256`, `projectionArtifactSha256` | **no edit** | RT10F-C8. If one moves, a kernel was touched and *Builder must NOT* rule 4 was broken |
+| any frontend file, `.kern`, constitution, census, closure ledger, `scripts/kern-frontend-*`, `scripts/kern-frontend-f5-projection/policy.json` | **no edit** | RT10F-C1: F5 already projects `for` |
+| `packages/core/src/kir-runtime/contracts.ts` (`KernKirLimits`, `KernKirDiagnosticCode`) | **no edit** | RT10F-C7 and the fault-family decision |
+| RT-9's `type-gate.test.mjs`, RT-10-pre's and RT-10-X's suites | **no edit** | pinned green by this slice's `compatibility.test.mjs` |
+
+**Digests this slice is licensed to move:** the RT-2 K0 golden and its derived chain (the RT-3
+golden, the RT-4 probe matrix, and the `RT2_GOLDEN_SHA256`/`RT3_GOLDEN_SHA256`-family literals in
+rt4/rt5/rt6/rt9), plus `compiledCoreDigest` and the two canonicalizer coverage receipts. **Nothing
+else.** In particular the JavaScript kernel `b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6`
+and the Python kernel `3df98a2e7b08660a827c2b5ed9f5f64ff0bf1c31e470464ce3a9570d3816d04a` are pinned
+as consuming assertions and must not move, which is what keeps all 70 emitted-artifact digest lines
+untouched.
+
+## Acceptance Criteria
+
+Every criterion below is a fixture in `scripts/kern-5-rt10-for/`. None rests on an ASSUMED or OPEN
+claim.
+
+- [ ] All 22 frozen behavior rows return their frozen integer with **byte-identical envelopes** on
+      RT-1, emitted JavaScript and emitted Python, and each value was computed by `node` BigInt
+      **and** cross-checked by `python3` (both agree on all 22 — verified 2026-09-03).
+- [ ] `to` is exclusive: `for i from 0 to 3` sums to `3`, never `6`.
+- [ ] Empty range: `from 3 to 3` → `0`; `from 3 to 0 step 1` → `0`; `from 0 to 3 step -1` → `0`.
+- [ ] Negative step counts down: `from 3 to 0 step -1` → `6`; `from 6 to 0 step -2` → `12`;
+      `from 0 to -6 step -3` → `-3`.
+- [ ] Bounds evaluated once: a body that assigns `0` to the `let` the `to` bound read still runs 3
+      times.
+- [ ] The counter is a host bignum, not a double: `from 9223372036854775805 to 9223372036854775807`
+      runs exactly 2 iterations, and no specialized region contains `Number(`, `parseInt`,
+      `parseFloat`, `valueOf(`, `float(`, `int(` or `round(`.
+- [ ] Nested `for` produces the tribunal golden **18**, and triple nesting produces **8**.
+- [ ] A helper call in the body works (`for-helper-in-body` → `6`) and a `for` inside a helper body
+      works (`for-in-helper-body` → `6`).
+- [ ] `if` in the body works (`for-if-in-body` → `7`) and `return` in the body exits early on all
+      three legs with identical envelopes (`for-early-return` → `3`).
+- [ ] A literal `step="0"` is refused at link with `KIR_FOR_ZERO_STEP` on all three legs.
+- [ ] A computed `step="0 + 0"` **links** and faults at run time with `unsupported-runtime-input` /
+      `ERR_KIR_LOOP_ZERO_STEP`, byte-identically on all three legs; and the same fixture with
+      `step="0 + 1"` succeeds — so the row is not satisfied by a shared refusal.
+- [ ] A `text`, `boolean` or `decimal` bound is refused with `KIR_FOR_BOUND_NOT_INTEGER`, in each of
+      the `from`, `to` and `step` positions.
+- [ ] `assign` to the counter is refused with `KIR_ASSIGN_TO_LOOP_COUNTER`, and the message does
+      **not** contain `KIR_ASSIGN_TARGET_NOT_LET` — one gate, the loop-specific label.
+- [ ] A counter shadowing an enclosing `let` or a parameter is refused with `duplicate binding`.
+- [ ] A counter read after the loop is refused with `unknown identifier`.
+- [ ] An empty `for` body is refused with `branch block is empty`.
+- [ ] A `void` handler whose only `return` is inside a `for` body is refused with
+      `KIR_VOID_HANDLER_VALUE_RETURN` — the `containsReturn` walker's silent gap is closed.
+- [ ] An async call in any bound reports `KIR_ASYNC_CALL_EXPRESSION_POSITION`.
+- [ ] `break` and `continue` in a body are refused with `statement kind break is outside RT-1` /
+      `… continue …`; `while` and `each` stay refused with `statement must be a leaf`.
+- [ ] All five metering identities hold exactly (10, 5, 2, 16, 30).
+- [ ] A loop whose charge exceeds `maxSteps` terminates with `runtime-limit-exceeded` on all three
+      legs — never hangs — and the same loop under a sufficient budget succeeds.
+- [ ] Checkpoint census: a loop with an N-statement body carries **exactly one more**
+      `__checkAbort()` / `_check_abort()` in the specialized region than the same N statements
+      straight-line, on both legs, and the Python count stays exactly JavaScript + 1.
+- [ ] `linkedStatementsCallDepth` and `linkedStatementsInvokeCapability` answer correctly for a
+      hand-built `for` statement (both throw `TypeError` at base).
+- [ ] The Python specialized region contains an explicit `while`, contains no `range(`, no `int(`,
+      and no chained comparison; the JavaScript region loops over `BigInt` literals (`n`-suffixed).
+- [ ] Both kernel digests are unchanged and no emitted-artifact digest literal in the repository is
+      edited.
+- [ ] `pnpm test:kern-5-rt9-linked-assign`, `test:kern-5-rt10-pre-linked-arithmetic`,
+      `test:kern-5-rt10-cross-call-integer`, `test:kern-5-r1-runtime-owner`,
+      `test:kern-5-r2-js-lowering`, `test:kern-5-c-py-1-contract` and `pnpm test:ci-contract` all
+      pass, with only the licensed edits above.
+
+## Oracle — RED/GREEN gate table
+
+Measured at base (`feat/kern-5-rt10-for` @ the RT-10-X tree) on 2026-09-03. **Per-test RED counts
+are pinned in the tables written into this section after the oracle lands**; see *Measured base
+gate* below.
+
+| File | Purpose | Base |
+| --- | --- | --- |
+| `probe-matrix.test.mjs` + `probe-matrix.json` | seals what F5 hands the linker for `for`, and the two `allowedChildren` fences (`print`, `capability`) | **all GREEN** — F5 already projects `for` (RT10F-C1) |
+| `walker-coverage.test.mjs` | the three exhaustive walkers | **RED** — two throw `TypeError: Cannot read properties of undefined (reading 'kind')`, one silently under-reports |
+| `type-gate.test.mjs` | every link refusal + the admitted sweep | **RED** — `for` is refused at base with `statement must be a leaf`, so every label row and every admitted row fails |
+| `behavior.test.mjs` + `behavior-table.json` | 22 frozen value rows, three-leg byte-identity | **RED** — `link failed: handler-entry-unsupported` |
+| `metering.test.mjs` | the five metering identities and the `maxSteps` bound | **RED** — same |
+| `tick-discipline.test.mjs` | checkpoint census, no-new-await, emitted loop shape | **RED** — same |
+| `compatibility.test.mjs` | neighbour pins: both kernel digests, the rt9 assign gate, rt10-pre arithmetic, rt10-X cross-call admission, the NOT-NOW fences | **all GREEN** — must stay green |
+
+The RED reason is one reason, stated once: **the linker refuses `for` as unsupported, and the two
+closure walkers throw the never-tripwire.** No RED comes from a fixture typo — every fixture's
+projection is asserted `projected` before its link decision is read, and `probe-matrix` is green at
+base precisely so that a projection regression can never masquerade as a link RED.
+
+## Out of Scope
+
+- `while`, `each`, `set`, `break`, `continue`. All four project at base and must **stay refused**;
+  `while`/`each` keep `statement must be a leaf` and `break`/`continue` in a `for` body become
+  `statement kind … is outside RT-1`.
+- **A capability call inside a `for` body**, and therefore any cancel-mid-loop fixture, any
+  capability event-ordering-in-loop fixture, and any loop-body suspension point. Unprojectable
+  (RT10F-C3), fenced.
+- **A `print` inside a `for` body**, and therefore any stdout-ordering-in-loop fixture and any
+  void-entry loop that emits an event. Unprojectable (RT10F-C3), fenced.
+- `list<integer>` in either direction — still RT-10-X's two fences.
+- Any new `KernKirLimits` field, including `maxIterations` (RT10F-C7).
+- Any new `KernKirDiagnosticCode` member.
+- Any target-kernel change and therefore any emitted-artifact re-seal (RT10F-C8).
+- Any F0–F5 edit, amendment record, constitution, census or closure-ledger change.
+- Any KIR schema or version change, release-gate promotion, push, merge or deployment.
+- An inclusive `to`, a `downto` form, a loop over a collection, loop-carried closures, and a counter
+  that survives the loop.
+
+### `for` inside `for` — INCLUDED, and why
+
+Nesting is **admitted**, deliberately, against the general "one thing per slice" instinct:
+
+1. The tribunal's own corrected golden, `fx_for_nested_acc` → **18**, *is* a nested-loop golden. A
+   slice that excluded nesting could not carry the pinned golden.
+2. F5 projects nested `for` at base (RT10F-C2), so excluding it would require a **new refusal gate
+   and a new label** — strictly more diagnostic surface than admitting it.
+3. It adds no new mechanism. `compileBlock`/`compileBranch` already recurse for `if`, and RT-1's
+   loop is a frame on the existing `frames` array, so a nested loop adds no host stack frame and no
+   new unbounded recursion class beyond the one `if` already has at link.
+4. It is where the compositional bugs live — an inner `init`/`exit` hoisted out of the outer body is
+   a real defect that only a nested metering identity catches (the `30` row).
+
+## Open Questions
+
+- **[RT10F-O1 DECIDED — 2026-09-03]** `maxIterations` does not exist and is not created. The
+  loop's only budget is `maxSteps`, per the tribunal pin. RT10F-C7.
+- **[RT10F-O2 DECIDED — 2026-09-03]** `ERR_KIR_LOOP_ZERO_STEP` is a **label** on the existing
+  `unsupported-runtime-input`/`execution` family, not a new `KernKirDiagnosticCode`. The envelope
+  carries no message, so a new code would change a closed contract for zero observability.
+- **[RT10F-O3 DECIDED — 2026-09-03]** Nested `for` is in. See above.
+- **[RT10F-O4 DECIDED — 2026-09-03]** Capability-in-body and print-in-body are out because the
+  structural catalog does not admit them (RT10F-C3), not because the slice declined them. Both are
+  fenced so a schema widening surfaces as a failing fence rather than as new behavior.
+- **[RT10F-O5 DECIDED — 2026-09-03]** The standing "zero new `checkAbort()`" answer is superseded
+  for this slice only: exactly one new checkpoint site per leg (the loop head) is licensed, and zero
+  new await points remain the rule. RT10F-C9.
+- **[RT10F-O6 OPEN — advisory, caps nothing]** `assertLinkLabel`
+  (`scripts/kern-5-rt6-void-fallthrough/k0-support.mjs:79-81`) asserts `message.includes(label)`, so
+  a mutant that *extends* a label rather than replacing it is unkillable in every slice from RT-6
+  onward. Inherited from RT-10-X's M08 finding and still outside this slice's licensed blast radius.
+  This slice partially compensates where it matters most: the counter-assign row asserts the
+  presence of `KIR_ASSIGN_TO_LOOP_COUNTER` **and** the absence of `KIR_ASSIGN_TARGET_NOT_LET`, so
+  the two labels of the one gate cannot be confused. No acceptance criterion rests on it.
+- **[RT10F-O7 OPEN — technical, resolved by measurement at build time]** Every *post-slice*
+  metering expectation in this document is an **identity** over base measurements, never a
+  post-slice absolute. That is deliberate: unlike RT-10-X, this slice was not measured against a
+  shadow implementation, because a shadow `for` would be six sites of throwaway production code
+  rather than seven table edits. The identities are therefore falsifiable without one, and the
+  builder must report the absolute step totals it measures so the next slice inherits constants
+  rather than formulas. **Accepted risk: the absolute `for` step totals are unmeasured; the five
+  differences are derived from the tribunal-pinned charge and from base measurements, and every one
+  is a consuming assertion.**
+
+## Deploy Order
+
+1. **Land the statement union member first.** It is the change that turns the two closure walkers
+   and RT-1's walk into `tsc` errors, which is the tripwire doing its job. Nothing links until the
+   linker route lands, so an incomplete step 1 fails closed with the base refusal.
+2. **Land the walkers, `containsReturn`, and `compileFor`.** After this the linker admits `for` but
+   no leg executes it. `packages/core` will not build until step 3 and 4 land, so this state is
+   never shippable — which is the point: no leg can be admitted at link and then diverge at run
+   time.
+3. **Land RT-1's loop frame and both emitter arms together.** The three legs must gain the loop in
+   one commit; a linked program that RT-1 runs and an emitter throws on is the one skew this slice
+   must never produce.
+4. **Land the licensed prior-slice re-pins**: the RT-2 golden and its derived chain, then
+   `compiledCoreDigest`, then `pnpm write:kern-canonicalizer-coverage` (that order — the re-pin
+   moves `coverageImplementationDigest` as a side effect).
+5. **Wire the suite**: `test:kern-5-rt10-for` in `package.json`, appended to
+   `test:kern-5-script-family`, and one entry appended to `kern5EvidenceCommands` in
+   `scripts/ci/test-tier-contract.test.mjs`. Same push.
+6. **Run** `pnpm test:kern-5-rt10-for`. It needs Node 22 (`KERN_NODE22`) for the emitted-ESM leg and
+   CPython 3.12 (`KERN_PYTHON312`) for the emitted-Python leg, matching RT-2…RT-10-X.
+
+**Skew window.** During an incomplete deployment a `for` statement continues to fail closed as
+unsupported on all three legs. It must never fall back to source or host semantics, must never link
+on one leg and refuse on another, and must never link and then fault at run time with a
+walker `TypeError`. The union member is the single admission edge, and steps 1–3 are one push.
+
+## Builder must NOT
+
+1. Touch any frontend file, any `.kern`, the constitution, the census, the closure ledger,
+   `scripts/kern-frontend-*`, or `scripts/kern-frontend-f5-projection/policy.json`. F5 already
+   projects every fixture in this slice (RT10F-C1, RT10F-C2).
+2. Add a branch for `for` inside `compileStatement`. `assertLeaf` runs first and would shadow it for
+   every non-empty body (RT10F-C4). The route belongs in `compileBlock`.
+3. Build a second read-only mechanism for the counter. It is RT-9's `scope.assignable`, with one new
+   `scope.counters` set choosing the label.
+4. Add a `KernKirLimits` field — `maxIterations` included — or a `KernKirDiagnosticCode` member
+   (RT10F-C7, RT10F-O2).
+5. Touch either target kernel, `target-base.ts`, `target-execution.ts`, `target-hash.ts` or
+   `target-json.ts` on either leg. `__intOperand`/`__intValue` and `_int_operand`/`_int_value` are
+   already in scope (RT10F-C8), and a diff there re-seals 70 emitted-artifact digests for nothing.
+6. Re-seal any emitted-artifact digest, `TARGET_KERNEL_SHA256`, manifest digest,
+   `linkedProgramSha256` or `projectionArtifactSha256`. If one moves, rule 5 was broken.
+7. Use `range(` on the Python leg, or `int(`, `float(`, `round(`, `Number(`, `parseInt`,
+   `parseFloat` or `valueOf(` in any specialized region.
+8. Use a chained comparison in the emitted Python.
+9. Introduce any `await`, `setImmediate`, `queueMicrotask` or `Promise` under
+   `packages/core/src/kir-runtime/` or `packages/core/src/compiler/`. Exactly one new
+   checkpoint site per leg is licensed; zero new await points (RT10F-C9).
+10. Place the RT-1 `for` arm after the trailing `else` in `walkStatements` — that arm is `return`
+    (RT9-C4).
+11. Implement the RT-1 loop as host recursion. It is a frame variant on the existing `frames` array.
+12. Evaluate a bound more than once, or evaluate any bound in a scope where the counter is bound.
+13. Add `while`, `each`, `set`, `break` or `continue` to `LinkedKernKirStatement`, or admit a
+    `capability` or `print` into a `for` body by widening the structural catalog.
+14. Add or remove a source file under `packages/core/src`: the compiled-core inventory is attested at
+    `count: 354` and re-attesting it is not this slice's decision.
+15. Assert only the closed link code in a negative test. The label text is the assertion (RT-6
+    lesson).
+16. Accept a fixture whose expected value was not computed by BigInt **and** cross-checked by
+    `python3`, or satisfy a value row by cross-leg agreement alone.
+17. Rescue a RED by widening the slice to `while`, `each`, `break`, `continue`, the frontend, or a
+    new limit field.
+18. Edit any prior-slice oracle file beyond the edits *Blast Radius* enumerates. That table is the
+    authority.
+
+## Standing Review Question
+
+**Every new dispatch path must add zero await points, and every kernel-free slice must move zero
+artifact digests.** Answered in RT10F-C8 and RT10F-C9: this slice adds a statement kind but no
+suspension point — because `for`'s `allowedChildren` admits no `capability`, a loop body cannot
+contain one — and it touches no kernel file. The reviewer should check `git diff` for any occurrence
+of `await`, `setImmediate`, `queueMicrotask` or `Promise` under
+`packages/core/src/kir-runtime/` and `packages/core/src/compiler/` and expect **zero**; for
+`checkAbort()` / `__checkAbort()` / `_check_abort()` and expect **exactly one new occurrence each**,
+at the loop head; and for any edited digest literal outside the licensed RT-2 chain and
+`compiledCoreDigest`, and expect **zero**.
+
+## Corrections Log
+
+| Date | Correction |
+| --- | --- |
+| 2026-09-03 | **The briefing's `maxIterations` premise is false and is not adopted.** The brief instructed that "`maxIterations` is the loop-frame budget: every loop iteration must charge it; `KernKirLimits.maxSteps` is every-step and distinct". `grep -rn maxIterations packages` returns **zero hits** and `KernKirLimits` is a closed seven-field interface with no such member (RT10F-C7); the only `iterationBudget` in the repository belongs to the legacy source runner (`runner-capability-plan.ts:68`), not to KIR. The tribunal pin says *"budget = maxSteps only"*, and that is what this slice implements. Adding the field would change the request shape, move every `inspectRequest` fixture and both kernels' limit validators, and buy nothing the step charge does not already buy. |
+| 2026-09-03 | **Two of the brief's required fixture families are unprojectable, and the reason is the structural catalog rather than the linker.** The brief asks for "capability calls inside the body (event ordering)" and, by implication, a print-in-loop void row. `STRUCTURAL_KIR_NODE_CATALOG.get('for').allowedChildren` contains neither `capability` nor `print` (RT10F-C3), and both fixtures come back `rejected` from F5 while the same `capability` inside an `if` body projects. Rehomed as explicit NOT-NOW items with projection fences, and noted as the schema ground under the tribunal's own "no cancel-mid-loop fixture" instruction — which was previously recorded as a fixture-design choice and is in fact a schema fact. |
+| 2026-09-03 | **The base refusal for `for` is `statement must be a leaf`, not `statement kind for is outside RT-1`, and that changes where the linker route must go.** `compileStatement` calls `assertLeaf` before any `kind` branch (`link.ts:314`), so only an **empty-bodied** `for` reaches the trailing kind refusal — measured across seventeen fixtures. A builder who adds a `kind === 'for'` branch to `compileStatement` will see it never fire. The route belongs in `compileBlock`, beside `if`. This also means every negative row's RED-at-base message is `statement must be a leaf`, which is the honest single RED reason and not a fixture defect. |
+| 2026-09-03 | **The two closure walkers are exhaustive by typing, not by `switch`, and the third is not exhaustive at all.** The brief described `contracts.ts`'s walkers as "exhaustive on purpose (they throw the never tripwire)". `expressionVariantUnhandled` guards the *expression* walkers' `default`; the *statement* walkers (`statementsInvokeCapability`, `statementsCallDepth`) instead fall through to `statement.value`, so a `for` member is a `tsc` error rather than a thrown never — and at run time a hand-built `for` makes both throw `TypeError: Cannot read properties of undefined (reading 'kind')` (measured). Worse, `containsReturn` in `link.ts` recurses into `if` only and would **silently** miss a `return` inside a `for` body, letting a `void` handler link. Three walkers, three different failure modes, pinned separately. |
+| 2026-09-03 | **No kernel byte has to move, and it is asserted rather than argued.** Both kernels already carry an integer-operand reader and a `maxStringBytes`-pre-checked integer constructor (`__intOperand`/`__intValue`, `_int_operand`/`_int_value`), and both `__Fault`/`_Fault` already accept a label argument — so the whole `for` lowering fits in each emitter's `blockSource`, which is per-program code outside `KERNEL_SOURCE`. Both `TARGET_KERNEL_SHA256` values are pinned in `compatibility.test.mjs` as consuming assertions, which is what makes "zero emitted-artifact re-seals" a test rather than a claim. |
+| 2026-09-03 | **The metering rows are identities over base measurements, not post-slice absolutes, and the reason is recorded rather than hidden.** RT-10-X measured every post-slice expectation against a shadow implementation applied to `packages/core/dist`; that was cheap there (seven table edits) and is not cheap here (six sites of real control flow). Instead the loop's charge `2 + n·(1 + B)` is turned into five differences whose only unknowns — `B = 4` for `assign acc = acc + 1`, `4` for `acc + i`, `7` for `acc + idp(i)`, and `2` for a `1 + 2` bound — were all measured at base (RT10F-C6). Recorded as accepted risk in RT10F-O7 with the builder required to report the absolutes it measures. |
+| 2026-09-03 | **The counter's read-only rule needs a label selector, not a second gate, and the shadowing rule is not a new string.** RT-9's note requires that `KIR_ASSIGN_TO_LOOP_COUNTER` be "the RT-9 `KIR_ASSIGN_TARGET_NOT_LET` gate with a loop-specific label" and that "rt10 must not add a second mechanism". Implemented as one new `LinkScope.counters` set read at the existing `link.ts:353` gate. Separately, counter shadowing **projects** at base (measured for both a `let` and a parameter), so the refusal must come from the linker — and it reuses the existing `duplicate binding <name>` wording rather than minting a `KIR_FOR_COUNTER_SHADOWS`. Net new diagnostic strings for the whole slice: three (`KIR_FOR_ZERO_STEP`, `KIR_FOR_BOUND_NOT_INTEGER`, `ERR_KIR_LOOP_ZERO_STEP`). |
+| 2026-09-03 | **The "no cancel-mid-loop fixture" pin and the "zero new `checkAbort()`" standing answer are in tension, and the resolution is to license exactly one new site.** A loop is the first construct whose statement count is not bounded by the program text, so no checkpoint at its head means no interruptibility. But `for` admits no `capability` child, so a loop body has no suspension point and the external-signal half of the check can never change state mid-loop — only the deadline half can fire. So the head checkpoint is required for the deadline and is useless for cancellation, which is exactly why there is no cancel-mid-loop fixture *and* exactly one new checkpoint site. Both halves are now stated in RT10F-C9 rather than left as a contradiction between two inherited rules. |
+| 2026-09-03 | **All 22 frozen values were computed twice and agree.** `node` BigInt and CPython 3.12 produce identical text for all 22 rows including the nested golden **18**, the triple-nested **8**, the i64-adjacent trip count **2**, and the three negative-step rows. `diff` of the two runs is empty. This discharges *Builder must NOT* rule 16 for the table as committed. |
