@@ -236,6 +236,38 @@ function leafSource(
   throw new Error('return statements are emitted by the specialized handler');
 }
 
+// Every bound is read once, above the head, so the trip count is fixed before the first test. The
+// head is the one new checkpoint site this slice adds: a loop's statement count is not bounded by
+// the program text, so without it a long loop would be uninterruptible for its whole run.
+function forSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'for' }>,
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: () => string,
+  returnSource: (value: string) => string,
+): string {
+  const cursor = nextLocal();
+  const bound = nextLocal();
+  const stride = nextLocal();
+  const counter = nextLocal();
+  const from = expressionSource(statement.from, scope, calls);
+  const to = expressionSource(statement.to, scope, calls);
+  const step = expressionSource(statement.step, scope, calls);
+  const body = new Map(scope);
+  body.set(statement.counter, counter);
+  return `
+      __meter.step();
+      ${cursor}=__intOperand(${from});
+      ${bound}=__intOperand(${to});
+      ${stride}=__intOperand(${step});
+      if(${stride}===0n)throw new __Fault('unsupported-runtime-input','execution','ERR_KIR_LOOP_ZERO_STEP');
+      for(;${stride}>0n?${cursor}<${bound}:${cursor}>${bound};${cursor}+=${stride}){
+      __meter.step(); __checkAbort();
+      ${counter}=__intValue(${cursor},__meter);${blockSource(statement.body, body, calls, nextLocal, returnSource)}
+      }
+      __meter.step();`;
+}
+
 function blockSource(
   statements: readonly LinkedKernKirStatement[],
   scope: Map<string, string>,
@@ -247,6 +279,7 @@ function blockSource(
     .map((statement) => {
       if (statement.kind === 'return') return returnSource(statementValueSource(statement.value, scope, calls));
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
+      if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
