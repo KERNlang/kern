@@ -4,8 +4,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  LINKED_KIR_BINARY_OPERATORS,
   LINKED_KIR_CROSS_CALL_TYPES,
   LINKED_KIR_CROSS_CALL_TYPE_NAMES,
+  LINKED_KIR_UNARY_OPERATORS,
+  linkedKirCrossCallType,
 } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import { BEHAVIOR_TABLE_RAW, POSITIONS, TABLE_ROWS, admission } from './k0-support.mjs';
 
@@ -107,6 +110,40 @@ test('no deferred cross-call type has a table row, and the names list is the sor
     Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort(),
     'the names list is the sorted table and is only ever consumed by a unique kind/element match',
   );
+});
+
+test('every row of the cross-call and operator tables is frozen, not just the table', () => {
+  assert.equal(linkedKirCrossCallType({ kind: 'boolean' }), 'boolean');
+  assert.throws(
+    () => {
+      LINKED_KIR_CROSS_CALL_TYPES.boolean.kind = 'text';
+    },
+    TypeError,
+    'RT10X_ROW_MUTABLE: a frozen row in ESM strict mode must throw on an assignment attempt',
+  );
+  assert.equal(
+    linkedKirCrossCallType({ kind: 'boolean' }),
+    'boolean',
+    'RT10X_ROW_MUTABLE: the resolver answer must be unchanged after the mutation attempt',
+  );
+
+  assert.throws(
+    () => {
+      LINKED_KIR_BINARY_OPERATORS['+'].resultType = 'boolean';
+    },
+    TypeError,
+    'RT10X_ROW_MUTABLE: a binary operator row must be frozen too',
+  );
+  assert.equal(LINKED_KIR_BINARY_OPERATORS['+'].resultType, 'integer');
+
+  assert.throws(
+    () => {
+      LINKED_KIR_UNARY_OPERATORS['-'].resultType = 'boolean';
+    },
+    TypeError,
+    'RT10X_ROW_MUTABLE: a unary operator row must be frozen too',
+  );
+  assert.equal(LINKED_KIR_UNARY_OPERATORS['-'].resultType, 'integer');
 });
 
 test('this slice adds no expression variant, so the union RT-3 seals does not move', async () => {
