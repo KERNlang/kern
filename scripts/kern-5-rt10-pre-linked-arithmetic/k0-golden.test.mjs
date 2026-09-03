@@ -175,7 +175,7 @@ test('every position the golden calls admitted links, and every refusal is the c
   );
   assert.equal(
     Object.values(committed.admission).filter((value) => value === 'admitted').length,
-    21,
-    'twenty-one positions are admitted by this slice',
+    25,
+    'twenty-five positions are admitted by this slice',
   );
 });

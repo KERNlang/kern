@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 import { decodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
 import { ENTRY, moduleSource } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
+import { runtimeRequest } from '../kern-5-rt6-void-fallthrough/k0-support.mjs';
 import { runProjection } from '../kern-frontend-f5-projection/worker.mjs';
 
 export * from '../kern-5-rt6-void-fallthrough/k0-support.mjs';
@@ -122,6 +123,32 @@ export function listArgs(values) {
   return { xs: { tag: 'list', value: values.map((value) => ({ tag: 'integer', value })) } };
 }
 
+// The size fixtures need a maxStringBytes far below the suite default, so they carry their own
+// request; every metered text in it (requestId, moduleId, handlerName) stays under that bound.
+export function limitRequest(requestId, maxStringBytes) {
+  const base = runtimeRequest(requestId, {});
+  return { ...base, limits: { ...base.limits, maxStringBytes } };
+}
+
+// Nine squarings of a ten-digit seed reach 5120 digits from literals no leg needs to widen, which
+// is past CPython's 4300-digit int/str conversion cap and inside the suite's maxStringBytes.
+export const SQUARING_CHAIN = Object.freeze({ depth: 9, seed: '9999999999' });
+
+export function squaringChainValue() {
+  let value = BigInt(SQUARING_CHAIN.seed);
+  for (let index = 0; index < SQUARING_CHAIN.depth; index += 1) value *= value;
+  return value;
+}
+
+function squaringChainSource() {
+  const lines = [`let name=x0 value="${SQUARING_CHAIN.seed}"`];
+  for (let index = 1; index <= SQUARING_CHAIN.depth; index += 1) {
+    lines.push(`let name=x${index} value="x${index - 1} * x${index - 1}"`);
+  }
+  lines.push(`return value="x${SQUARING_CHAIN.depth}"`);
+  return route(lines, { returns: 'integer' });
+}
+
 export function tableSource(row) {
   return route([`return value="${row.expression}"`], { returns: 'integer' });
 }
@@ -217,6 +244,19 @@ export const POSITIONS = Object.freeze({
   'param-neg': () => route(['return value="-a"'], { parameters: INT_A, returns: 'integer' }),
   'param-ordering': () => route(['return value="a < b"'], { parameters: INT_AB, returns: 'boolean' }),
   'sub-in-return': () => route(['return value="7 - 3"'], { returns: 'integer' }),
+  'digits-beyond-cpython-cap': () => squaringChainSource(),
+  'size-at-limit': () => route(['return value="9999999999 * 9999999999"'], { returns: 'integer' }),
+  'size-fault-position': () =>
+    route(
+      [
+        `print value=${lit('a')}`,
+        'let name=n value="10000000000 * 10000000000"',
+        `print value=${lit('b')}`,
+        'return value="n"',
+      ],
+      { returns: 'integer' },
+    ),
+  'size-over-limit': () => route(['return value="10000000000 * 10000000000"'], { returns: 'integer' }),
   'refuse-arith-call-argument': () =>
     withHelper(SYNC_BOOL_PARAM_HELPER, ['return value="hb(1 + 2)"'], { returns: 'boolean' }),
   'refuse-arith-if-cond': () => route(['if cond="1 + 2"', `  print value=${lit('y')}`, `return value=${lit('z')}`]),

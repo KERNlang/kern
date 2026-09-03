@@ -36,6 +36,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "digits-beyond-cpython-cap": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "helper-body-arith": {
       "diagnostics": [],
       "status": "projected"
@@ -217,6 +221,18 @@
       "status": "projected"
     },
     "refuse-unary-text-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-at-limit": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-fault-position": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "size-over-limit": {
       "diagnostics": [],
       "status": "projected"
     },
@@ -530,6 +546,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "add-i64-max": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "add-neg-left": {
       "diagnostics": [],
       "status": "projected"
@@ -547,10 +567,6 @@
       "status": "projected"
     },
     "add-small": {
-      "diagnostics": [],
-      "status": "projected"
-    },
-    "add-sub-i64-max": {
       "diagnostics": [],
       "status": "projected"
     },

@@ -6,12 +6,15 @@ import {
   POSITIONS,
   POSITION_ARGUMENTS,
   PRECISION_ROWS,
+  SQUARING_CHAIN,
   TABLE_ROWS,
   between,
   emittedArtifacts,
   integerResult,
+  limitRequest,
   route,
   runtimeRequest,
+  squaringChainValue,
   tableSource,
   threeLegBytes,
 } from './k0-support.mjs';
@@ -252,4 +255,62 @@ test('the emitted operands stay in source order, left before right', async () =>
     regions.python.indexOf('_chars([55])') < regions.python.indexOf('_chars([51])'),
     'the emitted Python must evaluate the left operand first',
   );
+});
+
+const SIZE_LIMIT_BYTES = 20;
+const LIMIT_DIAGNOSTIC = Object.freeze({ category: 'runtime', code: 'runtime-limit-exceeded', phase: 'execution' });
+
+test('an arithmetic result exactly at maxStringBytes is admitted on all three legs', async () => {
+  const { legs } = await threeLegBytes(
+    POSITIONS['size-at-limit'](),
+    limitRequest('rt10p-size-ok', SIZE_LIMIT_BYTES),
+  );
+  const result = legs.direct.envelope;
+  assert.equal(result.outcome, 'success');
+  assert.deepEqual(result.result, integerResult('99999999980000000001'));
+  assert.equal(result.result.value.value.length, SIZE_LIMIT_BYTES);
+});
+
+test('one byte over maxStringBytes faults with the same limit envelope on all three legs', async () => {
+  const { legs } = await threeLegBytes(
+    POSITIONS['size-over-limit'](),
+    limitRequest('rt10p-size-over', SIZE_LIMIT_BYTES),
+  );
+  const result = legs.direct.envelope;
+  assert.equal(
+    result.outcome,
+    'failure',
+    'RT10PRE_RESULT_SIZE_UNBOUNDED: arithmetic minted an integer payload past maxStringBytes',
+  );
+  assert.deepEqual([...result.diagnostics], [LIMIT_DIAGNOSTIC]);
+  assert.deepEqual(result.result, { presence: 'absent' });
+});
+
+test('the size fault is raised at the operator node, so the following statement never runs', async () => {
+  const { legs } = await threeLegBytes(
+    POSITIONS['size-fault-position'](),
+    limitRequest('rt10p-size-pin', SIZE_LIMIT_BYTES),
+  );
+  const result = legs.direct.envelope;
+  assert.equal(result.outcome, 'failure');
+  assert.deepEqual([...result.diagnostics], [LIMIT_DIAGNOSTIC]);
+  assert.deepEqual(
+    [...result.events],
+    [{ op: 'stdout', text: 'a' }],
+    'RT10PRE_SIZE_FAULT_POSITION: the limit must fire at the arithmetic node, not at the envelope boundary',
+  );
+});
+
+test('an exact result past CPython\'s 4300-digit conversion cap agrees on all three legs', async () => {
+  const expected = squaringChainValue().toString();
+  assert.ok(expected.length > 4300, 'the chain must clear the CPython conversion cap to be a probe at all');
+  const { legs } = await threeLegBytes(POSITIONS['digits-beyond-cpython-cap'](), runtimeRequest('rt10-pre-digits', {}));
+  const result = legs.direct.envelope;
+  assert.equal(
+    result.outcome,
+    'success',
+    'RT10PRE_INT_STR_DIGIT_CAP: the emitted Python kernel must lift sys.set_int_max_str_digits',
+  );
+  assert.deepEqual(result.result, integerResult(expected));
+  assert.equal(SQUARING_CHAIN.depth, 9);
 });

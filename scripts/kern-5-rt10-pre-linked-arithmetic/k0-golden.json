@@ -9,6 +9,7 @@
     "assign-arith": "admitted",
     "assign-arith-params": "admitted",
     "assign-neg": "admitted",
+    "digits-beyond-cpython-cap": "admitted",
     "helper-body-arith": "admitted",
     "local-add": "admitted",
     "mul-in-return": "admitted",
@@ -54,9 +55,12 @@
     "refuse-unary-over-async-call": "handler-entry-unsupported",
     "refuse-unary-plus": "handler-entry-unsupported",
     "refuse-unary-text-param": "handler-entry-unsupported",
+    "size-at-limit": "admitted",
+    "size-fault-position": "admitted",
+    "size-over-limit": "admitted",
     "sub-in-return": "admitted"
   },
-  "behaviorTableSha256": "f7383415241fd86c33f6c6aec72f8033788771cc47308093bf15bd79b7311dfc",
+  "behaviorTableSha256": "2462fc461cf18502d937a3f071fcd16756c77d5de84a29a7e44247fe1c5e8bd8",
   "binaryOperatorContracts": {
     "!=": {
       "family": "equality",

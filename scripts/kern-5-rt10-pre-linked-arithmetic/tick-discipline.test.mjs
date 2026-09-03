@@ -49,6 +49,7 @@ const METERING = Object.freeze({
   },
   'return-binary-control': { args: () => ({}), source: route(['return value="1 < 2"'], { returns: 'boolean' }) },
   'return-literal-control': { args: () => ({}), source: route(['return value="1"'], { returns: 'integer' }) },
+  'size-at-limit': { args: () => ({}), source: POSITIONS['size-at-limit']() },
 });
 
 // Hand-derived from the base-measured model: execution steps are one per executed statement
@@ -71,6 +72,7 @@ const EXECUTION_STEPS = Object.freeze({
   'prec-paren-add-first': 6,
   'return-binary-control': 4,
   'return-literal-control': 2,
+  'size-at-limit': 4,
 });
 
 test('every RT-10-pre metering fixture consumes exactly the pinned number of execution steps', async () => {
