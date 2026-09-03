@@ -33,7 +33,7 @@
   "profileLimits": {
     "maxModules": 256,
     "maxInstructionScalars": 16777216,
-    "maxWorkSteps": 33554432,
+    "maxWorkSteps": 100663296,
     "maxNodes": 1048576,
     "maxDepth": 256,
     "maxCollectionLength": 262144,
@@ -57,7 +57,7 @@
     "maxDepth": 512,
     "maxDiagnostics": 8,
     "maxEvents": 1,
-    "maxIterations": 33554432,
+    "maxIterations": 100663296,
     "maxStringBytes": 33554432
   },
   "scheduler": { "timeoutMs": 120000 }

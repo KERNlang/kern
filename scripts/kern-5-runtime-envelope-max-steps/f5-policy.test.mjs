@@ -7,7 +7,7 @@ import { validatePolicy } from '../kern-frontend-f5-projection/policy-validation
 import { ENVELOPE_LIMIT_KEYS, REPO_ROOT } from './support.mjs';
 
 const POLICY_PATH = join(REPO_ROOT, 'scripts/kern-frontend-f5-projection/policy.json');
-const F5_WORK_STEPS = 33_554_432;
+const F5_WORK_STEPS = 100_663_296;
 const F5_COLLECTION_LENGTH = 1_048_576;
 
 function policy() {
