@@ -15,12 +15,14 @@ import {
   requiredText,
 } from '../inspect.js';
 import {
+  createLinkedKirClosureWalk,
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
   LINKED_KIR_DEFAULT_CALL_POLICY,
   LINKED_KIR_VOID_RETURN_TYPE,
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
+  type LinkedKernKirClosureWalk,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirEntry,
   type LinkedKernKirEntryHandler,
@@ -36,6 +38,7 @@ import {
   linkedKirAdmitsScalar,
   linkedKirAdmitsType,
   linkedKirCrossCallType,
+  linkedStatementsInvokeCapability,
 } from './contracts.js';
 import {
   compileLinkedExpression,
@@ -43,11 +46,6 @@ import {
   crossCallExpressionType,
   staticExpressionType,
 } from './expression.js';
-import {
-  createLinkedKirClosureWalk,
-  type LinkedKernKirClosureWalk,
-  linkedStatementsInvokeCapability,
-} from './walkers.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
