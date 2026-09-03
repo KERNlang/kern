@@ -3,7 +3,7 @@ import type { InternalEffectMachineObserver } from '../ir/semantics/internal-eff
 
 export const INTERNAL_RUNTIME_ENVELOPE_FORMAT = 'kern.runtime.internal.r0' as const;
 
-export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = [
+export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = Object.freeze([
   'maxBytes',
   'maxCollectionLength',
   'maxDepth',
@@ -11,7 +11,7 @@ export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = [
   'maxEvents',
   'maxIterations',
   'maxStringBytes',
-] as const;
+] as const);
 
 export interface InternalRuntimeEnvelopeLimits {
   readonly maxBytes: number;
