@@ -104,10 +104,37 @@ def _bool_operand(operand):
     return operand
 
 
+# CPython >= 3.11 caps int<->str conversion at 4300 digits. The mutation is confined to the one
+# conversion it guards and restored in a finally, so an embedder sharing this interpreter observes
+# the lifted cap only inside that window.
+def _lifted_digits(convert, argument):
+    if not hasattr(sys, "set_int_max_str_digits"):
+        return convert(argument)
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(0)
+    try:
+        return convert(argument)
+    finally:
+        sys.set_int_max_str_digits(previous)
+
+
+# A conservative rational under log10(2): the floor it yields is never above the true digit count,
+# so the pre-check can only refuse a value that genuinely cannot fit.
+_LOG10_2_NUMERATOR = 30102
+_LOG10_2_DENOMINATOR = 100000
+
+
+def _decimal_digits_floor(value):
+    bits = value.bit_length()
+    if bits <= 1:
+        return 0
+    return ((bits - 1) * _LOG10_2_NUMERATOR) // _LOG10_2_DENOMINATOR
+
+
 def _int_operand(operand):
     if operand["tag"] != "integer":
         _operand_fault()
-    return int(operand["value"])
+    return _lifted_digits(int, operand["value"])
 
 
 def _bool_value(flag):
@@ -132,7 +159,7 @@ def _same_operands(left, right):
     if left["tag"] == "boolean":
         return left["value"] is right["value"]
     if left["tag"] == "integer":
-        return int(left["value"]) == int(right["value"])
+        return _lifted_digits(int, left["value"]) == _lifted_digits(int, right["value"])
     _operand_fault()
 
 
@@ -161,7 +188,11 @@ def _ge(left, right):
 
 
 def _int_value(value, meter):
-    return {"tag": "integer", "value": meter.text(str(value))}
+    meter.check()
+    sign = 1 if value < 0 else 0
+    if _decimal_digits_floor(value) + sign >= meter.limits["maxStringBytes"] + 1:
+        raise _Fault("runtime-limit-exceeded", "execution")
+    return {"tag": "integer", "value": meter.text(_lifted_digits(str, value))}
 
 
 def _add(left, right, meter):
