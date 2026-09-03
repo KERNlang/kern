@@ -1166,6 +1166,7 @@ prior-suite numbers):
 | `test:kern-5-rt8-integer-signatures` | 28 | 28 | 0 |
 | `node --test scripts/ci/test-tier-contract.test.mjs` | 9 | 9 | 0 |
 | `node --test scripts/kern-canonicalizer/*.test.mjs` | 872 | 872 | 0 |
+| `composition.mjs`, `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs` | 3 scripts | 3 | 0 |
 
 RT-10-pre is **142/142**, matching acceptance criterion 1 exactly: probe-matrix 9,
 compatibility 5, k0-golden 6, behavior 52, type-gate 41, walker-coverage 8, tick-discipline 21.
@@ -1176,11 +1177,12 @@ golden did not — `OPERATORS` is a hard-coded eight-element list, exactly as *B
 
 The whole gate is green. The three rows that were red before the artifact re-seal were **one**
 finding, recorded in the Corrections Log and ruled by the coordinator as option (A). The
-`pnpm test:kern-canonicalizer` script itself cannot run in this worktree: its first step builds
-`@kernlang/cli`, which fails on missing `react`/`ink`/`@modelcontextprotocol/sdk` type
-declarations because the conquer worktree's `node_modules` links were never created. The
-canonicalizer suite proper, `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs`
-and `composition.mjs` all run green directly; the blocker is the environment, not the slice.
+`pnpm test:kern-canonicalizer` script itself cannot run in this worktree: its second step builds
+`@kernlang/cli`, which fails with 17 `TS2307`/`TS2875` errors on missing `react`/`ink` type
+declarations under `packages/terminal/src/runtime/*.tsx`. Re-measured in the review round and
+unchanged by this slice — none of those files is touched. The canonicalizer suite proper
+(872/872), `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs` and
+`composition.mjs` all run green directly; the blocker is the environment, not the slice.
 
 ### Mutant kill table — 25 applied, 25 killed, 0 survivors
 
