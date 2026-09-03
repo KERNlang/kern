@@ -11,9 +11,9 @@ const PACKAGE_IMPORT = /\b(?:import|export)\s+(?!type\b)[\s\S]*?\bfrom\s*['"](#[
 const FORBIDDEN_PATH = /(?:packages\/cli|packages\/python|packages\/review|scripts\/kern-5-r0-contracts|closure-python-lowering|compiler\/kir-js-esm|parser|reference-runner|runtime-kir\.js)/iu;
 const FORBIDDEN_SOURCE = /(?:ReferenceRunner|executeKernKir|generateR0|kern\.[\w.-]*\.r0|\beval\s*\(|\bFunction\s*\(|\bprocess\b|node:(?:http|https|net|tls|child_process)|typescript|ts\.create|parseDocument|parseExpression|closurePython|codegenPython)/iu;
 const STANDARD_LIBRARY = new Set([
-  'asyncio', 'dataclasses', 'decimal', 'hashlib', 'math', 're', 'time', 'typing', 'unicodedata',
+  'asyncio', 'dataclasses', 'decimal', 'hashlib', 'math', 're', 'sys', 'time', 'typing', 'unicodedata',
 ]);
-const FORBIDDEN_EMITTED = /(?:\b(?:eval|exec|input|print)\s*\(|(?<!\.)\bcompile\s*\(|\bJSON\b|json\.(?:loads|dumps)|sys\.(?:stdin|stdout|stderr)|subprocess|importlib|pathlib|site-packages|node_modules|@kernlang|packages\/|scripts\/|ReferenceRunner|executeKernKir|generateR0|kern\.[\w.-]*\.r0|generic.{0,40}(?:dispatch|interpret)|(?:dispatch|evaluate)\w*\s*\(\s*(?:kir|program|statement|expression)|(?:kir|program|statement|expression)\s*(?:\[|\.)\s*['"]?(?:kind|type|tag))/iu;
+const FORBIDDEN_EMITTED = /(?:\b(?:eval|exec|input|print)\s*\(|(?<!\.)\bcompile\s*\(|\bJSON\b|json\.(?:loads|dumps)|sys\.(?:stdin|stdout|stderr|argv|exit|path|modules|executable|platform)|subprocess|importlib|pathlib|site-packages|node_modules|@kernlang|packages\/|scripts\/|ReferenceRunner|executeKernKir|generateR0|kern\.[\w.-]*\.r0|generic.{0,40}(?:dispatch|interpret)|(?:dispatch|evaluate)\w*\s*\(\s*(?:kir|program|statement|expression)|(?:kir|program|statement|expression)\s*(?:\[|\.)\s*['"]?(?:kind|type|tag))/iu;
 
 function here(relative) {
   return resolve(fileURLToPath(new URL(relative, import.meta.url)));
