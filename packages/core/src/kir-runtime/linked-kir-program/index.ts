@@ -33,13 +33,13 @@ export {
 } from './contracts.js';
 export { containsAsyncCall } from './expression.js';
 export {
+  authenticateLinkedKernKirProjectionOrThrow,
+  linkVerifiedKernKirProgram,
+  linkVerifiedKernKirProgramOrThrow,
+} from './link.js';
+export {
   createLinkedKirClosureWalk,
   type LinkedKernKirClosureWalk,
   linkedStatementsCallDepth,
   linkedStatementsInvokeCapability,
 } from './walkers.js';
-export {
-  authenticateLinkedKernKirProjectionOrThrow,
-  linkVerifiedKernKirProgram,
-  linkVerifiedKernKirProgramOrThrow,
-} from './link.js';

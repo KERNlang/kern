@@ -38,16 +38,16 @@ import {
   linkedKirCrossCallType,
 } from './contracts.js';
 import {
-  createLinkedKirClosureWalk,
-  type LinkedKernKirClosureWalk,
-  linkedStatementsInvokeCapability,
-} from './walkers.js';
-import {
   compileLinkedExpression,
   containsAsyncCall,
   crossCallExpressionType,
   staticExpressionType,
 } from './expression.js';
+import {
+  createLinkedKirClosureWalk,
+  type LinkedKernKirClosureWalk,
+  linkedStatementsInvokeCapability,
+} from './walkers.js';
 
 function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);

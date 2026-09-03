@@ -256,10 +256,7 @@ export function evaluateExpression(
         meter,
       );
     case 'unary':
-      return UNARY_EVALUATORS[expression.op](
-        evaluateExpression(expression.argument, bindings, meter, runtime),
-        meter,
-      );
+      return UNARY_EVALUATORS[expression.op](evaluateExpression(expression.argument, bindings, meter, runtime), meter);
     case 'user-call': {
       if (runtime.asyncHelpers.has(expression.handlerName)) {
         throw new KernKirFault('handler-link-error', 'execution', 'KIR_ASYNC_CALL_EXPRESSION_POSITION');
