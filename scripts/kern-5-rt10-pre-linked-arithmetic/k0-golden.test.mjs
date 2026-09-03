@@ -175,7 +175,7 @@ test('every position the golden calls admitted links, and every refusal is the c
   );
   assert.equal(
     Object.values(committed.admission).filter((value) => value === 'admitted').length,
-    32,
-    'thirty-two positions are admitted by this slice',
+    35,
+    'thirty-five positions are admitted after RT-10-X admitted the integer cross-calls',
   );
 });
