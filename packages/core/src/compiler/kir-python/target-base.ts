@@ -1,7 +1,13 @@
 export const TARGET_BASE_SOURCE = String.raw`import asyncio
 import hashlib
 import re
+import sys
 import time
+
+# CPython >= 3.11 caps int<->str conversion at 4300 digits, which would fault a large exact
+# integer the other two legs convert. maxStringBytes is the one bound on integer payload size.
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(0)
 
 format = "kern.runtime.kir.v1"
 _SAFE_INTEGER = 9007199254740991
