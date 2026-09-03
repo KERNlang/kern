@@ -19,10 +19,12 @@ const RT10PRE_GOLDEN_URL = new URL('../kern-5-rt10-pre-linked-arithmetic/k0-gold
 const F5_POLICY_URL = new URL('../kern-frontend-f5-projection/policy.json', import.meta.url);
 
 // Three goldens scrape a union this slice does not move: RT-2 and RT-9 the statement union,
-// RT-3 the expression union. A cross-call type is neither.
+// RT-3 the expression union. A cross-call type is neither. RT-9's golden later moved anyway, as
+// a correction unrelated to this slice: its stale `control-for` admission row was re-pinned to
+// admitted once a later slice made the linker admit `for`.
 const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
 const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
-const RT9_GOLDEN_SHA256 = '2378f458943eb450984d8286e43bf45f322aa1f9e862eb0202188436bf2ab94a';
+const RT9_GOLDEN_SHA256 = 'c8a7253c86d6c04c73370129dfa99f0cf2e510eaad3e64410076c93785ddedb4';
 
 // The frontend is frozen in this slice: no composition, policy or amendment moves.
 const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4223df80519';
