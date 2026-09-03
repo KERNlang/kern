@@ -1,6 +1,6 @@
 # KERN 5 RT-10-pre: linked-KIR integer arithmetic (`+`, `-`, `*`, unary `-`)
 
-**Status:** IMPLEMENTED, REVIEWED ×2 (production diff landed, RT-10-pre 154/154, whole gate green;
+**Status:** IMPLEMENTED, REVIEWED ×2 (production diff landed, RT-10-pre 156/156, whole gate green;
 the emitted-artifact digests in rt4/rt5/rt6 re-sealed twice under the coordinator's option-(A)
 ruling — once for the arithmetic helpers, once for the result-size bound and the CPython
 digit-cap lift the review round added — see *Implementation* and the Corrections Log)
@@ -801,7 +801,7 @@ pins, so a fixture cannot be quietly re-expected.
 | `probe-matrix.test.mjs` | 9 | F5 facts only: projection status and diagnostic codes for 55 positions and all 34 gating expressions, plus the projected node shapes for 14 of them — the two `FRONTEND_INVALID_EXPRESSION` walls, the helper body, the F2 precedence pair, and the `assign` accumulator shape | **GREEN 9/9** — F5 already projects everything; the matrix is the sequencing gate and must stay green after the build |
 | `compatibility.test.mjs` | 5 | the RT-2 golden byte-identical at RT-9's seal; the RT-3 golden at its post-slice seal with the one-element undo reproducing the pre-image; **five** derived literals across rt4/rt4/rt6/rt9/rt9 recomputed from the live golden; the RT-5 coverage row; the F5 policy digest unmoved | **RED 3/5** |
 | `k0-golden.test.mjs` | 6 | the 55-row admission map; `LINKED_KIR_BINARY_OPERATORS` imported live from `dist` and serialized whole; the unary union and the expression union scraped from `contracts.ts`; the gating-table and precision-probe digests and row well-formedness | **RED 3/6** |
-| `behavior.test.mjs` | 60 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, the emitted operand order, and (review rounds) the three RT10P-C15 size rows, the three sign rows, the three nested-intermediate rows, the pre-check boundary and soundness pins, and the RT10P-C15a 5120-digit round trip with its process-limit restore probe | **RED 2/48 at base; 52 rows after the review round** |
+| `behavior.test.mjs` | 61 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, the emitted operand order, and (review rounds) the three RT10P-C15 size rows, the three sign rows, the three nested-intermediate rows, the pre-check boundary and soundness pins, and the RT10P-C15a 5120-digit round trip with its process-limit restore probe | **RED 2/48 at base; 52 rows after the review round** |
 | `type-gate.test.mjs` | 44 | 32 refusals, each with its **label text** pinned, the oversized-integer-literal admission bound and the magnitude-amplifying-operator fences (review round), plus the three label-disambiguation rows, the async-operand row, the `assign` admitted row, the admitted siblings that make each refusal non-vacuous, and the frontend-wall row | **RED 8/41** |
 | `walker-coverage.test.mjs` | 8 | the three expression walkers over a hand-built linked `unary` node, and (review round) all three failing closed on an unknown-kind node (RT10P-C12) | **RED 0/5 at base; 8 rows after the review round** |
 | `tick-discipline.test.mjs` | 23 | absolute `execution` counts on 17 rows, the nested-intermediate 90-budget sweeps (review round), (the sixteenth is RT10P-C15's `size-at-limit`, pinned at its arithmetic-free twin's cost), the six inherited-metering identities, the no-`await` static assertion on the RT-1 dispatch region and both emitted operator-helper regions, the checkpoint census against two arithmetic-free controls, queued-abort fences at microtask depths 0-4 on two fixtures, the pre-cancel fail-closed envelope | **RED 6/21** |
@@ -1023,9 +1023,9 @@ cap — those are the three phantom classes the deferred operators would have in
 
 ## Acceptance criteria
 
-1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **154/154** (135 at design time; the first
+1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **156/156** (135 at design time; the first
    review round added four `behavior` rows and three `walker-coverage` rows to reach 142, and the
-   targeted second round added eight more `behavior` rows, three `type-gate` rows and two
+   targeted second round added nine more `behavior` rows, three `type-gate` rows and two
    `tick-discipline` rows).
 2. The seven prior suites green at the **pre-slice counts measured on this base**, with one
    declared exception. Record each count at base before implementing; do not copy a count from
@@ -1236,7 +1236,7 @@ prior-suite numbers):
 
 | Gate | Total | Pass | Fail |
 | --- | --- | --- | --- |
-| `test:kern-5-rt10-pre-linked-arithmetic` | **154** | **154** | 0 |
+| `test:kern-5-rt10-pre-linked-arithmetic` | **156** | **156** | 0 |
 | `test:kern-5-rt2-boolean-if` | 35 | 35 | 0 |
 | `test:kern-5-rt3-binary-expression` | 139 | 139 | 0 |
 | `test:kern-5-rt4-user-fn-call` | 50 | 50 | 0 |
@@ -1248,8 +1248,8 @@ prior-suite numbers):
 | `node --test scripts/kern-canonicalizer/*.test.mjs` | 872 | 872 | 0 |
 | `composition.mjs`, `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs` | 3 scripts | 3 | 0 |
 
-RT-10-pre is **154/154**, matching acceptance criterion 1 exactly: probe-matrix 9,
-compatibility 5, k0-golden 6, behavior 60, type-gate 44, walker-coverage 8, tick-discipline 23.
+RT-10-pre is **156/156**, matching acceptance criterion 1 exactly: probe-matrix 9,
+compatibility 5, k0-golden 6, behavior 61, type-gate 44, walker-coverage 8, tick-discipline 23.
 
 RT-3 measures 139, not its base 142: the three rows that asserted `+`, `-` and `*` fail closed
 are gone, because admitting them is this slice. Nothing else in RT-3 moved and its own K0
