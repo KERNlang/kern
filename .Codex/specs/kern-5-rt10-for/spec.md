@@ -456,7 +456,8 @@ base precisely so that a projection regression can never masquerade as a link RE
 ### Measured base gate — 2026-09-03, `feat/kern-5-rt10-for` @ `03479550`
 
 **109 tests: 21 GREEN, 88 RED.** Every file run individually with
-`node --test scripts/kern-5-rt10-for/<file>.test.mjs`.
+`node --test scripts/kern-5-rt10-for/<file>.test.mjs`, and re-confirmed identical after the
+`k0-support.mjs` import fix below.
 
 | File | tests | pass | fail | Every RED's message at base |
 | --- | --- | --- | --- | --- |
@@ -480,7 +481,7 @@ helper `k0-support.mjs` calls is now imported by name as well as re-exported. Se
 | `pnpm test:ci-contract` | **16/16 pass** — with this slice's `kern5EvidenceCommands` entry and the `test:kern-5-script-family` append already applied, so the tier contract is satisfied by the wiring as committed |
 | `node --test scripts/kern-5-r2-js-lowering/closure.test.mjs scripts/kern-5-r1-runtime-owner/*.test.mjs scripts/kern-5-c-py-1-contract/*.test.mjs` | **53/53 pass** |
 | `pnpm lint` | **exit 0**, `Checked 1448 files`, 2 pre-existing infos (`String.raw`), no error. `biome.json` `files.includes` covers `packages/*/src/**` and two named scripts only, so `scripts/kern-5-rt10-for/**` carries no lint gate and is formatted by hand to the same 120-column, 2-space style as its neighbours |
-| `pnpm test:kern-5-rt10-cross-call-integer` | run at base; the RT-10-X suite is additionally pinned by this slice's `compatibility.test.mjs` through its k0-golden digest and by two live admission rows |
+| `pnpm test:kern-5-rt10-cross-call-integer` | **95/95 pass** (probe-matrix 7, compatibility 8, k0-golden 7, behavior 36, type-gate 26, tick-discipline 11). RT-10-X's own spec recorded 94; the extra row is its post-review k0-golden addition, so 95 is the figure this slice inherits. Additionally pinned by this slice's `compatibility.test.mjs` through the RT-10-X k0-golden digest and two live admission rows |
 
 ## Out of Scope
 
