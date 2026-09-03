@@ -156,6 +156,23 @@ function* statementValue(
   return yield Object.freeze({ arguments: Object.freeze(args), handler, kind: 'call' as const });
 }
 
+interface LoopState {
+  readonly counter: string;
+  readonly step: bigint;
+  readonly to: bigint;
+  current: bigint;
+}
+
+interface WalkFrame {
+  readonly loop: LoopState | undefined;
+  readonly statements: readonly LinkedKernKirStatement[];
+  index: number;
+}
+
+function loopContinues(loop: LoopState): boolean {
+  return loop.step > 0n ? loop.current < loop.to : loop.current > loop.to;
+}
+
 export function* walkStatements(
   handler: LinkedKernKirEntryHandler,
   bindings: Map<string, KernKirValue>,
@@ -163,12 +180,25 @@ export function* walkStatements(
   runtime: ExpressionRuntime,
   policy: StatementWalkPolicy,
 ): Generator<StatementStep, StatementWalkResult, KernKirValue> {
-  const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [
-    { statements: handler.statements, index: 0 },
-  ];
+  const frames: WalkFrame[] = [{ index: 0, loop: undefined, statements: handler.statements }];
+  const enterTrip = (loop: LoopState): void => {
+    meter.step();
+    runtime.checkAbort();
+    bindings.set(loop.counter, integerValue(loop.current, meter));
+  };
   while (frames.length > 0) {
     const frame = frames[frames.length - 1];
     if (frame.index >= frame.statements.length) {
+      const { loop } = frame;
+      if (loop !== undefined) {
+        loop.current += loop.step;
+        if (loopContinues(loop)) {
+          frame.index = 0;
+          enterTrip(loop);
+          continue;
+        }
+        meter.step();
+      }
       frames.pop();
       continue;
     }
@@ -205,7 +235,19 @@ export function* walkStatements(
         throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
       }
       const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
-      if (branch !== undefined) frames.push({ statements: branch, index: 0 });
+      if (branch !== undefined) frames.push({ index: 0, loop: undefined, statements: branch });
+    } else if (statement.kind === 'for') {
+      const from = integerOperand(evaluateExpression(statement.from, bindings, meter, runtime));
+      const to = integerOperand(evaluateExpression(statement.to, bindings, meter, runtime));
+      const step = integerOperand(evaluateExpression(statement.step, bindings, meter, runtime));
+      if (step === 0n) throw new KernKirFault('unsupported-runtime-input', 'execution', 'ERR_KIR_LOOP_ZERO_STEP');
+      const loop: LoopState = { counter: statement.counter, current: from, step, to };
+      if (loopContinues(loop)) {
+        enterTrip(loop);
+        frames.push({ index: 0, loop, statements: statement.body });
+      } else {
+        meter.step();
+      }
     } else {
       const { returnType } = handler;
       if (returnType.kind === 'void') {
