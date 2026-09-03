@@ -1,5 +1,4 @@
 export {
-  createLinkedKirClosureWalk,
   KERN_LINKED_KIR_PROGRAM_FORMAT,
   type KernKirLinkCode,
   LINKED_KIR_BINARY_OPERATORS,
@@ -11,7 +10,6 @@ export {
   type LinkedKernKirBinaryOperatorContract,
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
-  type LinkedKernKirClosureWalk,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirCrossCallTypeContract,
   type LinkedKernKirEntry,
@@ -32,10 +30,14 @@ export {
   linkedKirUnaryOperator,
   linkedProgramAsyncHelpers,
   linkedProgramHelpers,
-  linkedStatementsCallDepth,
-  linkedStatementsInvokeCapability,
 } from './contracts.js';
 export { containsAsyncCall } from './expression.js';
+export {
+  createLinkedKirClosureWalk,
+  type LinkedKernKirClosureWalk,
+  linkedStatementsCallDepth,
+  linkedStatementsInvokeCapability,
+} from './walkers.js';
 export {
   authenticateLinkedKernKirProjectionOrThrow,
   linkVerifiedKernKirProgram,

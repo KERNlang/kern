@@ -7,10 +7,9 @@ import {
   linkedStatementsInvokeCapability,
 } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 
-// Three walks reach every linked expression variant, and only `containsAsyncCall` fails the
-// build when a variant is added: the other two answer `false`/`0` from a `default` arm. These
-// rows build the linked `unary` node directly, the way RT-5's variant-coverage suite does, so
-// the walks are exercised without waiting for the frontend or the linker.
+// Three walks reach every linked expression variant and all three fail closed on an unknown one.
+// These rows build the linked `unary` node directly, the way RT-5's variant-coverage suite does,
+// so the walks are exercised without waiting for the frontend or the linker.
 const ASYNC_CALL = Object.freeze({ arguments: Object.freeze([]), handlerName: 'asyncOne', kind: 'user-call' });
 const SYNC_CALL = Object.freeze({ arguments: Object.freeze([]), handlerName: 'syncOne', kind: 'user-call' });
 
@@ -91,5 +90,30 @@ test('linkedStatementsCallDepth counts a call reached through a unary exactly as
     linkedStatementsCallDepth(returning(negate(SYNC_CALL)), HELPERS),
     bare,
     'RT10PRE_WALKER_GAP: the depth walk defaults to 0 on a unary, so the call-depth policy cannot see it',
+  );
+});
+
+const UNKNOWN_VARIANT = Object.freeze({ kind: 'rt10pre-unknown-variant' });
+
+test('the closure walk fails closed on an expression variant it does not handle', () => {
+  assert.throws(
+    () => linkedStatementsInvokeCapability(returning(UNKNOWN_VARIANT), HELPERS),
+    (error) => error.code === 'handler-entry-unsupported' && error.phase === 'link',
+    'RT10PRE_WALKER_DEFAULT: the closure walk answered instead of failing closed on an unknown variant',
+  );
+});
+
+test('the call-depth walk fails closed on an expression variant it does not handle', () => {
+  assert.throws(
+    () => linkedStatementsCallDepth(returning(UNKNOWN_VARIANT), HELPERS),
+    (error) => error.code === 'handler-entry-unsupported' && error.phase === 'link',
+    'RT10PRE_WALKER_DEFAULT: the depth walk answered instead of failing closed on an unknown variant',
+  );
+});
+
+test('containsAsyncCall fails closed on the same unknown variant, so all three walks agree', () => {
+  assert.throws(
+    () => containsAsyncCall(UNKNOWN_VARIANT, SCOPE),
+    (error) => error.code === 'handler-entry-unsupported' && error.phase === 'link',
   );
 });
