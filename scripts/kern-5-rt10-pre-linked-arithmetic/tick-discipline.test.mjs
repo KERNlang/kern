@@ -120,7 +120,7 @@ test('an integer parameter operand is charged once for inspection and once per r
   assert.equal(EXECUTION_STEPS['param-neg'] - EXECUTION_STEPS['neg-in-return'], 1, 'one declared parameter');
 });
 
-test('RT-1 arithmetic dispatch adds no await point and no extra cancellation checkpoint', async () => {
+test('RT-1 arithmetic dispatch adds no await point, and exactly two cancellation checkpoints remain', async () => {
   const source = await readFile(RT1_EXPRESSION_URL, 'utf8');
   const evaluator = between(
     source,
@@ -138,7 +138,29 @@ test('RT-1 arithmetic dispatch adds no await point and no extra cancellation che
     source.includes('UNARY_EVALUATORS'),
     'RT10PRE_DISPATCH_GAP: RT-1 must dispatch unary through its own closed table',
   );
-  assert.equal(source.split('checkAbort()').length - 1, 1, 'the statement-boundary checkpoint stays the only one');
+  assert.equal(
+    source.split('checkAbort()').length - 1,
+    2,
+    'the statement-boundary and the for loop-head checkpoints are the only two; a third must fail this',
+  );
+  const statementBoundary = between(
+    source,
+    'const statement = frame.statements[frame.index];',
+    "if (statement.kind === 'let')",
+    'the statement-boundary checkpoint site',
+  );
+  assert.equal(
+    statementBoundary.split('checkAbort()').length - 1,
+    1,
+    'the statement-boundary site must check abort exactly once',
+  );
+  const loopHead = between(
+    source,
+    'const enterTrip = (loop: LoopState): void => {',
+    'while (frames.length > 0) {',
+    'the for loop-head checkpoint site',
+  );
+  assert.equal(loopHead.split('checkAbort()').length - 1, 1, 'the for loop-head site must check abort exactly once');
 });
 
 test('the arithmetic helpers exist in both target kernels and neither is asynchronous', async () => {
