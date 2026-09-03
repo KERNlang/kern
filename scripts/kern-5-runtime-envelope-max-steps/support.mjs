@@ -249,3 +249,24 @@ export function declaredLimitKeys(path, name = 'LIMIT_KEYS') {
 export function kirLimitKeyDeclarations() {
   return KIR_LIMIT_KEY_DECLARATIONS.map((path) => ({ keys: declaredLimitKeys(path), path }));
 }
+
+export const ENVELOPE_LIMIT_KEY_DECLARATION = 'packages/core/src/runtime-envelope/limit-keys.ts';
+
+export const CLI_LIMIT_KEY_DECLARATION = 'packages/cli/src/kern-runtime-limit-keys.ts';
+
+const SHARED_LIMIT_KEY_CONSUMERS = Object.freeze([
+  ['packages/core/src/runtime-envelope/value.ts', 'INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS'],
+  ['packages/core/src/runtime-handler.ts', 'INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS'],
+  ['examples/kern-5-preview-app/server.mjs', 'INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS'],
+  ['packages/cli/src/kern-checker-assets.ts', 'KERN_RUNTIME_HANDLER_LIMIT_KEYS'],
+  ['packages/cli/src/kern-formatter-assets.ts', 'KERN_RUNTIME_HANDLER_LIMIT_KEYS'],
+  ['packages/cli/src/commands/canonicalizer-assets.ts', 'KERN_RUNTIME_HANDLER_LIMIT_KEYS'],
+]);
+
+export function sharedLimitKeyConsumers() {
+  return SHARED_LIMIT_KEY_CONSUMERS.map(([path, symbol]) => ({
+    imported: new RegExp(`import[^;]*\\b${symbol}\\b[^;]*from`, 'u').test(readFileSync(join(REPO_ROOT, path), 'utf8')),
+    path,
+    symbol,
+  }));
+}

@@ -1,5 +1,6 @@
 import { isPortableDecimalLiteral } from '../decimal/probe-gates.js';
 import { isDecimalValue, isPortableRecordKey } from '../ir/semantics/portable-scalar-domain.js';
+import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from './limit-keys.js';
 import {
   InternalRuntimeEnvelopeError,
   type InternalRuntimeEnvelopeLimits,
@@ -27,15 +28,7 @@ function fail(code: InternalRuntimeEnvelopeError['code'], message: string): neve
 }
 
 export function validateInternalRuntimeLimits(limits: InternalRuntimeEnvelopeLimits): void {
-  const keys = [
-    'maxBytes',
-    'maxCollectionLength',
-    'maxDepth',
-    'maxDiagnostics',
-    'maxEvents',
-    'maxIterations',
-    'maxStringBytes',
-  ];
+  const keys = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;
   if (!limits || typeof limits !== 'object' || Array.isArray(limits))
     fail('invalid-limits', 'limits must be an object');
   const actual = Object.keys(limits).sort();
@@ -43,7 +36,7 @@ export function validateInternalRuntimeLimits(limits: InternalRuntimeEnvelopeLim
     fail('invalid-limits', `limits must contain exactly ${keys.join(',')}`);
   }
   for (const key of keys) {
-    const value = limits[key as keyof InternalRuntimeEnvelopeLimits];
+    const value = limits[key];
     if (!Number.isSafeInteger(value) || value <= 0) fail('invalid-limits', `${key} must be a positive safe integer`);
   }
 }

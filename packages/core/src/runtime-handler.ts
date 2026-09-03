@@ -4,6 +4,7 @@ import {
   executeInternalRuntimeHandlerSync,
 } from './runtime-envelope/handler-entry.js';
 import { inspectInternalRuntimeSchedulerControl } from './runtime-envelope/internal-scheduler.js';
+import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from './runtime-envelope/limit-keys.js';
 import { internalRuntimeFailure, internalRuntimeLinkFailure } from './runtime-envelope/normalize.js';
 import { resolveInternalRuntimeSourceHandler } from './runtime-envelope/source-handler.js';
 import type {
@@ -162,15 +163,7 @@ export class KernRuntimeHandlerError extends TypeError {
 
 const SYNC_OPTION_KEYS = ['capabilities', 'capabilityContext', 'enabled', 'limits', 'scheduler'] as const;
 const ASYNC_OPTION_KEYS = [...SYNC_OPTION_KEYS, 'asyncCapabilities', 'capabilityTimeoutMs'] as const;
-const LIMIT_KEYS = [
-  'maxBytes',
-  'maxCollectionLength',
-  'maxDepth',
-  'maxDiagnostics',
-  'maxEvents',
-  'maxIterations',
-  'maxStringBytes',
-] as const;
+const LIMIT_KEYS = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;
 
 function inspectedRecord(
   value: unknown,

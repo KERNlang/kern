@@ -15,11 +15,11 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
   const paths = shaped.map((row) => row.path);
   for (const expected of [
     'examples/kern-5-preview-app/runtime-handler-config.json',
-    'examples/kern-5-preview-app/server.mjs',
     'packages/cli/src/kern-checker-assets.ts',
     'packages/cli/src/kern-formatter-assets.ts',
+    'packages/cli/src/kern-runtime-limit-keys.ts',
+    'packages/core/src/runtime-envelope/limit-keys.ts',
     'packages/core/src/runtime-envelope/types.ts',
-    'packages/core/src/runtime-envelope/value.ts',
     'packages/core/src/runtime-handler.ts',
     'scripts/kern-5-r0-contracts/schema/runtime-request.json',
     'scripts/kern-checker/policy.json',

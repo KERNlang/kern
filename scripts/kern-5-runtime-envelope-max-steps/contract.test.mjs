@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  CLI_LIMIT_KEY_DECLARATION,
   declaredLimitKeys,
+  ENVELOPE_LIMIT_KEY_DECLARATION,
   ENVELOPE_LIMIT_KEYS,
   executeKernRuntimeHandlerAsync,
   executeKernRuntimeHandlerSync,
@@ -15,6 +17,7 @@ import {
   limits,
   COUNTING_LOOP,
   registerAllContracts,
+  sharedLimitKeyConsumers,
   validateInternalRuntimeLimits,
 } from './support.mjs';
 
@@ -134,10 +137,15 @@ test('L1: every shipped KIR limits key list still declares maxSteps and refuses 
   }
 });
 
-test('L1: the shipped envelope limits key lists declare exactly the envelope record', () => {
-  assert.deepEqual(declaredLimitKeys('packages/core/src/runtime-handler.ts'), [...ENVELOPE_LIMIT_KEYS]);
+test('L1: one shared declaration per package carries the envelope limit key set', () => {
   assert.deepEqual(
-    declaredLimitKeys('packages/core/src/runtime-envelope/value.ts', 'keys'),
+    declaredLimitKeys(ENVELOPE_LIMIT_KEY_DECLARATION, 'INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS'),
     [...ENVELOPE_LIMIT_KEYS],
   );
+  assert.deepEqual(declaredLimitKeys(CLI_LIMIT_KEY_DECLARATION, 'DECLARED'), [...ENVELOPE_LIMIT_KEYS]);
+});
+
+test('L1: every limit-key consumer imports the shared declaration instead of repeating it', () => {
+  const missing = sharedLimitKeyConsumers().filter((row) => !row.imported);
+  assert.deepEqual(missing, [], `${missing.length} consumer(s) do not import the shared limit-key declaration`);
 });
