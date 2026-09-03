@@ -104,7 +104,8 @@ Source order is not canonical order. The discriminating order is
 
 Handler types retain their position. Parameters admit only `boolean`, `number`,
 `string`, and lists of those scalar types. Returns admit the same set plus
-`void`; `void` is never a parameter or list element. `unknown`, `json`, and
+`void`; `void` is never a parameter or list element. Amended by
+`[F5-R5 AMENDED — RT-8]` below. `unknown`, `json`, and
 arbitrary list elements are outside the pinned portable-handler domain.
 
 Quoted branch paths preserve text. Unquoted branch paths are exactly a bare
@@ -158,3 +159,70 @@ The repair is killed if it adds SHA-256 inside KERN, compares F4A field 16 to a
 receipt seal, adds an eighth profile limit, consumes decoded F4 semantics,
 changes F4/KIR/F5 formats, weakens error precedence, leaves a production file
 at 500 lines or more, or cannot make a RED fail for its claimed reason.
+
+## [F5-R5 AMENDED — RT-8] Admitted handler-type spellings
+
+Amends `[F5-R5 DECIDED]` above. Slice `rt8-integer-signatures`; amendment record
+`scripts/kern-frontend-closure/amendments/rt8-integer-signatures.json`; slice spec
+`.Codex/specs/kern-5-rt8-integer-signatures/spec.md`.
+
+This section is deliberately not titled "Amendment 2". The documents
+`.Codex/specs/kern-5-f5-kir-projection-review-amendment-2/` and `-3/` already exist
+and are unrelated to this change.
+
+Parameters additionally admit `integer`, and lists additionally admit `integer[]`.
+`integer` is an **exact alias** of the already-admitted spelling `number`, and
+`integer[]` an exact alias of `number[]`: each routes to the identical
+`f5typekind(limits, "integer")` / `f5typelist(limits, "integer")` path. The
+projected KIR is byte-identical, so no decoder, emitter, envelope, or runtime
+behaviour changes. Returns admit the same set plus `void`, unchanged; `void` remains
+never a parameter or list element.
+
+`integer[]` is admitted because `number[]` already was; the mirror is exact and adds
+nothing further. No other spelling is admitted — `Integer`, `INTEGER`, `int`, `Int`,
+`integers`, and `integer[][]` remain `F5_AUTHORITY_DRIFT`.
+
+This amendment is additive: it grows the value domain of the two existing
+`lowered-type` property rows (`fn.returns`, `param.type`) and adds no row. Node and
+property counts are unchanged at 302 and 1,149. The closure ledger records
+dispositions and their counts but carries no per-row identity, so a record's
+`stableKey` is a **declared claim** that the ledger cannot mechanically confirm; the
+validator checks the disposition and the per-disposition row budget, not the key.
+
+### Chain model
+
+Composition pins move along an explicit predecessor/successor chain, mirroring the
+canonicalizer's prerequisite transitions. `amendments/chain-anchor.json` records, per
+composition path, the genesis digest — the pin as it stood before that path was ever
+amended. Each amendment's `repin` entry is one edge carrying `parentDigest` and, once
+consumed, `resultDigest`.
+
+The validator walks each anchored path from its genesis, following the unique edge
+whose `parentDigest` equals the cursor, and classifies each edge as it goes:
+
+- **pending** — no `resultDigest`; the chain's terminal edge. Its parent must equal
+  the current pin. If the source has drifted, this is the edge that licenses the
+  re-pin, and only this edge's record is checked against the live closure ledger.
+- **consumed / superseded** — `resultDigest` advances the cursor to the next edge or
+  to the current pin.
+
+The walk must consume every edge for that path and arrive exactly at the current pin.
+A deleted record, a corrupted `parentDigest` or `resultDigest`, an edge naming an
+unanchored path, and two edges leaving the same digest are each refused
+(`chain does not reach the current pin`, `orphaned amendment edge`,
+`unanchored amendment edge`, `chain forks at …`). A path with no anchor and no edge
+must match its pin exactly, so ordinary drift still fails closed.
+
+On `--write` the tool re-pins the policy digest **and** records `resultDigest` into
+the consumed edge, both as surgical single-occurrence substitutions. Re-running is a
+no-op. A consumed record can never re-bless a later edit — its parent no longer
+equals the pin — but a **successor amendment chaining from its `resultDigest` is
+accepted**, so the protocol composes across slices.
+
+Ledger digest and count checks apply only to a pending edge's record. Consumed
+records are held to structural checks alone, so a later, unrelated closure-ledger
+change cannot retroactively invalidate settled history or block a new re-pin.
+
+Host decoders continue to reject `{kind:"number"}`. The alias exists only in source
+spelling; the kind `integer` is unchanged and remains the sole lowered form. It is a
+64-bit-safe integer, not arbitrary precision.

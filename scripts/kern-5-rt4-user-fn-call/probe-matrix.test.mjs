@@ -109,15 +109,6 @@ const PROJECTION_NEGATIVES = Object.freeze({
       ]),
     },
   ],
-  'integer-signature': [
-    {
-      moduleId: ENTRY.moduleId,
-      source: moduleSource([
-        { body: ['return value="n"'], name: 'inc', parameters: [{ name: 'n', type: 'integer' }], returns: 'integer' },
-        { body: ['return value="true"'], exported: 'true', name: ENTRY.handlerName, parameters: [], returns: 'boolean' },
-      ]),
-    },
-  ],
 });
 
 const CROSS_MODULE = Object.freeze([
@@ -222,9 +213,10 @@ test('every negative position projects first, so it is a link decision and not a
   }
 });
 
-test('the two probed positions F5 never projects are recorded as frontend facts', async () => {
+test('the probed position F5 never projects is recorded as a frontend fact', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.deepEqual(golden.notProjected['capability-input'].diagnostics, ['FRONTEND_EXCLUDED_HOST_EXPRESSION']);
-  assert.deepEqual(golden.notProjected['integer-signature'].diagnostics, ['F5_AUTHORITY_DRIFT']);
+  assert.equal(golden.notProjected['integer-signature'], undefined,
+    'RT-8 admitted the integer spelling; its coverage moved to test:kern-5-rt8-integer-signatures');
   assert.ok(golden.linkedExpressionKinds.includes('user-call'));
 });
