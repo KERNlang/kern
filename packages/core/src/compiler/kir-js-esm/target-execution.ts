@@ -113,7 +113,23 @@ export const TARGET_EXECUTION_SOURCE = `
   const __le = (left, right) => __boolValue(__intOperand(left) <= __intOperand(right));
   const __gt = (left, right) => __boolValue(__intOperand(left) > __intOperand(right));
   const __ge = (left, right) => __boolValue(__intOperand(left) >= __intOperand(right));
-  const __intValue = (value, meter) => Object.freeze({ tag: 'integer', value: meter.text(String(value)) });
+  const __bitLength = (magnitude) => {
+    if (magnitude === 0n) return 0;
+    const hex = magnitude.toString(16);
+    return (hex.length - 1) * 4 + (32 - Math.clz32(Number.parseInt(hex[0], 16)));
+  };
+  const __decimalDigitsFloor = (magnitude) => {
+    const bits = __bitLength(magnitude);
+    return bits <= 1 ? 0 : Number((BigInt(bits - 1) * 30102n) / 100000n);
+  };
+  const __intValue = (value, meter) => {
+    meter.check();
+    const sign = value < 0n ? 1 : 0;
+    if (__decimalDigitsFloor(sign === 1 ? -value : value) + sign >= meter.limits.maxStringBytes + 1) {
+      throw new __Fault('runtime-limit-exceeded', 'execution');
+    }
+    return Object.freeze({ tag: 'integer', value: meter.text(String(value)) });
+  };
   const __add = (left, right, meter) => __intValue(__intOperand(left) + __intOperand(right), meter);
   const __sub = (left, right, meter) => __intValue(__intOperand(left) - __intOperand(right), meter);
   const __mul = (left, right, meter) => __intValue(__intOperand(left) * __intOperand(right), meter);

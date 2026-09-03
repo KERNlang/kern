@@ -102,7 +102,7 @@ function booleanValue(flag: boolean): KernKirValue {
 // Arithmetic is the only expression that mints a new integer payload, so it is the only place the
 // per-string limit is not already enforced by request inspection or the frontend's literal wall.
 function integerValue(value: bigint, meter: RuntimeMeter): KernKirValue {
-  return Object.freeze({ tag: 'integer', value: meter.text(String(value), 'arithmetic result') });
+  return Object.freeze({ tag: 'integer', value: meter.integerText(value, 'arithmetic result') });
 }
 
 const BINARY_EVALUATORS = Object.freeze({
