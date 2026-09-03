@@ -931,6 +931,9 @@ review-fix HEAD.
 | `pnpm test:kern-checker` | 29 | 29 | 0 | 0 |
 | `node --test scripts/ci/test-tier-contract.test.mjs` | 9 | 9 | 0 | 0 |
 | `pnpm --filter @kernlang/cli build` | — | pass | — | — |
+| `pnpm lint` | 1449 files | pass | 0 | — |
+| `pnpm test:kern-5-fitness` | — | pass | — | — |
+| `node --test scripts/kern-5-r2-js-lowering/closure.test.mjs scripts/kern-5-r1-runtime-owner/*.test.mjs` | — | pass | — | — |
 
 `test:kern-formatter` and `test:kern-checker` were **red at the pre-review HEAD** (10/18 and
 14/29) and are green here; see the Corrections Log.
@@ -951,9 +954,10 @@ The four suites that the MS-R0 correction touched were re-run individually:
 
 ### Mutant battery (kill table)
 
-Twelve mutants, applied one at a time by byte-copy restore, each with a rebuild of
-`@kernlang/core` where the mutated file was TypeScript. Ten died on the first pass; two
-survived and were closed by new fixtures, after which both die.
+Twenty mutants, applied one at a time and restored from git, each with a rebuild of
+`@kernlang/core` where the mutated file was TypeScript. Of the first fourteen, twelve died
+immediately and two survived and were closed by new fixtures; the six added for the second
+review-fix pass (M15-M20) all died on the first pass, each on the row written for it.
 
 | # | Mutant | Verdict | Killed by |
 |---|---|---|---|
@@ -971,6 +975,12 @@ survived and were closed by new fixtures, after which both die.
 | M12 | A pure-KIR limits record keeps `maxIterations` | KILLED | new L5 `no KIR-shaped limits record learns the envelope iteration key` |
 | M13 | One key removed from the shared `INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS` declaration | KILLED | six L1 rows, including `one shared declaration per package carries the envelope limit key set` |
 | M14 | One key removed from the CLI `DECLARED` list | KILLED | `tsc -b packages/cli`: the exhaustiveness type collapses to `never` and all three importers fail |
+| M15 | The public boundary defaults an absent `maxIterations` to `maxBytes` | KILLED | L1 `an absent maxIterations is exactly that request maxCollectionLength` (all three bounds) and `a declared maxIterations overrides the legacy default` |
+| M16 | The boundary treats a non-number `maxIterations` as absent, so a string is defaulted instead of refused | KILLED | L1 `a present maxIterations must be a positive safe integer at the public boundary` |
+| M17 | The authority validator hard-codes one amendment file name again | KILLED | L7 `the authority validator names no amendment and authorizes the composed chain` and the rows-disagree row |
+| M18 | The authority validator skips the `rowsChanged`/delta assertion | KILLED | L7 `the authority validator refuses a record whose rows disagree with the artefact delta` |
+| M19 | The shared limit-key declaration is no longer frozen | KILLED | L1 `the shared limit-key declaration cannot be widened at runtime` and the per-package declaration row |
+| M20 | The writer rewrites `lineage.json` before proving the record is rewritable | KILLED | `a pending record the writer cannot rewrite leaves the lineage untouched` |
 
 M9 mattered: the MS-R0 fixtures asserted the invariant over the test file's own key
 literals, so the shipped KIR validator could be widened with the whole slice fence green.
