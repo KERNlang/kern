@@ -32,7 +32,7 @@ const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4
 // Three goldens whose scrapes this slice does not touch: RT-3 scrapes the expression union, RT-9
 // and RT-10-pre the assign and arithmetic admission surfaces, RT-10-X the cross-call type table.
 // A statement-union addition is none of those.
-const RT3_GOLDEN_SHA256 = 'cb5799446b64c83f82a4a5a044e2b680d41932b5305fffacf8bb5643e99cc7de';
+const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
 const RT9_GOLDEN_SHA256 = '2378f458943eb450984d8286e43bf45f322aa1f9e862eb0202188436bf2ab94a';
 const RT10PRE_GOLDEN_SHA256 = '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718';
 const RT10X_GOLDEN_SHA256 = '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf';

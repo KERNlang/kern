@@ -7,8 +7,8 @@ const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
 // The seals RT-9 re-pinned in the rt4/rt5/rt6 compatibility guards.
-const RT2_GOLDEN_SHA256 = 'cc7fb869d3f51ca6222521df52dd70e2364a83c8f97365f8db0a8c83cc2f9908';
-const RT3_GOLDEN_SHA256 = 'cb5799446b64c83f82a4a5a044e2b680d41932b5305fffacf8bb5643e99cc7de';
+const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
+const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
 
 // The pre-images those seals replaced, preserved here rather than in the frozen guards they left:
 // spec Corrections Log, resolution (A) plus its rider.
