@@ -68,6 +68,13 @@ function literal(value: KernKirValue): LinkedKernKirExpression {
   return Object.freeze({ kind: 'literal', value });
 }
 
+function literalCrossCallType(value: KernKirValue): 'boolean' | 'integer' | 'text' | undefined {
+  if (value.tag === 'boolean') return 'boolean';
+  if (value.tag === 'integer' && CANONICAL_INTEGER.test(value.value)) return 'integer';
+  if (value.tag === 'text') return 'text';
+  return undefined;
+}
+
 export function staticExpressionType(
   expression: LinkedKernKirExpression,
   scope: LinkedKernKirTypeScope,
@@ -80,9 +87,8 @@ export function staticExpressionType(
     return kind === 'boolean' || kind === 'integer' ? kind : undefined;
   }
   if (expression.kind !== 'literal') return undefined;
-  if (expression.value.tag === 'boolean') return 'boolean';
-  if (expression.value.tag === 'integer' && CANONICAL_INTEGER.test(expression.value.value)) return 'integer';
-  return undefined;
+  const literalType = literalCrossCallType(expression.value);
+  return literalType === 'text' ? undefined : literalType;
 }
 
 export function crossCallExpressionType(
@@ -94,7 +100,7 @@ export function crossCallExpressionType(
   if (expression.kind === 'identifier') return scope.crossCallTypes.get(expression.name);
   if (expression.kind === 'user-call') {
     const callee = scope.calls?.linked.get(expression.handlerName);
-    if (callee?.returnType.kind === undefined) return undefined;
+    if (callee === undefined) return undefined;
     return linkedKirCrossCallType(callee.returnType);
   }
   if (expression.kind === 'list') {
@@ -105,10 +111,7 @@ export function crossCallExpressionType(
     return linkedKirCrossCallType({ element: contract.kind, kind: 'list' });
   }
   if (expression.kind !== 'literal') return undefined;
-  if (expression.value.tag === 'boolean') return 'boolean';
-  if (expression.value.tag === 'text') return 'text';
-  if (expression.value.tag === 'integer' && CANONICAL_INTEGER.test(expression.value.value)) return 'integer';
-  return undefined;
+  return literalCrossCallType(expression.value);
 }
 
 // Exhaustive on purpose: a `default` that answered false would let a future expression variant carry

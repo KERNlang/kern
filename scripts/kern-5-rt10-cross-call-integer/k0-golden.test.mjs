@@ -42,7 +42,7 @@ function crossCallTypeContracts() {
 }
 
 function resolverBody(source, name) {
-  const start = source.indexOf(`export function ${name}(`);
+  const start = source.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `expression.ts must declare ${name}`);
   const end = source.indexOf('\n}', start);
   assert.ok(end > start, `${name} must be terminated`);
@@ -161,7 +161,7 @@ test('this slice adds no expression variant, so the union RT-3 seals does not mo
   ]);
 });
 
-test('both type resolvers read one operator table and share one canonical-integer guard', async () => {
+test('both type resolvers read one operator table and share one canonical-integer-guarded literal helper', async () => {
   const source = await readFile(EXPRESSION_URL, 'utf8');
   const staticResolver = resolverBody(source, 'staticExpressionType');
   const crossCallResolver = resolverBody(source, 'crossCallExpressionType');
@@ -178,17 +178,26 @@ test('both type resolvers read one operator table and share one canonical-intege
       `RT10X_RESOLVER_GAP: ${name} must read the unary operator table's resultType`,
     );
     assert.ok(
-      body.includes('CANONICAL_INTEGER.test'),
-      `RT10X_RESOLVER_GAP: ${name} must guard its integer literal answer with the shared canonical regex`,
-    );
-    assert.ok(
-      body.includes('returnType.kind'),
-      `RT10X_RESOLVER_GAP: ${name} must resolve a user call from the callee's declared return type`,
+      body.includes('literalCrossCallType('),
+      `RT10X_RESOLVER_GAP: ${name} must answer a literal through the shared literal-type helper`,
     );
   }
   assert.ok(
+    staticResolver.includes('returnType.kind'),
+    "RT10X_RESOLVER_GAP: staticExpressionType must resolve a user call from the callee's declared return kind",
+  );
+  assert.ok(
+    crossCallResolver.includes('linkedKirCrossCallType(callee.returnType)'),
+    'RT10X_RESOLVER_GAP: crossCallExpressionType must resolve a user call through the cross-call table lookup',
+  );
+  assert.ok(
     !crossCallResolver.includes("element !== 'boolean'"),
     'RT10X_RESOLVER_GAP: the list arm must ask the cross-call table for its element, not a literal name list',
+  );
+  const literalHelper = resolverBody(source, 'literalCrossCallType');
+  assert.ok(
+    literalHelper.includes('CANONICAL_INTEGER.test'),
+    'RT10X_RESOLVER_GAP: the shared literal helper must guard its integer answer with the canonical regex',
   );
 });
 
