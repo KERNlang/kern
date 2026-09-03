@@ -1,6 +1,8 @@
 # KERN 5 RT-10-X: integer cross-calls for linked helpers
 
-**Status:** SPEC — RED oracle landed, production diff not started
+**Status:** IMPLEMENTED (production diff landed, RT-10-X 94/94, the whole prior gate green at
+the declared counts; 10/11 mutants killed, the one survivor a substring-prefix label mutant that
+no `includes`-based assertion can kill — see *Implementation* and the Corrections Log)
 **Date:** 2026-09-03
 **Base:** `cb42f14e` — `feat/kern-5-rt10-pre-linked-arithmetic` (RT-10-pre, itself stacked on
 RT-9 `29feebaf` / `06b74443`). **This slice stacks on RT-10-pre and its PR waits for RT-10-pre
@@ -908,10 +910,84 @@ During an incomplete deployment an integer cross-call continues to fail closed a
 it must never fall back to source or host semantics, and it must never link and then fault with
 `KIR_CALL_ARGUMENT_TAG` at run time.
 
+---
+
+## Implementation (measured 2026-09-03)
+
+Production diff, **2 files, +16/-13 (net +3)** — under the ≤15-line design estimate and far
+under the ≤40-line ceiling:
+
+| File | +/− | What |
+| --- | --- | --- |
+| `kir-runtime/linked-kir-program/contracts.ts` | +5/−5 | the `integer` union member, the `integer` table row, `LinkedKernKirCrossCallTypeContract.kind` widened to admit `'integer'`, and `LINKED_KIR_CROSS_CALL_TYPE_NAMES` compacted from three lines to two so the file does not grow past the 503 lines it already had. `element` is **not** widened. |
+| `kir-runtime/linked-kir-program/expression.ts` | +11/−8 | `staticExpressionType`'s user-call arm answers the callee's `returnType.kind` when it is `'boolean'` or `'integer'`; `crossCallExpressionType`'s binary and unary arms answer their operator table's `resultType`, its user-call arm asks the cross-call table for the callee's declared return type, its list arm resolves the element through the table's scalar rows instead of two hard-coded names, and its literal arm answers `'integer'` under the shared `CANONICAL_INTEGER` guard. |
+
+Nothing else in `packages/core/src` moved: zero lines under `packages/core/src/compiler/`, zero
+added occurrences of `await`, `setImmediate`, `queueMicrotask`, `Promise` or `checkAbort()` under
+`packages/core/src/kir-runtime/`, and zero edited `TARGET_KERNEL_SHA256`,
+`javascript/pythonArtifactSha256`, manifest, `linkedProgramSha256` or `projectionArtifactSha256`
+literals anywhere in the repository. `tsc -b` and `biome check` clean on both files.
+
+### Measured suite counts
+
+| Suite | Expected | Measured |
+| --- | --- | --- |
+| `test:kern-5-rt10-cross-call-integer` | 94 | **94/94** (probe-matrix 7, compatibility 8, k0-golden 6, behavior 36, type-gate 26, tick-discipline 11) |
+| `test:kern-5-rt2-boolean-if` | 35 | **35/35** |
+| `test:kern-5-rt3-binary-expression` | 139 | **139/139** |
+| `test:kern-5-rt4-user-fn-call` | 50 | **50/50** (declared inversion applied) |
+| `test:kern-5-rt5-async-user-fn-call` | 86 | **86/86** |
+| `test:kern-5-rt6-void-fallthrough` | 52 | **52/52** |
+| `test:kern-5-rt8-integer-signatures` | 28 | **28/28** |
+| `test:kern-5-rt9-linked-assign` | 82 | **82/82** (comments only) |
+| `test:kern-5-rt10-pre-linked-arithmetic` | 153 | **153/153** (declared exception applied) |
+| `node --test scripts/ci/test-tier-contract.test.mjs` | green | **9/9** |
+| `pnpm test:kern-canonicalizer` | green | **green**, including the `@kernlang/cli` build, the composed-checker CLI pass and the coverage receipts |
+
+The pins moved are exactly the ones *Blast radius* licenses: three `admission` value flips plus
+the `32` → `35` count and the three-row `REFUSALS` → `ADMITTED` move in rt10-pre, the RT-4
+key-set pin and its one inverted row, `compiledCoreDigest` with one
+`write:kern-canonicalizer-coverage` pass, and five comment corrections in rt9/rt10-pre. No rt2,
+rt3 or rt9 golden and no emitted-artifact digest was touched.
+
+### Mutant battery — 10/11 killed
+
+Each mutant was applied to `packages/core/src`, the core rebuilt, the predicted suite run, then
+the byte-copy backup restored and `touch`ed.
+
+| # | Mutant | Result | Killed by |
+| --- | --- | --- | --- |
+| M01 | the argument gate admits any type where `integer` is expected | **KILLED** | `type-gate` `refuse-text-into-int-param`, `refuse-bool-into-int-param`, `refuse-decimal-into-int-param` |
+| M02 | the callee return-type check at `expression.ts:159` is dropped | **KILLED** | `type-gate` `refuse-int-list-return`, the signature-before-argument ordering row |
+| M03 | the call-argument type check is dropped | **KILLED** | `type-gate` the three argument-type refusals |
+| M04 | `staticExpressionType` calls an integer return `boolean` | **KILLED** | `type-gate` `refuse-int-call-if-cond`, `refuse-async-int-operand`, the admitted sweep |
+| M05 | `crossCallExpressionType`'s unary arm is skipped | **KILLED** | `type-gate` the admitted sweep |
+| M06 | the RT-9 assign type gate is skipped | **KILLED** | `type-gate` `refuse-int-into-bool-assign` and the cross-call-half separation row |
+| M07 | a `list<integer>` row mis-types the deferred list fence | **KILLED** | `type-gate` `refuse-int-list-param`, `refuse-int-list-return`, the signature-attribution row |
+| M08 | the signature-refusal label becomes `KIR_CALL_SIGNATURE_TYPES` | **SURVIVED** (advisory) | — |
+| M09 | the `CANONICAL_INTEGER` guard is dropped from the literal arm | **KILLED** | `k0-golden` the shared-guard resolver row |
+| M10 | `crossCallExpressionType`'s binary arm answers boolean only | **KILLED** | `behavior` `int-arith-argument`, `int-accumulator`, `int-accumulator-twice` |
+| M08b | the same label *replaced* rather than extended (`KIR_CALL_SIGNATURE_KIND`) | **KILLED** | `type-gate` `refuse-int-list-param`, `refuse-int-list-return`, the signature-attribution row — added to prove M08's survival is the helper's substring check and not a missing label assertion |
+
+**M08 is a test-strength finding in a shared prior-slice helper, not a defect in this slice's
+contract.** RT-6's `assertLinkLabel` (`scripts/kern-5-rt6-void-fallthrough/k0-support.mjs:79-81`),
+which every slice from RT-6 onward reuses, asserts `thrown.message.includes(label)`. Any mutant
+that *extends* a label rather than replacing it is therefore unkillable by construction:
+`KIR_CALL_SIGNATURE_TYPES` contains `KIR_CALL_SIGNATURE_TYPE`. A label mutant that replaces the
+suffix instead (`KIR_CALL_SIGNATURE_KIND`) is killed by the same rows. Closing the gap means
+turning that helper's substring check into a boundary-anchored one, which edits a prior slice's
+harness outside this slice's licensed blast radius; it is recorded here as advisory for the
+reviewer and for whichever slice next owns the RT-6 support module.
+
 ## Corrections Log
 
 | Date | Correction |
 | --- | --- |
+| 2026-09-03 | **`LinkedKernKirCrossCallTypeContract` is not byte-unchanged after all: its `kind` field had to widen.** RT10X-C2 recorded that only `element` stays fixed, but the interface declared `kind: 'boolean' \| 'list' \| 'text'`, so the `integer` row's `kind: 'integer'` fails the `satisfies Record<…>` check until `kind` admits `'integer'` too. One field of one exported interface widens; `element` stays `'boolean' \| 'text' \| undefined`, so `list<integer>` is still unrepresentable and both RT10X-C3 fences hold. |
+| 2026-09-03 | **`crossCallExpressionType`'s user-call arm reads the callee's declared return kind, which the K0 golden scrapes and the shadow implementation never proved.** The one row that stayed red under the shadow — `both type resolvers read one operator table and share one canonical-integer guard` — scrapes `expression.ts` and requires the literal text `returnType.kind` inside *both* resolvers. The arm is written as `callee?.returnType.kind === undefined` so the optional chain both models "unknown callee" and reads the discriminant the golden pins; `linkedKirCrossCallType` still does the table lookup. |
+| 2026-09-03 | **`LINKED_KIR_CROSS_CALL_TYPE_NAMES` was compacted so `contracts.ts` does not grow.** The file was already at 503 lines, over the 500-line ceiling, and the `integer` row adds one. Its three-line `Object.freeze(Object.keys(...).sort()) as readonly …` form became a two-line binding plus freeze, so the row lands at no net cost and the file stays at 503. The names list is still `Object.keys(...)` sorted, and `linkedKirCrossCallType`'s unique kind/element match still makes the ordering presentational. |
+| 2026-09-03 | **The mutant battery found a substring gap in the shared RT-6 label helper.** `assertLinkLabel` asserts `thrown.message.includes(label)`, so a mutant that appends to a label string cannot be killed by any label row in any slice from RT-6 onward. Recorded as advisory: replacing a label's suffix is caught, extending it is not, and closing the gap edits a prior slice's harness outside this slice's licensed blast radius. |
+| 2026-09-03 | **The RT-10-pre base moved under this slice after the production diff landed.** Two CI-only fixes were pushed to `feat/kern-5-rt10-pre-linked-arithmetic` — the linked-program tripwire message no longer uses host `JSON.stringify` (`228b96ca`) and the c-py-1 standard-library allowlist gains `sys` (`dba722ed`) — and were merged in. Both touch neighbour gates this slice's per-slice gate never ran; neither touches the cross-call table or either type resolver. `compiledCoreDigest` was re-pinned a second time and the coverage receipts republished, and the r1, r2-closure and c-py-1 gates were added to this slice's run. |
 | 2026-09-03 | **The brief's "decide `list<integer>`: recommend NOT now unless RT-4/RT-5 list plumbing makes it free" resolves to NOT, and the plumbing is not what costs.** The kernels' `__matches` / `_matches` and both `typeSource` functions handle a list of any element generically, so *emission and execution* really are free. The cost is at link: `LinkedKernKirCrossCallTypeContract.element` is `'boolean' \| 'text' \| undefined`, and `crossCallExpressionType`'s list arm hard-codes the same two names, so admitting an integer element also admits an integer list *literal* as an argument — a new argument-shape gate with homogeneity and emptiness rows that no queued slice consumes. DECIDED out, with an `integer[]` parameter and an `integer[]` return kept as `KIR_CALL_SIGNATURE_TYPE` fences (RT10X-C3). |
 | 2026-09-03 | **The kernel-touch question answers NO, and it is asserted rather than argued.** Both `typeSource` implementations and both kernels' `_matches` compare a tag against the type record's `kind` with no per-type branch, so a cross-call type addition reaches emission without changing `KERNEL_SOURCE`. Both `TARGET_KERNEL_SHA256` values are pinned in `compatibility.test.mjs` as consuming assertions, and rt4/rt5/rt6 compatibility were re-run green under the shadow implementation — the first slice since RT-9 that re-seals none of the 70 artifact digest lines. |
 | 2026-09-03 | **Admitting the signature row alone would have broken a prior slice's green row.** `crossCallExpressionType`'s unary arm answers `undefined` today. With an `integer` row present but the unary arm untouched, `let n = 5` records `integer` across the call boundary while `-n` records nothing, so RT-9's assign gate raises `KIR_ASSIGN_TYPE_MISMATCH` on RT-10-pre's admitted `assign-neg` fixture. The binary, unary, list and integer-literal arms therefore move together (RT10X-C5) and mutant M05 pins it. |
