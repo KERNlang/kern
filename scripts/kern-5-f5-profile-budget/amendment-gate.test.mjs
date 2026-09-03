@@ -35,6 +35,6 @@ test('B5: this slice adds no closure amendment record', () => {
 
 test('B5: this slice adds no runtime-contract-v1 amendment record', () => {
   assert.deepEqual(names(CONTRACT_AMENDMENTS),
-    ['chain-anchor.json', 'kern-5-runtime-envelope-max-iterations.json']);
+    ['chain-anchor.json', 'kern-5-runtime-envelope-max-iterations-optional-v1.json', 'kern-5-runtime-envelope-max-iterations.json']);
   assert.equal(json('scripts/runtime-contract-v1/lineage.json').versions.length, 1);
 });
