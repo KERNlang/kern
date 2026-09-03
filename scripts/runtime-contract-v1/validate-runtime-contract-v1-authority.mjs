@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
@@ -6,6 +6,15 @@ import {
   RUNTIME_CONTRACT_PATHS,
   validateRuntimeContractV1,
 } from "./validate-runtime-contract-v1.mjs";
+import {
+  AMENDMENT_DIGEST_KEYS,
+  AMENDMENT_DIRECTORY,
+  CHAIN_ANCHOR_PATH,
+  assertRowsExplainDelta,
+  composeAmendmentChain,
+  equalDigests,
+  loadAmendmentRecords,
+} from "./amendment-chain.mjs";
 
 export const RUNTIME_CONTRACT_AUTHORITY_PATH =
   "scripts/runtime-contract-v1/authority.json";
@@ -16,14 +25,9 @@ const EXPECTED_SUPERSEDED_COMMITS = Object.freeze([
   "cb0712563c4b3bb9e18d11f9651e45c92e1e5820",
   "2581a8723f70f1aa24b55265a836ef266ea65c73",
 ]);
-const AMENDMENT_PATH =
-  "scripts/runtime-contract-v1/amendments/kern-5-runtime-envelope-max-iterations.json";
-const AMENDED_DIGEST_KEYS = Object.freeze({
-  "scripts/runtime-contract-v1/constitution.json": "constitutionSha256",
-  "scripts/runtime-contract-v1/proof-inventory.json": "proofInventorySha256",
-  "scripts/runtime-contract-v1/public-declaration-schema.json": "declarationSchemaSha256",
-  "scripts/runtime-contract-v1/goldens.json": "goldensSha256",
-});
+const AMENDED_DIGEST_KEYS = Object.freeze(Object.fromEntries(
+  Object.entries(AMENDMENT_DIGEST_KEYS).map(([key, path]) => [path, key]),
+));
 
 function fail(message) {
   throw new Error(`runtime contract v1 authority: ${message}`);
@@ -50,20 +54,41 @@ function canonicalJson(text) {
 
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
-function authorizedAmendmentTransition(path, before, after, amendment) {
+function amendedDigests(texts) {
+  return Object.fromEntries(
+    Object.entries(AMENDMENT_DIGEST_KEYS).map(([key, path]) => [key, sha256(texts[path])]),
+  );
+}
+
+function authorizedAmendmentTransition(path, before, after, states) {
   const key = AMENDED_DIGEST_KEYS[path];
   if (key) {
-    return sha256(before) === amendment.parentDigests[key] &&
-      sha256(after) === amendment.resultDigests[key];
+    const from = states.findIndex((state) => state[key] === sha256(before));
+    const to = states.findLastIndex((state) => state[key] === sha256(after));
+    return from >= 0 && to >= 0 && from <= to;
   }
   if (path !== RUNTIME_CONTRACT_PATHS.lineage) return false;
-  const beforeVersion = JSON.parse(before).versions?.[0];
-  const afterVersion = JSON.parse(after).versions?.[0];
-  return Object.keys(AMENDED_DIGEST_KEYS).every((artifact) => {
-    const digestKey = AMENDED_DIGEST_KEYS[artifact];
-    return beforeVersion?.[digestKey] === amendment.parentDigests[digestKey] &&
-      afterVersion?.[digestKey] === amendment.resultDigests[digestKey];
+  const version = (text) => JSON.parse(text).versions?.[0] ?? {};
+  const from = states.findIndex((state) => equalDigests(state, version(before)));
+  const to = states.findLastIndex((state) => equalDigests(state, version(after)));
+  return from >= 0 && to >= 0 && from <= to;
+}
+
+function verifiedAmendmentChain(readText, listAmendments, introducedTexts) {
+  const anchor = amendedDigests(introducedTexts);
+  const declared = JSON.parse(readText(CHAIN_ANCHOR_PATH));
+  const entries = loadAmendmentRecords({
+    listFiles: listAmendments,
+    readJson: (path) => JSON.parse(readText(path)),
   });
+  if (!equalDigests(declared, anchor)) {
+    fail("chain anchor does not pin the introduction commit artifacts");
+  }
+  const chain = composeAmendmentChain({ anchor, entries });
+  if (chain.pendingRepins.length > 0) {
+    fail(`amendment ${chain.pendingRepins[0]} is pending a re-pin`);
+  }
+  return chain;
 }
 
 function defaultRunGit(argv) {
@@ -89,7 +114,7 @@ export function validateRuntimeContractV1Authority(options = {}) {
   const runGit = options.runGit ?? defaultRunGit;
   const authorityText = readText(RUNTIME_CONTRACT_AUTHORITY_PATH);
   const authority = canonicalJson(authorityText);
-  const amendment = JSON.parse(readText(AMENDMENT_PATH));
+  const listAmendments = options.listAmendments ?? (() => readdirSync(AMENDMENT_DIRECTORY));
   exactKeys(
     authority,
     ["format", "introductionCommit", "artifacts", "supersededCommits"],
@@ -197,31 +222,53 @@ export function validateRuntimeContractV1Authority(options = {}) {
     fail(`authority record drifted from promotion commit ${promotionCommit}`);
   }
 
+  const introducedTexts = {};
+  const promotedTexts = {};
+  const currentTexts = {};
   for (const path of authority.artifacts) {
-    const introduced = gitResult(
+    introducedTexts[path] = gitResult(
       runGit,
       ["show", `${authority.introductionCommit}:${path}`],
       `introduction artifact ${path} is unavailable`,
     );
-    const promoted = gitResult(
+    promotedTexts[path] = gitResult(
       runGit,
       ["show", `${promotionCommit}:${path}`],
       `promotion artifact ${path} is unavailable`,
     );
-    if (introduced !== promoted &&
-        !authorizedAmendmentTransition(path, introduced, promoted, amendment)) {
+    currentTexts[path] = readText(path);
+  }
+  const chain = verifiedAmendmentChain(readText, listAmendments, introducedTexts);
+  for (const path of authority.artifacts) {
+    if (introducedTexts[path] !== promotedTexts[path] &&
+        !authorizedAmendmentTransition(path, introducedTexts[path], promotedTexts[path], chain.states)) {
       fail(`${path} drifted between introduction and promotion commits`);
     }
-    const current = readText(path);
-    if (introduced !== current &&
-        !authorizedAmendmentTransition(path, introduced, current, amendment))
+    if (introducedTexts[path] !== currentTexts[path] &&
+        !authorizedAmendmentTransition(path, introducedTexts[path], currentTexts[path], chain.states))
       fail(
         `${path} drifted from introduction commit ${authority.introductionCommit}`,
       );
   }
+  if (!equalDigests(chain.terminal, amendedDigests(currentTexts))) {
+    fail("amendment chain does not compose to the live artifacts");
+  }
+  const liveVersion = JSON.parse(currentTexts[RUNTIME_CONTRACT_PATHS.lineage]).versions?.[0] ?? {};
+  if (!equalDigests(chain.terminal, liveVersion)) {
+    fail("live lineage does not pin the composed amendment chain");
+  }
+  if (chain.consumed.length > 0) {
+    assertRowsExplainDelta({
+      rows: chain.rowsChanged,
+      parentTexts: introducedTexts,
+      childTexts: currentTexts,
+    });
+  }
   const candidate = validateRuntimeContractV1({ readText });
   return Object.freeze({
     ...candidate,
+    amendments: Object.freeze([...chain.consumed]),
+    amendedRows: Object.freeze([...chain.rowsChanged]),
     introductionCommit: authority.introductionCommit,
     promotionCommit,
     runtimeAbiFrozen: true,
