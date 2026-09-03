@@ -3,6 +3,16 @@ import type { InternalEffectMachineObserver } from '../ir/semantics/internal-eff
 
 export const INTERNAL_RUNTIME_ENVELOPE_FORMAT = 'kern.runtime.internal.r0' as const;
 
+export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = [
+  'maxBytes',
+  'maxCollectionLength',
+  'maxDepth',
+  'maxDiagnostics',
+  'maxEvents',
+  'maxIterations',
+  'maxStringBytes',
+] as const;
+
 export interface InternalRuntimeEnvelopeLimits {
   readonly maxBytes: number;
   readonly maxCollectionLength: number;

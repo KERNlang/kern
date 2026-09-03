@@ -1,7 +1,7 @@
 import { isPortableDecimalLiteral } from '../decimal/probe-gates.js';
 import { isDecimalValue, isPortableRecordKey } from '../ir/semantics/portable-scalar-domain.js';
-import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from './limit-keys.js';
 import {
+  INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS,
   InternalRuntimeEnvelopeError,
   type InternalRuntimeEnvelopeLimits,
   type InternalRuntimeSlot,

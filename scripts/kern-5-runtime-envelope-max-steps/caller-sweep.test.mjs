@@ -18,7 +18,6 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
     'packages/cli/src/kern-checker-assets.ts',
     'packages/cli/src/kern-formatter-assets.ts',
     'packages/cli/src/kern-runtime-limit-keys.ts',
-    'packages/core/src/runtime-envelope/limit-keys.ts',
     'packages/core/src/runtime-envelope/types.ts',
     'packages/core/src/runtime-handler.ts',
     'scripts/kern-5-r0-contracts/schema/runtime-request.json',
@@ -38,7 +37,7 @@ test('L5: the sweep finds the envelope-shaped records it is meant to fence', () 
   ]) {
     assert.ok(paths.includes(expected), `sweep must cover ${expected}`);
   }
-  assert.ok(shaped.length >= 78, `sweep found only ${shaped.length} envelope-shaped files`);
+  assert.ok(shaped.length >= 77, `sweep found only ${shaped.length} envelope-shaped files`);
 });
 
 test('L5: every envelope-shaped limits record carries maxIterations', () => {

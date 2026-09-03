@@ -12,7 +12,7 @@ import {
   executeKernRuntimeHandlerAsync,
   KERN_RUNTIME_HANDLER_ABI,
 } from '../../packages/core/dist/runtime-handler.js';
-import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from '../../packages/core/dist/runtime-envelope/limit-keys.js';
+import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from '../../packages/core/dist/runtime-envelope/types.js';
 import {
   createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,

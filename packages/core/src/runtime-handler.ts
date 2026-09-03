@@ -4,13 +4,13 @@ import {
   executeInternalRuntimeHandlerSync,
 } from './runtime-envelope/handler-entry.js';
 import { inspectInternalRuntimeSchedulerControl } from './runtime-envelope/internal-scheduler.js';
-import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from './runtime-envelope/limit-keys.js';
 import { internalRuntimeFailure, internalRuntimeLinkFailure } from './runtime-envelope/normalize.js';
 import { resolveInternalRuntimeSourceHandler } from './runtime-envelope/source-handler.js';
-import type {
-  InternalRuntimeEnvelope,
-  InternalRuntimeEnvelopeLimits,
-  InternalRuntimeValue,
+import {
+  INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS,
+  type InternalRuntimeEnvelope,
+  type InternalRuntimeEnvelopeLimits,
+  type InternalRuntimeValue,
 } from './runtime-envelope/types.js';
 import { normalizeInternalRuntimeValues, validateInternalRuntimeLimits } from './runtime-envelope/value.js';
 import { admitKernRuntimeHandlerSignature, type KernRuntimeHandlerAdmittedType } from './runtime-handler-contract.js';

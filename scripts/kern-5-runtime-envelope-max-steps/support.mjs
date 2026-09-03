@@ -250,7 +250,7 @@ export function kirLimitKeyDeclarations() {
   return KIR_LIMIT_KEY_DECLARATIONS.map((path) => ({ keys: declaredLimitKeys(path), path }));
 }
 
-export const ENVELOPE_LIMIT_KEY_DECLARATION = 'packages/core/src/runtime-envelope/limit-keys.ts';
+export const ENVELOPE_LIMIT_KEY_DECLARATION = 'packages/core/src/runtime-envelope/types.ts';
 
 export const CLI_LIMIT_KEY_DECLARATION = 'packages/cli/src/kern-runtime-limit-keys.ts';
 
