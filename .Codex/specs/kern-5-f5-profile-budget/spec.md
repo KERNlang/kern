@@ -1,9 +1,13 @@
 # KERN 5: the F5 profile work-step budget
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED
 **Date:** 2026-09-03
 **Base:** `ac1205cb` (`feat/kern-5-runtime-envelope-max-steps`, the envelope `maxIterations` slice)
-**Confidence:** 0.88
+**Nero:** FLAWED 22% (minimax) — two findings dismissed with citations ([F5B-R1] direction
+quote, [F5B-R3] reproducing command), three applied (C4 path table, C5 leg B6, C3 MS-R10 +
+successor)
+**Confidence:** 0.91 (was 0.88; C5's scratch-policy discriminator replaced the value-only
+proof, and the four mutants all died)
 
 ## Executive Summary
 
@@ -340,47 +344,47 @@ Each row is one oracle leg. Every claim behind them is VERIFIED above; the censu
 OPEN in [F5B-R4] feeds no fixture — leg B4 asserts byte-identity of the recorded artefacts,
 never a row code.
 
-- [ ] **B1 policy values.** `profileLimits.maxWorkSteps == runtimeLimits.maxIterations ==
+- [x] **B1 policy values.** `profileLimits.maxWorkSteps == runtimeLimits.maxIterations ==
       100,663,296 == 3 x 33,554,432 == 96 x 2^20`; exactly those two keys differ from the
       base-`ac1205cb` snapshot of all three limits sections; no collection ceiling moves
       (1,048,576 / 262,144 / 262,144); `scheduler.timeoutMs` is still 120,000 with `timeoutMs`
       its only key; no section gained or lost a key.
-- [ ] **B2 validator relationship.** `validatePolicy` accepts the shipped policy; refuses
+- [x] **B2 validator relationship.** `validatePolicy` accepts the shipped policy; refuses
       `maxIterations = maxWorkSteps - 1` **and** `maxWorkSteps = maxIterations + 1` with
       `F5 projection policy: limit relationship`; accepts `maxIterations` both equal to and one
       above `maxWorkSteps`, proving equality is un-enforced; refuses `0`, `-1`, `1.5` and
       `MAX_SAFE_INTEGER + 1` at both tiers; the depth and instruction-scalar relationships
       still hold; and `f5-policy.test.mjs` no longer carries `33_554_432`.
-- [ ] **B3 fast boundary probe.** Charged work steps for one small module are identical at
+- [x] **B3 fast boundary probe.** Charged work steps for one small module are identical at
       `maxWorkSteps` of 8, 9 and 10 digits ([F5B-R3]); the `F5_LIMIT` gate still admits exactly
       the baseline count and refuses one under; the packaged manifest carries
       `profileLimits.maxWorkSteps = 100,663,296` and an `f5PolicyDigest` equal to the live
       policy bytes; and the **public** `projectKernModules` accepts
       `budgets.maxWorkSteps = 100,663,296` while refusing one over the shipped ceiling with
       `projection-request-invalid`. **No 32-file replay** (p50 222 s) and no >33.5M-step run.
-- [ ] **B6 scratch-policy boundary.** Under a **scratch copy** of `policy.json` whose
+- [x] **B6 scratch-policy boundary.** Under a **scratch copy** of `policy.json` whose
       `profileLimits.maxWorkSteps` is patched — the F5 modules copied into a temporary root, the
       rest of the tree symlinked, so `worker.mjs` resolves `./policy.json` to the patched copy —
       the tiny 16,287-step workload projects at `maxWorkSteps = N` and fails `F5_LIMIT` at
       `N - 1`; a scratch policy carrying the raised pair loads, validates and projects; and a
       scratch policy starved to `maxWorkSteps = 1` flips the outcome, proving the copy and not
       the repository file is what the worker read. Runs in ~8 s.
-- [ ] **B4 ratchet and census invariance.** `admitted.json` is byte-identical to base
+- [x] **B4 ratchet and census invariance.** `admitted.json` is byte-identical to base
       (`056556a9…`) and still holds exactly `examples/kern-5-preview-app/ui.kern`;
       `admission.json` is byte-identical to base (`3d139be0…`); and the generated adapter's
       `limits.ipc.timeoutMs` equals `scheduler.timeoutMs` equals 120,000, at least 2x under the
       census probe timeout of 300,000 — so no raised budget can produce a `stage: 'timeout'`
       row. **No sweep is run.**
-- [ ] **B5 amendment gate, negative.** `PINS` maps the F5 policy to `composition` and nothing
+- [x] **B5 amendment gate, negative.** `PINS` maps the F5 policy to `composition` and nothing
       else, and the policy is not itself a governed path; every `composition[i].sha256` matches
       its live source; `amend.mjs` `plan()` returns zero pending re-pins; and neither
       `scripts/kern-frontend-closure/amendments/` nor
       `scripts/runtime-contract-v1/amendments/` gains a record, with `lineage.json` still at
       one version.
-- [ ] `pnpm test:kern-frontend-f5-projection`, `pnpm test:kern-frontend-closure`,
+- [x] `pnpm test:kern-frontend-f5-projection`, `pnpm test:kern-frontend-closure`,
       `pnpm test:kern-5-runtime-envelope-max-steps` and
       `node --test scripts/ci/test-tier-contract.test.mjs` pass.
-- [ ] `pnpm test:kern-5-f5-profile-budget` is in `test:kern-5-script-family` exactly once, last,
+- [x] `pnpm test:kern-5-f5-profile-budget` is in `test:kern-5-script-family` exactly once, last,
       and in `kern5EvidenceCommands`.
 
 ## Oracle
@@ -430,7 +434,55 @@ amendment protocol into a limits edit. A slice whose whole risk is over-reach ne
 non-effects asserted, not just its effect.
 
 Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# tests 29`,
-`# pass 22`, `# fail 7`.
+`# pass 22`, `# fail 7`. After the change: `# tests 29`, `# pass 29`, `# fail 0`.
+
+## Gate table
+
+Run at `cc03b95f` in this worktree, 2026-09-03.
+
+| Gate | Result |
+|---|---|
+| `pnpm test:kern-5-f5-profile-budget` | 29/29 |
+| `pnpm test:kern-5-runtime-envelope-max-steps` | 55/55 (8 legs) |
+| `pnpm test:kern-frontend-f5-projection` | 67/67 |
+| `pnpm test:kern-frontend-closure` | 5/5 + `validate.mjs` clean |
+| `node --test scripts/ci/test-tier-contract.test.mjs` | 9/9 |
+| `node --test scripts/kern-5-admission-census/census.test.mjs` | 10/10 |
+| `node --test scripts/ci/kern-5-census-sweep.test.mjs` | 7/7 |
+| `pnpm test:kern-canonicalizer` | **blocked, pre-existing** — see below |
+| `git diff --check ac1205cb HEAD` | clean |
+
+`pnpm test:kern-canonicalizer` cannot run in this worktree, for a reason that predates the
+slice and is independent of it: `packages/cli/node_modules/@kernlang/core` symlinks to the
+**main checkout's** core (`/Users/nicolascukas/KERN/kern-lang/packages/core`, resolved via
+`require.resolve`), which sits at `main` and predates the envelope slice, so
+`pnpm --filter @kernlang/cli build` fails with
+`error TS2353: 'maxIterations' does not exist in type 'KernRuntimeHandlerLimits'` at
+`packages/cli/src/commands/canonicalizer-assets.ts:127` and
+`src/kern-runtime-limit-keys.ts:21`. **Verified pre-existing:** `git stash` +
+`pnpm --filter @kernlang/cli build` at base reproduces the identical two errors. The slice's
+diff is two JSON integers and one test constant and cannot reach a TypeScript type. Bypassing
+only the CLI build, the canonicalizer content is green:
+`node scripts/kern-canonicalizer/composition.mjs` ok,
+`node --test scripts/kern-canonicalizer/*.test.mjs` 872/872,
+`scripts/check-kern-canonicalizer.mjs` ok, `scripts/check-kern-canonicalizer-coverage.mjs` ok
+— which is the evidence that the canonicalizer receipts are unaffected, as [F5B-R2] predicted.
+
+## Kill table
+
+Four mutants, each reverted after measurement, all dead. Baseline `cc03b95f`, assets rebuilt
+per mutant so every kill is semantic rather than a stale-digest artifact.
+
+| # | Mutant | Killed by | Verdict |
+|---|---|---|---|
+| M1 | `maxWorkSteps` back to `33554432`, `maxIterations` left raised (the validator permits it) | B1 shipped-value, B1 3x-derivation, B1 exactly-two-keys, B3 manifest, B3 public-ceiling | dead, 5 rows |
+| M2 | `maxIterations` = `100663295`, one below `maxWorkSteps` | B2 accepts-shipped, B1 iteration-budget, B6 boundary, B6 scratch-is-read, B3 digit-invariance, B3 exact-crossing, B3 public-ceiling | dead, 7 rows — `validatePolicy` fails the whole load path |
+| M3 | `F5_WORK_STEPS` left stale at `33_554_432` in the envelope L4 pin | B2 L4-re-pinned; and inside the envelope suite itself: L4 equality, L4 accepts-shipped, L4 refuses-greater | dead, 1 + 3 rows |
+| M4 | B6's own boundary swapped, `N` ↔ `N - 1` | B6 boundary-follows-the-scalar, and **only** that row | dead, 1 row — a precise, non-redundant kill |
+
+M4 is the one that matters for [C5]: it fails alone, which is what makes B6 a real
+discriminator rather than a restatement of B1. M1 is its counterpart — it leaves B6 green and
+kills the value rows, confirming the two steps are independent.
 
 ## Out of Scope
 
@@ -508,3 +560,7 @@ Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# 
 | The census timeout is 120,000 ms | `scheduler.timeoutMs` is 120,000 (the F5 adapter deadline); the census probe timeout is `DEFAULT_TIMEOUT_MS = 300_000` (`sweep.mjs:8`) | The 2.5x margin is what proves CI cannot produce a `stage: 'timeout'` row; leg B4 asserts it |
 | `profileLimits.maxCollectionLength` is 1,048,576 and must stay untouched | 1,048,576 is `runtimeLimits.maxCollectionLength`; the profile and canonical ceilings are 262,144 | Leg B1 pins all three at their real values |
 | 32 census files hit `F5_LIMIT` at the base cap | 32 files were replayed; 13 hit `F5_LIMIT` and 19 projected (`summary.json` `outcomeHistogram`) | The budget derivation rests on the 13, and on the 12 of them that complete |
+| The value-only fixtures (B1/B3) prove the F5 work boundary moved | They prove only which integer ships. Nothing showed the boundary *follows* the integer without the 263 s replay | Leg B6 added: a scratch `policy.json` drives a real F5 run that projects at `N` and returns `F5_LIMIT` at `N - 1` in ~8 s. Mutant M4 kills B6 alone, M1 kills the value rows alone — the two steps are independent, per [C5] |
+| MS-R10's bound is the 120 s adapter deadline, full stop | True through every shipped public entry point, but `executeInternalRuntimeEnvelopeSync` has no deadline poll, so an in-process caller is now bounded only by an iteration budget this slice tripled | MS-R10 restated with the 3x worst case split by path; successor `runtime-envelope-sync-deadline` queued rather than the gap left implicit |
+| The mutants could be measured against the working tree | `git checkout -- <path>` in the mutant harness restores `HEAD`, which silently reverted the *uncommitted* implementation and produced a first mutant run whose kills were all against the base policy | The implementation was committed first (`cc03b95f`) and the mutants re-run against it; the kill table is the second run. Logged because the first run's output looked plausible and was not |
+| `pnpm test:kern-canonicalizer` is a runnable gate here | It fails at `pnpm --filter @kernlang/cli build` because this worktree's `node_modules` resolve `@kernlang/core` to the main checkout, which predates `maxIterations`. Reproduced identically with the slice stashed | Recorded as a pre-existing environment block in the gate table, with the canonicalizer content (872 tests + both checks) run directly as the substitute evidence |
