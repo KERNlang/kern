@@ -3,6 +3,7 @@
     "assign": "admitted",
     "capability": "admitted",
     "else": "handler-entry-unsupported",
+    "for": "admitted",
     "if": "admitted",
     "if-else": "admitted",
     "let": "admitted",
@@ -13,6 +14,7 @@
   "linkedStatementKinds": [
     "assign",
     "capability",
+    "for",
     "if",
     "let",
     "print",

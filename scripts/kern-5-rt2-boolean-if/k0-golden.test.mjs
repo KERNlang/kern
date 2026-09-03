@@ -15,6 +15,7 @@ const PROBE_BODIES = Object.freeze({
   assign: ['let name=held value="\"a\""', 'assign target="held" value="\"b\""'],
   capability: ['capability namespace=fixture operation=resolve name=reply'],
   else: ['else', '  print value="\"f\""'],
+  for: ['let name=x value="0"', 'for name=i from="0" to="1"', '  assign target="x" value="x + 1"'],
   if: ['if cond="flag"', '  print value="\"t\""'],
   'if-else': ['if cond="flag"', '  print value="\"t\""', 'else', '  print value="\"f\""'],
   let: ['let name=held value="\"a\""'],
@@ -23,7 +24,17 @@ const PROBE_BODIES = Object.freeze({
   while: ['while cond="flag"', '  print value="\"w\""'],
 });
 
-const STATEMENT_PROBES = Object.freeze(['assign', 'capability', 'else', 'if', 'let', 'print', 'return', 'while']);
+const STATEMENT_PROBES = Object.freeze([
+  'assign',
+  'capability',
+  'else',
+  'for',
+  'if',
+  'let',
+  'print',
+  'return',
+  'while',
+]);
 
 function linkedStatementKinds(source) {
   const start = source.indexOf('export type LinkedKernKirStatement =');
