@@ -113,11 +113,11 @@ export const TARGET_EXECUTION_SOURCE = `
   const __le = (left, right) => __boolValue(__intOperand(left) <= __intOperand(right));
   const __gt = (left, right) => __boolValue(__intOperand(left) > __intOperand(right));
   const __ge = (left, right) => __boolValue(__intOperand(left) >= __intOperand(right));
-  const __intValue = (value) => Object.freeze({ tag: 'integer', value: String(value) });
-  const __add = (left, right) => __intValue(__intOperand(left) + __intOperand(right));
-  const __sub = (left, right) => __intValue(__intOperand(left) - __intOperand(right));
-  const __mul = (left, right) => __intValue(__intOperand(left) * __intOperand(right));
-  const __neg = (operand) => __intValue(-__intOperand(operand));
+  const __intValue = (value, meter) => Object.freeze({ tag: 'integer', value: meter.text(String(value)) });
+  const __add = (left, right, meter) => __intValue(__intOperand(left) + __intOperand(right), meter);
+  const __sub = (left, right, meter) => __intValue(__intOperand(left) - __intOperand(right), meter);
+  const __mul = (left, right, meter) => __intValue(__intOperand(left) * __intOperand(right), meter);
+  const __neg = (operand, meter) => __intValue(-__intOperand(operand), meter);
   const __chars = (points) => {
     const chunks = [];
     for (let index = 0; index < points.length; index += 8192) {
