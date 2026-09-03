@@ -21,6 +21,10 @@ const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4
 // The one licensed prior-slice golden move: `linkedExpressionKinds` gains "unary".
 const RT3_GOLDEN_PRE_SLICE_SHA256 = 'c8a94cc48ebc1e0a7c5364ab6b218a9471b30df02ef60e6fe8ab2d72d677d3f3';
 
+// The rt2GoldenSha256 the RT-3 golden carried when this pre-image was frozen, before the
+// for-slice moved it to RT2_GOLDEN_SHA256 above.
+const RT2_GOLDEN_PRE_SLICE_SHA256 = 'cc7fb869d3f51ca6222521df52dd70e2364a83c8f97365f8db0a8c83cc2f9908';
+
 // RT-9 carried the RT-2 golden's digest into the RT-3 golden and preserved the pre-RT-9
 // pre-image, so the RT-3 move in this slice drags that derived constant too.
 const RT2_GOLDEN_PRE_RT9_SHA256 = 'aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0';
@@ -74,6 +78,7 @@ test('undoing the one RT-10-pre edit reproduces the pre-slice RT-3 golden byte f
   const preSlice = {
     ...golden,
     linkedExpressionKinds: golden.linkedExpressionKinds.filter((kind) => kind !== 'unary'),
+    rt2GoldenSha256: RT2_GOLDEN_PRE_SLICE_SHA256,
   };
   assert.equal(
     sha256(`${JSON.stringify(preSlice, null, 2)}\n`),
