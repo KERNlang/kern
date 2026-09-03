@@ -139,25 +139,56 @@ const RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS = Object.freeze([
   {
     expectedDigest: 'cd0739cf02ec2ad39102525bf1d820fb5c0f07eb5b3303ff606b1f0015bb6a4d',
     path: 'runtime-envelope/value.js',
-    replacements: [{
-      current: `    const keys = [
-        'maxBytes',
-        'maxCollectionLength',
-        'maxDepth',
-        'maxDiagnostics',
-        'maxEvents',
-        'maxIterations',
-        'maxStringBytes',
-    ];`,
-      historical: "    const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];",
-    }],
+    replacements: [
+      {
+        current: "import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS, InternalRuntimeEnvelopeError, } from './types.js';",
+        historical: "import { InternalRuntimeEnvelopeError, } from './types.js';",
+      },
+      {
+        current: '    const keys = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;',
+        historical: "    const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];",
+      },
+    ],
   },
   {
     expectedDigest: 'd62853c9694f8c74ea8eff3ff0a74258fe8251793cd0708836d8663be0cc5273',
     path: 'runtime-handler.js',
     replacements: [
-      { current: "    'maxIterations',\n", historical: '' },
+      {
+        current: "import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS, } from './runtime-envelope/types.js';\n",
+        historical: '',
+      },
+      {
+        current: 'const LIMIT_KEYS = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;',
+        historical: `const LIMIT_KEYS = [
+    'maxBytes',
+    'maxCollectionLength',
+    'maxDepth',
+    'maxDiagnostics',
+    'maxEvents',
+    'maxStringBytes',
+];`,
+      },
       { current: '        maxIterations: limits.maxIterations,\n', historical: '' },
+    ],
+  },
+  {
+    expectedDigest: 'd7957405842a6a22ed94dc47c87b4431ef80e6968d2fac792bec6dcf3fb1ef6c',
+    path: 'runtime-envelope/types.js',
+    replacements: [
+      {
+        current: `export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = [
+    'maxBytes',
+    'maxCollectionLength',
+    'maxDepth',
+    'maxDiagnostics',
+    'maxEvents',
+    'maxIterations',
+    'maxStringBytes',
+];
+`,
+        historical: '',
+      },
     ],
   },
 ]);

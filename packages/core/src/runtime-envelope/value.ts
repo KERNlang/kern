@@ -36,7 +36,7 @@ export function validateInternalRuntimeLimits(limits: InternalRuntimeEnvelopeLim
     fail('invalid-limits', `limits must contain exactly ${keys.join(',')}`);
   }
   for (const key of keys) {
-    const value = limits[key];
+    const value = limits[key as keyof InternalRuntimeEnvelopeLimits];
     if (!Number.isSafeInteger(value) || value <= 0) fail('invalid-limits', `${key} must be a positive safe integer`);
   }
 }

@@ -90,6 +90,11 @@ export function reconstructHistoricalTransitionChain({
 export function reconstructRuntimeEnvelopeMaxIterationsTransition(currentSource) {
   return Buffer.from(Buffer.from(currentSource).toString('utf8')
     .replaceAll('accepted.limits.maxIterations', 'accepted.limits.maxCollectionLength')
+    .replaceAll(
+      "import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS, InternalRuntimeEnvelopeError, } from './types.js';",
+      "import { InternalRuntimeEnvelopeError, } from './types.js';",
+    )
+    .replaceAll('    const keys = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;', "    const keys = ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'];")
     .replaceAll(`    const keys = [
         'maxBytes',
         'maxCollectionLength',
