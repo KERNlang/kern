@@ -7,6 +7,7 @@ import {
   POSITIONS,
   TABLE_ROWS,
   admission,
+  between,
   emittedArtifacts,
   envelopeBytes,
   integerSlot,
@@ -17,6 +18,23 @@ import {
 } from './k0-support.mjs';
 
 const GENEROUS_STEPS = 1_000_000;
+
+function specializedRegions(artifacts) {
+  return {
+    javascript: between(
+      artifacts.javascript,
+      'const __runSpecialized=',
+      'const execute=async(input,executionOptions)',
+      'the emitted JavaScript specialized handler',
+    ),
+    python: between(
+      artifacts.python,
+      'async def _run_specialized(',
+      'async def execute(',
+      'the emitted Python specialized handler',
+    ),
+  };
+}
 
 async function legs(name, requestId, request) {
   return threeLegBytes(POSITIONS[name](), request ?? runtimeRequest(requestId, positionArguments(name)));
@@ -113,16 +131,12 @@ test('the counter is a bignum, so an i64-adjacent range runs exactly its two ite
 // leg that would only diverge on a value no fixture happens to carry.
 test('neither emitted specialized region coerces the counter through a host number', async () => {
   for (const name of ['for-sum-0-3', 'for-i64-near-limit', 'for-nested-acc', 'for-negative-step']) {
-    const artifacts = await emittedArtifacts(POSITIONS[name]());
+    const regions = specializedRegions(await emittedArtifacts(POSITIONS[name]()));
     for (const token of ['Number(', 'parseInt', 'parseFloat', 'valueOf(']) {
-      assert.equal(
-        artifacts.javascript.includes(token),
-        false,
-        `${name}: the JavaScript artifact must not use ${token}`,
-      );
+      assert.equal(regions.javascript.includes(token), false, `${name}: the JavaScript leg must not use ${token}`);
     }
     for (const token of ['float(', 'int(', 'round(', 'range(']) {
-      assert.equal(artifacts.python.includes(token), false, `${name}: the Python artifact must not use ${token}`);
+      assert.equal(regions.python.includes(token), false, `${name}: the Python leg must not use ${token}`);
     }
   }
 });
