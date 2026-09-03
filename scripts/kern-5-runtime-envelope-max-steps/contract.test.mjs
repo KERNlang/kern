@@ -3,12 +3,15 @@ import { test } from 'node:test';
 
 import {
   CLI_LIMIT_KEY_DECLARATION,
+  declarationSource,
   declaredLimitKeys,
+  diagnosticCodes,
   ENVELOPE_LIMIT_KEY_DECLARATION,
   ENVELOPE_LIMIT_KEYS,
   executeKernRuntimeHandlerAsync,
   executeKernRuntimeHandlerSync,
   handlerRequest,
+  LIVE_ENVELOPE_LIMIT_KEYS,
   KIR_LIMIT_KEYS,
   kirLimitKeyDeclarations,
   kirLimits,
@@ -61,20 +64,76 @@ test('L1: the public handler accepts limits carrying maxIterations on both paths
   assert.deepEqual(asyncEnvelope, sync);
 });
 
-test('L1: the public handler refuses limits without maxIterations on both paths', async () => {
+test('L1: the public handler accepts a six-key v1 request on both paths', async () => {
   const invocation = handlerRequest(COUNTING_LOOP, [4]);
-  const options = { enabled: true, limits: legacyLimits() };
+  const options = { enabled: true, limits: legacyLimits({ maxCollectionLength: 16 }) };
+  const sync = executeKernRuntimeHandlerSync(invocation, options);
+  const asyncEnvelope = await executeKernRuntimeHandlerAsync(invocation, { capabilityTimeoutMs: 100, ...options });
+  assert.equal(sync.outcome, 'success');
+  assert.deepEqual(sync.result, { presence: 'value', value: { tag: 'integer', value: '4' } });
+  assert.deepEqual(asyncEnvelope, sync);
+  assert.deepEqual(sync, executeKernRuntimeHandlerSync(invocation, {
+    enabled: true,
+    limits: limits({ maxCollectionLength: 16, maxIterations: 16 }),
+  }));
+});
+
+test('L1: an absent maxIterations is exactly that request maxCollectionLength', () => {
+  for (const bound of [3, 10, 25]) {
+    const invocation = handlerRequest(COUNTING_LOOP, [bound]);
+    const legacy = (maxCollectionLength) => ({ enabled: true, limits: legacyLimits({ maxCollectionLength }) });
+    const admitted = executeKernRuntimeHandlerSync(invocation, legacy(bound));
+    assert.equal(admitted.outcome, 'success', `maxCollectionLength=${bound} must admit ${bound} iterations`);
+    assert.deepEqual(admitted.result, { presence: 'value', value: { tag: 'integer', value: `${bound}` } });
+    const exhausted = executeKernRuntimeHandlerSync(invocation, legacy(bound - 1));
+    assert.equal(exhausted.outcome, 'failure', `maxCollectionLength=${bound - 1} must exhaust`);
+    assert.deepEqual(diagnosticCodes(exhausted), ['unsupported-runtime-input']);
+  }
+});
+
+test('L1: a declared maxIterations overrides the legacy default', () => {
+  const invocation = handlerRequest(COUNTING_LOOP, [10]);
+  const exhausted = executeKernRuntimeHandlerSync(invocation, {
+    enabled: true,
+    limits: legacyLimits({ maxCollectionLength: 5 }),
+  });
+  assert.deepEqual(diagnosticCodes(exhausted), ['unsupported-runtime-input']);
+  const raised = executeKernRuntimeHandlerSync(invocation, {
+    enabled: true,
+    limits: limits({ maxCollectionLength: 5, maxIterations: 10_000 }),
+  });
+  assert.equal(raised.outcome, 'success');
+  assert.deepEqual(raised.result, { presence: 'value', value: { tag: 'integer', value: '10' } });
+});
+
+test('L1: a present maxIterations must be a positive safe integer at the public boundary', async () => {
+  const invocation = handlerRequest(COUNTING_LOOP, [1]);
   const expected = (error) => {
     assert.equal(error.name, 'KernRuntimeHandlerError');
     assert.equal(error.code, 'invalid-limits');
     assert.equal(error.message, 'runtime handler limits are invalid');
     return true;
   };
-  assert.throws(() => executeKernRuntimeHandlerSync(invocation, options), expected);
-  await assert.rejects(
-    () => executeKernRuntimeHandlerAsync(invocation, { capabilityTimeoutMs: 100, ...options }),
-    expected,
-  );
+  for (const value of [0, -1, 1.5, '1', null, Number.MAX_SAFE_INTEGER + 2]) {
+    const options = { enabled: true, limits: { ...legacyLimits(), maxIterations: value } };
+    assert.throws(() => executeKernRuntimeHandlerSync(invocation, options), expected, `maxIterations=${String(value)}`);
+    await assert.rejects(
+      () => executeKernRuntimeHandlerAsync(invocation, { capabilityTimeoutMs: 100, ...options }),
+      expected,
+      `maxIterations=${String(value)}`,
+    );
+  }
+});
+
+test('L1: the shared limit-key declaration cannot be widened at runtime', () => {
+  assert.ok(Object.isFrozen(LIVE_ENVELOPE_LIMIT_KEYS), 'the shared declaration must be frozen');
+  assert.throws(() => LIVE_ENVELOPE_LIMIT_KEYS.push('zz'), TypeError);
+  assert.throws(() => { LIVE_ENVELOPE_LIMIT_KEYS[0] = 'zz'; }, TypeError);
+  assert.deepEqual([...LIVE_ENVELOPE_LIMIT_KEYS], [...ENVELOPE_LIMIT_KEYS]);
+  assert.throws(() => validateInternalRuntimeLimits({ ...limits(), zz: 1 }), (error) => {
+    assert.equal(error.code, 'invalid-limits');
+    return true;
+  });
 });
 
 test('L1: the public handler still refuses an unknown limit key', () => {
@@ -143,6 +202,9 @@ test('L1: one shared declaration per package carries the envelope limit key set'
     [...ENVELOPE_LIMIT_KEYS],
   );
   assert.deepEqual(declaredLimitKeys(CLI_LIMIT_KEY_DECLARATION, 'DECLARED'), [...ENVELOPE_LIMIT_KEYS]);
+  for (const path of [ENVELOPE_LIMIT_KEY_DECLARATION, CLI_LIMIT_KEY_DECLARATION]) {
+    assert.match(declarationSource(path), /Object\.freeze\(/u, `${path} must freeze its declaration`);
+  }
 });
 
 test('L1: every limit-key consumer imports the shared declaration instead of repeating it', () => {
