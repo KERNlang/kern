@@ -77,6 +77,22 @@ slack (`maxIterations > maxWorkSteps`) would be equally valid and is left to a f
 that has a reason for it. The oracle asserts both `<=` directions and that equality is
 un-enforced (leg B2), so nothing later has to re-litigate this.
 
+**Direction, quoted [VERIFIED].** The validator fails in one direction only —
+`scripts/kern-frontend-f5-projection/policy-validation.mjs:88`:
+
+```js
+      policy.profileLimits.maxWorkSteps > policy.runtimeLimits.maxIterations ||
+```
+
+The clause is `>`, so `maxWorkSteps == maxIterations` and `maxWorkSteps < maxIterations` both
+pass and only `maxWorkSteps > maxIterations` reaches `fail('limit relationship')` at `:89`.
+Raising `maxWorkSteps` alone to `100,663,296` against an unmoved `maxIterations` of
+`33,554,432` would therefore be **rejected at load**, which is why both scalars move together;
+raising `maxIterations` alone would pass and is what makes equality a choice rather than a
+constraint. Leg B2 asserts both directions explicitly
+(`maxIterations = maxWorkSteps - 1` and `maxWorkSteps = maxIterations + 1`), so neither
+half of the pair can be reverted without a RED row — mutant M1/M2 in the kill table.
+
 ## [F5B-R2 DECIDED] The amendment gate does **not** apply
 
 The F5/closure amendment protocol introduced by RT-8 governs **composition digests only**.
@@ -120,9 +136,25 @@ encoded frame length and therefore step counts by a few steps". **That is wrong.
   `:25-26` charges `instructionScalars`, `nodes`, `depth`, `maxCollection`, `maxString` and
   `textLength`, never `limits`. `grep -rn 'Text.length(limits)' examples/kern-frontend/f5-*.kern`
   → one hit, the drift branch, 2026-09-03.
-- **VERIFIED empirically:** `runProjectionWithProfileLimits` on
-  `fn name=limit export=true` charges `16,287` steps at `maxWorkSteps` of 8, 9 **and** 10
-  digits (33,554,432 / 100,663,296 / 1,073,741,824). Oracle leg B3 pins this.
+- **VERIFIED empirically, 2026-09-03.** Command, run from the worktree root:
+
+  ```
+  node -e "const {__test,runProjection}=await import('./scripts/kern-frontend-f5-projection/worker.mjs');
+  const m=[{moduleId:'limit.kern',source:'fn name=limit export=true\n'}];
+  console.log('shipped',runProjection(m).receipt.workSteps);
+  for(const c of [33554432,100663296,134217728,1073741824])
+    console.log(c,String(c).length,__test.runProjectionWithProfileLimits(m,{maxWorkSteps:c}).receipt.workSteps);" --input-type=module
+  ```
+
+  Output: `shipped 16287`, then `16287` at every cap — 8 digits (33,554,432), 9 digits
+  (100,663,296 and 134,217,728) and 10 digits (1,073,741,824). The charged total does not move
+  by one step. Reasoning that predicts it: `constructorLimits` is consumed only by
+  `f5resultgate`, which reads it through `f5rowread(limits)` and `f5uint(limitValues[n])`
+  (`f5-result-frame.kern:22,31`) — neither of which accumulates into `work` — and the sole
+  `Text.length(limits)` term sits on the `limitValues.length != 6` early return
+  (`f5-result-frame.kern:22-24`), a branch a well-formed six-entry `constructorLimits` never
+  takes. Oracle leg B3 pins the measurement; leg B6 pins that the *value* still steers the
+  gate.
 
 Three consequences:
 
@@ -229,6 +261,45 @@ pins `admission.json` byte-identical precisely so this slice does not silently a
 | `package.json` | hand edit | `test:kern-5-f5-profile-budget`, appended to `test:kern-5-script-family` |
 | `scripts/ci/test-tier-contract.test.mjs:63` | hand edit | `kern5EvidenceCommands` gains the new lane |
 
+### Every file that references the policy, by path or module-relative URL [C4]
+
+> `grep -rn 'kern-frontend-f5-projection/policy.json' .` plus
+> `grep -rn 'policy.json' scripts/kern-frontend-f5-projection/ packages/core/src/frontend-projection*`,
+> excluding `node_modules` and `packages/core/dist`, 2026-09-03. Complete; the second grep
+> catches the module-relative `new URL('./policy.json', import.meta.url)` consumers the
+> path grep cannot see.
+
+| File | How it references the policy | Verdict |
+|---|---|---|
+| `scripts/kern-frontend-f5-projection/worker.mjs:11` | `new URL('./policy.json', …)`, validated + digest-checked at load | reads-live |
+| `scripts/kern-frontend-f5-projection/policy-integrity.test.mjs:10` | live clone, mutated per assertion | reads-live |
+| `scripts/kern-frontend-f5-projection/review-tree-work-ledger.test.mjs:11` | `POLICY.profileLimits.maxWorkSteps` passed through | reads-live |
+| `scripts/kern-frontend-f5-projection/review-framing.red.test.mjs:20` | `validatePolicy(live)` | reads-live |
+| `scripts/kern-frontend-f5-projection/review-semantics.red.test.mjs:121` | reads `composition[*].path` | reads-live |
+| `scripts/kern-frontend-f5-projection/api-isolation.test.mjs:7` | reads the three format strings only | unaffected |
+| `scripts/build-kern-frontend-projection-assets.mjs:18,261` | bundles the bytes and hashes them into `assets.json` | **pins-digest** |
+| `packages/core/src/frontend-projection/assets.ts:70-79,126-137` | validates the manifest's `f5PolicyDigest` + `profileLimits` | reads-live (manifest) |
+| `scripts/kern-5-runtime-envelope-max-steps/f5-policy.test.mjs:9-26` | `F5_WORK_STEPS = 33_554_432` asserted equal to both scalars | **pins-value** |
+| `scripts/kern-5-runtime-envelope-max-steps/caller-sweep.test.mjs:30` | coverage list: the file must carry a `maxIterations` **key** | unaffected |
+| `scripts/kern-frontend-closure/amend-record.mjs:1` | `PINS` key; the mapped section is `composition` | unaffected |
+| `scripts/kern-frontend-closure/amendments/rt8-integer-signatures.json` | `repin[0].pin` names the container; its digests are a composition entry's | unaffected |
+| `scripts/kern-5-rt8-integer-signatures/amendment-chain.test.mjs:13` | copies the live file into a scratch root | reads-live |
+| `scripts/kern-5-f5-profile-budget/{support,scratch-policy}.mjs` | this slice's oracle: reads live, and copies it to scratch | reads-live |
+| `.Codex/specs/kern-5-{f5-kir-projection,rt8-integer-signatures,runtime-envelope-max-steps}/spec.md` | prose | unaffected |
+
+Two hits are not reads-live and both are already in the re-pin table above: the asset builder
+(build-owned) and the envelope slice's L4 value pin (hand edit). **No hit anywhere pins the
+policy file's own SHA-256** — consistent with [F5B-R2].
+
+`grep -rn '33554432\|33_554_432' scripts/ .github/ package.json` → 12 lines, 2026-09-03, and
+every one is accounted for: `policy.json:36,60` are the two scalars this slice moves;
+`policy.json:55,61` are `runtimeLimits.maxBytes` and `maxStringBytes`, which coincidentally
+share the value and **stay** at `33,554,432` (leg B1's "exactly two keys moved" row is what
+holds them); `f5-policy.test.mjs:10` is the value pin above;
+`byte-identity.test.mjs:65` and `scheduler-deadline.test.mjs:32,49,65` are envelope iteration
+fixtures with no connection to the F5 policy; `kern-5-f5-profile-budget/support.mjs:11,31,37`
+is this slice's own base snapshot.
+
 ### Everything that pins nothing and must not move
 
 `scripts/kern-frontend-closure/**` (no amendment record, no `--write`, no golden);
@@ -287,6 +358,13 @@ never a row code.
       policy bytes; and the **public** `projectKernModules` accepts
       `budgets.maxWorkSteps = 100,663,296` while refusing one over the shipped ceiling with
       `projection-request-invalid`. **No 32-file replay** (p50 222 s) and no >33.5M-step run.
+- [ ] **B6 scratch-policy boundary.** Under a **scratch copy** of `policy.json` whose
+      `profileLimits.maxWorkSteps` is patched — the F5 modules copied into a temporary root, the
+      rest of the tree symlinked, so `worker.mjs` resolves `./policy.json` to the patched copy —
+      the tiny 16,287-step workload projects at `maxWorkSteps = N` and fails `F5_LIMIT` at
+      `N - 1`; a scratch policy carrying the raised pair loads, validates and projects; and a
+      scratch policy starved to `maxWorkSteps = 1` flips the outcome, proving the copy and not
+      the repository file is what the worker read. Runs in ~8 s.
 - [ ] **B4 ratchet and census invariance.** `admitted.json` is byte-identical to base
       (`056556a9…`) and still holds exactly `examples/kern-5-preview-app/ui.kern`;
       `admission.json` is byte-identical to base (`3d139be0…`); and the generated adapter's
@@ -312,24 +390,47 @@ never a row code.
 ([F5B-R2]) and plus the asset rebuild the manifest fixtures require. Builds
 `@kernlang/core`, rebuilds the projection assets, then runs the five legs in order.
 
-**26 tests: 7 RED, 19 GREEN at base `ac1205cb`.** Every RED has the single cause
+**29 tests: 7 RED, 22 GREEN at base `ac1205cb`.** Every RED has the single cause
 `maxWorkSteps`/`maxIterations` is `33,554,432`, not `100,663,296`.
+
+### The discriminator is two steps, not one [C5]
+
+No fixture can run a composition that actually charges more than `33,554,432` steps — the
+cheapest measured crossing needs 263 s of compute against a 120 s adapter deadline
+([F5B-R4]). The claim "the F5 work boundary moved to `100,663,296`" is therefore proved as a
+composition of two fast rows, each of which is worthless alone:
+
+1. **B6 — the boundary follows the policy scalar on disk.** A scratch `policy.json` at
+   `maxWorkSteps = N` projects and at `N - 1` returns `F5_LIMIT`, for a real F5 run in ~8 s.
+   This is the causal half: whatever integer sits in that field is the integer the KERN gate
+   enforces, read from file bytes through `loadPolicy` → `constructorLimits` →
+   `f5resultgate`. It says nothing about which integer ships.
+2. **B3 — the shipped scalar reaches the packaged policy.** `assets.json` carries
+   `profileLimits.maxWorkSteps = 100,663,296` and an `f5PolicyDigest` equal to the live policy
+   bytes, and the public `projectKernModules` accepts `budgets.maxWorkSteps = 100,663,296`
+   while refusing one more. This is the value half: it says which integer ships and that the
+   public ceiling agrees, but on its own it is only a number in a manifest.
+
+Together they close the chain the expensive replay would have closed: *this* value, in *this*
+file, is what the gate enforces. Mutant M4 (swap `N` and `N - 1` in B6) kills step 1; mutant
+M1 (revert one scalar) kills step 2. Neither survives.
 
 | Leg | File | Tests | RED | GREEN |
 |---|---|---|---|---|
 | B1 policy values | `policy-values.test.mjs` | 7 | 4 | 3 |
 | B2 validator relationship | `policy-relationship.test.mjs` | 6 | 1 | 5 |
 | B3 fast boundary probe | `work-budget-boundary.test.mjs` | 4 | 2 | 2 |
+| B6 scratch-policy boundary | `scratch-boundary.test.mjs` | 3 | 0 | 3 |
 | B4 ratchet and census | `ratchet.test.mjs` | 4 | 0 | 4 |
 | B5 amendment gate | `amendment-gate.test.mjs` | 5 | 0 | 5 |
 
-The 14 GREEN-at-base rows in B2/B4/B5 are deliberate: they are the guards that the change does
+The 17 GREEN-at-base rows in B2/B4/B5/B6 are deliberate: they are the guards that the change does
 **not** widen a collection ceiling, raise the scheduler timeout, move the ratchet, or drag the
 amendment protocol into a limits edit. A slice whose whole risk is over-reach needs its
 non-effects asserted, not just its effect.
 
-Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# tests 26`,
-`# pass 19`, `# fail 7`.
+Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# tests 29`,
+`# pass 22`, `# fail 7`.
 
 ## Out of Scope
 
@@ -354,14 +455,27 @@ Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# 
   transport — the shipped value is what the gate and the public ceiling enforce — and
   substitutes the manifest digest for the run, as the slice brief permits. Resolving this is
   the F5 composition performance milestone's job, not a fixture this slice can buy.
-- **Accepted risk — longer synchronous CPU per request (MS-R10).** Raising the manifest
-  ceiling 3x raises the maximum work a *public* caller may request: `normalizeProjectionRequest`
-  caps `budgets.maxWorkSteps` at the manifest value and rejects anything above it
-  (`packages/core/src/frontend-projection/contracts.ts:244-248`). The bound is unchanged: the
-  generated adapter SIGKILLs the projection child at `scheduler.timeoutMs` = 120,000 ms
-  (`scripts/build-kern-frontend-projection-assets.mjs:115,208,218`), so the worst case is
-  still 120 s of child CPU, now more often spent than short-circuited by `F5_LIMIT`. Accepted:
-  the deadline is the real quota and it does not move.
+- **Accepted risk — MS-R10, 3x more requestable work per call.** `normalizeProjectionRequest`
+  caps a caller's `budgets.maxWorkSteps` at the manifest value and rejects anything above it
+  (`packages/core/src/frontend-projection/contracts.ts:244-248`), so raising the manifest
+  ceiling from `33,554,432` to `100,663,296` **multiplies the maximum work one public request
+  may ask for by exactly 3x**. Worst case, stated:
+  - *Through the public API* — bounded, unchanged. The generated adapter arms
+    `setTimeout(..., limits.ipc.timeoutMs)` with `limits.ipc.timeoutMs = f5.scheduler.timeoutMs`
+    = 120,000 ms and `child.kill('SIGKILL')`s the projection child on expiry
+    (`scripts/build-kern-frontend-projection-assets.mjs:115,208,218`). The worst case was 120 s
+    of child CPU before this slice and is 120 s after it. What changes is *how* the 120 s ends:
+    a request that used to short-circuit on `F5_LIMIT` at 33.5M steps now more often runs to
+    the SIGKILL. Same quota, less early exit — a throughput cost, not a new ceiling.
+  - *In process* — this is the real residual. `executeInternalRuntimeEnvelopeSync` has no
+    deadline poll; the iteration budget is its only bound, and this slice tripled it. A caller
+    that bypasses the packaged adapter can therefore occupy the event loop for roughly 3x as
+    long as before with no SIGKILL to stop it. Not exploitable through any shipped public
+    entry point (every one goes through the adapter child), and not created by this slice —
+    but widened by it.
+  **Accepted**, on two grounds: through the public path the deadline is the real quota and it
+  does not move, and the in-process gap is named, scoped and queued as successor
+  `runtime-envelope-sync-deadline` below rather than left implicit.
 
 ## Queued successors
 
@@ -376,6 +490,13 @@ Full run at base, `node --test scripts/kern-5-f5-profile-budget/*.test.mjs`: `# 
    turns [F5B-R4]'s "zero ratchet by construction" into a real admission.
 3. **Census refresh** — regenerate `admission.json` at a known base and settle the
    [F5B-R4] OPEN. Owned by the census sweep, not by a policy slice.
+4. **runtime-envelope-sync-deadline** — poll `scheduler.timeoutMs` inside the effect machine so
+   the deadline bounds the *in-process* envelope, not only the spawned projection child. Today
+   the 120 s bound in [F5B-R4] and MS-R10 comes entirely from the generated adapter's
+   `child.kill('SIGKILL')` (`build-kern-frontend-projection-assets.mjs:208,218`); a caller that
+   reaches `executeInternalRuntimeEnvelopeSync` directly gets only the iteration budget, which
+   this slice tripled. Named here because raising `maxIterations` is what makes the gap worth
+   closing — see the MS-R10 note below for the exact residual exposure.
 
 ## Corrections Log
 
