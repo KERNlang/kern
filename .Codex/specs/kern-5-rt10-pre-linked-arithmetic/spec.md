@@ -1,6 +1,6 @@
 # KERN 5 RT-10-pre: linked-KIR integer arithmetic (`+`, `-`, `*`, unary `-`)
 
-**Status:** IMPLEMENTED, REVIEWED (production diff landed, RT-10-pre 142/142, whole gate green;
+**Status:** IMPLEMENTED, REVIEWED ×2 (production diff landed, RT-10-pre 154/154, whole gate green;
 the emitted-artifact digests in rt4/rt5/rt6 re-sealed twice under the coordinator's option-(A)
 ruling — once for the arithmetic helpers, once for the result-size bound and the CPython
 digit-cap lift the review round added — see *Implementation* and the Corrections Log)
@@ -435,6 +435,59 @@ oversized value.** No new fault code, no new limit field, no new envelope shape.
 | emitted JavaScript | `kir-js-esm/target-execution.ts` `__intValue(value, meter)` | `meter.text(String(value))` → `__Fault('runtime-limit-exceeded','execution')` (`target-base.ts:81-87`) |
 | emitted Python | `kir-python/target-execution.ts` `_int_value(value, meter)` | `meter.text(str(value))` → `_Fault("runtime-limit-exceeded", "execution")` (`target-base.ts:135-139`) |
 
+**The bound is checked before the conversion, not after it.** A decimal conversion of an `n`-digit
+integer is quadratic, so measuring `String(value).length` to decide whether the value was allowed
+means paying the cost of a value that was never allowed. Every leg therefore derives a *lower*
+bound on the decimal digit count from the binary size first — Python `int.bit_length()`, JS and
+RT-1 `magnitude.toString(16)` (linear) plus the leading nibble's width — and refuses without
+converting when
+
+> `floor((bits - 1) * log10(2)) + sign >= maxStringBytes + 1`
+
+using the rational `30102/100000`, which is strictly **under** `log10(2)`, so the floor is never
+above the true digit count and the pre-check can only refuse a value that genuinely cannot fit.
+When the bound is inconclusive the exact `String`/`str` conversion runs and `meter.text` decides.
+The consequence recorded as the contract: **conversion cost is bounded by `maxStringBytes`, not by
+the operand magnitude.** The pre-check charges no step either — it is a refusal, not a node.
+
+**The byte count is the canonical decimal text including the leading `-`.** `meter.text` measures
+UTF-8 bytes of the whole string, so the sign was already counted on the exact path; the pre-check
+adds `+ sign` to match it. Three gating rows pin that this is identical on all three legs, at
+`maxStringBytes: 20`:
+
+| Fixture | Result | Bytes | Contract |
+| --- | --- | --- | --- |
+| `size-at-limit-negative` | `-1000000000 * 1000000000` → `-1000000000000000000` | 19 digits + sign = 20 | success |
+| `size-over-limit-negative` | `-9999999999 * 9999999999` | 20 digits + sign = 21 | fault |
+| `size-negate-fitting` | `let n = 9999999999 * 9999999999` / `assign n = -n` | 20 → 21 | the product is admitted and its negation is not, which only the sign explains |
+
+**The operand side is bounded too, and not by this slice.** A result bound is half a bound: an
+oversized integer *literal* would make the operand side unbounded. It cannot —
+`canonicalScalar` (`linked-kir-program/expression.ts:39-50`) already runs every integer and decimal
+literal's canonical text through `meter.text`, so a literal longer than `maxStringBytes` is refused
+at **link** with the same `runtime-limit-exceeded` / `execution` fault, on all three legs. Verified
+and pinned in `type-gate.test.mjs` with a 30-digit literal at `maxStringBytes: 20`, together with
+the row proving the same literal is admitted under the suite default — so the gate is the limit and
+not the literal's shape. `**` and the shifts, the only other operators that could amplify magnitude
+cheaply, stay fail-closed (T3, T4, and `>>` has no table row at all).
+
+**A nested intermediate faults at its own operator node.** `(a * b) + (c * d)` with an overflowing
+product on either side faults at that product, before the `+` ever runs:
+
+| Fixture | Contract |
+| --- | --- |
+| `size-nested-left` | `(10000000000 * 10000000000) + (2 * 3)` faults; the `print` ahead of it is committed, the one after it never runs |
+| `size-nested-right` | `(2 * 3) + (10000000000 * 10000000000)` faults with the identical envelope |
+| `size-nested-control` | `(9999999999 * 9999999999) + (2 * 3)` succeeds at exactly 20 bytes and costs exactly 8 execution steps |
+
+`tick-discipline.test.mjs` sweeps 90 step budgets for both overflowing variants: neither succeeds at
+any budget, the committed-event count is monotonic in the budget, and it ends at exactly one — so
+the fault is the result bound and never a step budget the fixture happened to exhaust. **What is
+not pinned, and why:** a size fault and a step-limit fault share one diagnostic code and produce
+byte-identical envelopes, so the *step index* at which the fault fired is not separable from the
+envelope. The step count is pinned on the structurally identical in-limit twin instead, and
+left-to-right order stays structurally pinned by RT10P-C13.
+
 The meter reaches the helpers the way it already reached `json-call`: `__meter` / `_meter` is in
 scope at every expression node, so both emitters pass it as the arithmetic helpers' last
 argument (`family === 'arithmetic'` and the `unary` case only — the logical and comparison arms
@@ -468,12 +521,33 @@ reaches 5120 digits; RT-1 and the emitted JavaScript both returned it, and the e
 returned `handler-link-error` — a three-leg divergence on a value both other legs call exact,
 inside a `maxStringBytes` the request allows.
 
-The kernel prelude now calls `sys.set_int_max_str_digits(0)` once at kernel start, guarded with
-`hasattr` for < 3.11. It is the *only* correct place: the cap applies to `int(text)` on the way in
-as well as `str(value)` on the way out, so a per-helper guard would leave the parse direction
-broken.
+**The lift is confined to each conversion, not process-global.** The first fix called
+`sys.set_int_max_str_digits(0)` once at kernel start; review ruled that out, because the emitted
+module may be imported into an interpreter an embedder shares, and a module-level call silently
+removes a safety limit for everything else in that process for its whole lifetime. The kernel now
+wraps each conversion instead: `_lifted_digits(convert, argument)` reads
+`sys.get_int_max_str_digits()`, sets 0, converts, and restores the previous value in a `finally`,
+guarded with `hasattr` for < 3.11. Applied at every site the cap governs — `_int_value`'s
+`str(value)` on the way out, and `_int_operand` and `_same_operands`' `int(text)` on the way in,
+because a legitimate operand payload can be longer than 4300 digits whenever `maxStringBytes` is.
 
-The gating row is three-leg, not a precision-probe row — the probe table asserts nothing by
+**Accepted and recorded:** the mutation is still interpreter-global while the window is open, so an
+embedder running other threads in the same interpreter may observe the lifted cap for the duration
+of one conversion. That is the smallest window CPython's API allows — the limit is a process
+setting with no per-thread or context-local form — and the alternative, a hand-rolled chunked
+decimal conversion, would put a second arithmetic implementation on one leg only.
+
+`_data_text`'s `str(value)` on an int is deliberately **not** wrapped: KIR integer payloads are
+already strings by the time they reach it, and the 5120-digit gating row passing is the evidence
+that no large int reaches that path.
+
+The restore cannot be observed through the envelope, so it is pinned from outside: a purpose-built
+driver (`digit-window-driver.py`) imports the emitted module, runs it, and reports
+`sys.get_int_max_str_digits()` at import, after import and after execution. All three must equal
+CPython's 4300 default while the run itself returns the 5120-digit value — which fails if the
+kernel-start call comes back, and fails if the `finally` restore is dropped.
+
+The gating value row is three-leg, not a precision-probe row — the probe table asserts nothing by
 ruling, so a row there could not have caught this. `behavior.test.mjs` builds the squaring chain
 from a ten-digit literal (nine `let`s, each squaring the previous binding), asserts the result
 clears 4300 digits, and compares all three legs byte for byte against a `BigInt` recomputation.
@@ -529,7 +603,9 @@ uninterruptible host multiplication, so neither `maxSteps` nor the timeout bound
 allocation of that single operation.
 
 **Accepted, not mitigated, and the bound is why.** With RT10P-C15 in place both operands and the
-result are bounded by `limits.maxStringBytes`: an operand reaches a helper only as a
+result are bounded by `limits.maxStringBytes` — operands by request inspection, by
+`canonicalScalar`'s literal check and by the previous result's own bound, and the result by the
+bit-length pre-check that refuses before converting: an operand reaches a helper only as a
 request-inspected payload, a frontend-validated literal, or a previous arithmetic result, and all
 three are `meter.text`-bounded. So per-operation cost is polynomial in `maxStringBytes` —
 schoolbook-to-Karatsuba multiplication of two `n`-digit integers, with `n ≤ maxStringBytes` — which
@@ -586,7 +662,8 @@ Recorded now so the next slices inherit the decision instead of re-litigating it
 | `compiler/kir-js-esm/target-execution.ts:112` | `__intValue`, `__add`, `__sub`, `__mul`, `__neg`; each takes the meter and `__intValue` calls `meter.text` (RT10P-C15). |
 | `compiler/kir-js-esm/emitter.ts:110-119` | new `case 'unary'` emitting `helper(<argument>,__meter)`. The `binary` case gains one `family === 'arithmetic'` arm passing `__meter`; the logical and comparison arms are byte-identical to base (RT10P-C11). |
 | `compiler/kir-python/target-execution.ts:147` | `_int_value`, `_add`, `_sub`, `_mul`, `_neg`; each takes the meter and `_int_value` calls `meter.text` (RT10P-C15). |
-| `compiler/kir-python/target-base.ts:1-6` | `import sys` and the guarded `sys.set_int_max_str_digits(0)` at kernel start (RT10P-C15a). |
+| `compiler/kir-python/target-base.ts:1-6` | `import sys` only. The digit-cap lift is **not** here — see RT10P-C15a. |
+| `kir-runtime/inspect.ts` (`RuntimeMeter`) | `integerText(value, label)`: the bit-length pre-check plus `text`, shared by RT-1 and mirrored in both kernels (RT10P-C15). |
 | `compiler/kir-python/emitter.ts:100-109` | new `case 'unary'` passing `_meter`; the `binary` case gains the same one `arithmetic` arm. |
 
 Sites that must **not** change, with the reason: `link.ts:368-370` (the `if` condition gate is
@@ -724,10 +801,10 @@ pins, so a fixture cannot be quietly re-expected.
 | `probe-matrix.test.mjs` | 9 | F5 facts only: projection status and diagnostic codes for 55 positions and all 34 gating expressions, plus the projected node shapes for 14 of them — the two `FRONTEND_INVALID_EXPRESSION` walls, the helper body, the F2 precedence pair, and the `assign` accumulator shape | **GREEN 9/9** — F5 already projects everything; the matrix is the sequencing gate and must stay green after the build |
 | `compatibility.test.mjs` | 5 | the RT-2 golden byte-identical at RT-9's seal; the RT-3 golden at its post-slice seal with the one-element undo reproducing the pre-image; **five** derived literals across rt4/rt4/rt6/rt9/rt9 recomputed from the live golden; the RT-5 coverage row; the F5 policy digest unmoved | **RED 3/5** |
 | `k0-golden.test.mjs` | 6 | the 55-row admission map; `LINKED_KIR_BINARY_OPERATORS` imported live from `dist` and serialized whole; the unary union and the expression union scraped from `contracts.ts`; the gating-table and precision-probe digests and row well-formedness | **RED 3/6** |
-| `behavior.test.mjs` | 52 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, the emitted operand order, and (review round) the three RT10P-C15 size rows plus the RT10P-C15a 5120-digit round trip | **RED 2/48 at base; 52 rows after the review round** |
-| `type-gate.test.mjs` | 41 | 32 refusals, each with its **label text** pinned, plus the three label-disambiguation rows, the async-operand row, the `assign` admitted row, the admitted siblings that make each refusal non-vacuous, and the frontend-wall row | **RED 8/41** |
+| `behavior.test.mjs` | 60 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, the emitted operand order, and (review rounds) the three RT10P-C15 size rows, the three sign rows, the three nested-intermediate rows, the pre-check boundary and soundness pins, and the RT10P-C15a 5120-digit round trip with its process-limit restore probe | **RED 2/48 at base; 52 rows after the review round** |
+| `type-gate.test.mjs` | 44 | 32 refusals, each with its **label text** pinned, the oversized-integer-literal admission bound and the magnitude-amplifying-operator fences (review round), plus the three label-disambiguation rows, the async-operand row, the `assign` admitted row, the admitted siblings that make each refusal non-vacuous, and the frontend-wall row | **RED 8/41** |
 | `walker-coverage.test.mjs` | 8 | the three expression walkers over a hand-built linked `unary` node, and (review round) all three failing closed on an unknown-kind node (RT10P-C12) | **RED 0/5 at base; 8 rows after the review round** |
-| `tick-discipline.test.mjs` | 21 | absolute `execution` counts on 16 rows (the sixteenth is RT10P-C15's `size-at-limit`, pinned at its arithmetic-free twin's cost), the six inherited-metering identities, the no-`await` static assertion on the RT-1 dispatch region and both emitted operator-helper regions, the checkpoint census against two arithmetic-free controls, queued-abort fences at microtask depths 0-4 on two fixtures, the pre-cancel fail-closed envelope | **RED 6/21** |
+| `tick-discipline.test.mjs` | 23 | absolute `execution` counts on 17 rows, the nested-intermediate 90-budget sweeps (review round), (the sixteenth is RT10P-C15's `size-at-limit`, pinned at its arithmetic-free twin's cost), the six inherited-metering identities, the no-`await` static assertion on the RT-1 dispatch region and both emitted operator-helper regions, the checkpoint census against two arithmetic-free controls, queued-abort fences at microtask depths 0-4 on two fixtures, the pre-cancel fail-closed envelope | **RED 6/21** |
 
 `probe-matrix` runs first — it proves every negative is a link decision and not a frontend
 gap. `compatibility` runs second, in the rt4/rt5/rt6/rt9 position, so a drifted golden is
@@ -888,7 +965,8 @@ are rt3-linkable and were **measured** at base; arithmetic rows are derived and 
 | `param-neg` | `param a integer` / `return -a` | 1 + 2 + 1 | 4 |
 | `mixed-neg-mul` | `return -2 * -3` | 1 + 5 | 6 |
 | `assign-arith` | `let n=1` / `assign n = n + 1` / `return n` | 2 + 4 + 2 | 8 |
-| `size-at-limit` | `return 9999999999 * 9999999999` | 1 + 3 | 4 — RT10P-C15's `meter.text` charges no step |
+| `size-at-limit` | `return 9999999999 * 9999999999` | 1 + 3 | 4 — RT10P-C15's `meter.text` and pre-check charge no step |
+| `size-nested-control` | `return (9999999999 * 9999999999) + (2 * 3)` | 1 + 7 | 8 |
 
 Six identities are asserted over the pinned constants, so a constant cannot move alone:
 
@@ -945,8 +1023,10 @@ cap — those are the three phantom classes the deferred operators would have in
 
 ## Acceptance criteria
 
-1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **142/142** (135 at design time; the review
-   round added four `behavior` rows and three `walker-coverage` rows).
+1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **154/154** (135 at design time; the first
+   review round added four `behavior` rows and three `walker-coverage` rows to reach 142, and the
+   targeted second round added eight more `behavior` rows, three `type-gate` rows and two
+   `tick-discipline` rows).
 2. The seven prior suites green at the **pre-slice counts measured on this base**, with one
    declared exception. Record each count at base before implementing; do not copy a count from
    an older spec, which was measured on an older base, nor from a truncated run.
@@ -1156,7 +1236,7 @@ prior-suite numbers):
 
 | Gate | Total | Pass | Fail |
 | --- | --- | --- | --- |
-| `test:kern-5-rt10-pre-linked-arithmetic` | **142** | **142** | 0 |
+| `test:kern-5-rt10-pre-linked-arithmetic` | **154** | **154** | 0 |
 | `test:kern-5-rt2-boolean-if` | 35 | 35 | 0 |
 | `test:kern-5-rt3-binary-expression` | 139 | 139 | 0 |
 | `test:kern-5-rt4-user-fn-call` | 50 | 50 | 0 |
@@ -1168,8 +1248,8 @@ prior-suite numbers):
 | `node --test scripts/kern-canonicalizer/*.test.mjs` | 872 | 872 | 0 |
 | `composition.mjs`, `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs` | 3 scripts | 3 | 0 |
 
-RT-10-pre is **142/142**, matching acceptance criterion 1 exactly: probe-matrix 9,
-compatibility 5, k0-golden 6, behavior 52, type-gate 41, walker-coverage 8, tick-discipline 21.
+RT-10-pre is **154/154**, matching acceptance criterion 1 exactly: probe-matrix 9,
+compatibility 5, k0-golden 6, behavior 60, type-gate 44, walker-coverage 8, tick-discipline 23.
 
 RT-3 measures 139, not its base 142: the three rows that asserted `+`, `-` and `*` fail closed
 are gone, because admitting them is this slice. Nothing else in RT-3 moved and its own K0
@@ -1184,7 +1264,7 @@ unchanged by this slice — none of those files is touched. The canonicalizer su
 (872/872), `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs` and
 `composition.mjs` all run green directly; the blocker is the environment, not the slice.
 
-### Mutant kill table — 25 applied, 25 killed, 0 survivors
+### Mutant kill table — 28 applied, 28 killed, 0 survivors
 
 Each mutant was applied by hand to the source, `tsc -b` re-run, the naming suite re-run, and
 the source restored from a byte-copy and `touch`ed so the next build re-emits (RT-9's log
@@ -1217,11 +1297,14 @@ records the stale-`dist` trap this avoids). The final restore is byte-identical 
 | M23 | the emitted JavaScript `__intValue` drops `meter.text` | `behavior` the same 2/3, from the other side: *emitted JavaScript diverged from RT-1* |
 | M24 | the emitted Python `_int_value` drops `meter.text` | `behavior` the same 2/3: *emitted Python diverged from RT-1* |
 | M25 | `expressionInvokesCapability` gets `default: return false` back (RT10P-C12) | **`walker-coverage`** 1/8, "the closure walk fails closed on an expression variant it does not handle" — `RT10PRE_WALKER_DEFAULT` |
+| M26 | RT-1's pre-check comparison weakened from `>=` to `>` | `behavior` 1/2 pre-check rows — `RT10PRE_PRECHECK_BOUNDARY` at `2^70`. Note what this kill does and does not say: the mutant is **behaviour-preserving at the envelope**, because a value the weakened pre-check lets through is still refused by the exact conversion. What dies is the *cost contract* — the pre-check silently ceasing to fire at its boundary — which is why the boundary is pinned on the predicate rather than only through an envelope |
+| M27 | the emitted JavaScript counts the unsigned text, dropping the minus sign from the byte count | `behavior` 2/6 sign rows — `size-over-limit-negative` and `size-negate-fitting` diverge from RT-1. The same mutation applied to a *pre-check* would survive, because the pre-check is conservative: dropping `+ sign` only makes it fire later and the exact path still decides |
+| M28 | the Python conversion window drops its `finally` restore | `behavior` 1/1 — `RT10PRE_DIGIT_WINDOW_LEAK`: the driver reports `sys.get_int_max_str_digits()` as 0 after execution instead of CPython's 4300 default |
 
-M22-M25 were applied and reverted the same way, each `tsc -b`-rebuilt and the source restored
+M22-M28 were applied and reverted the same way, each `tsc -b`-rebuilt and the source restored
 from a byte-copy and `touch`ed. Every one died, and each died on the row the mutant list named —
-no size mutant killed the at-limit row, which is the check that the three size fixtures separate
-on the bound rather than on arithmetic.
+no size mutant killed the at-limit row, which is the check that the size fixtures separate on the
+bound rather than on arithmetic.
 
 M20 and M21 are the widening probes acceptance criterion 6 asks for, applied and reverted:
 each adds a row to one operator table, and the oracle names the table, the union and the
@@ -1286,7 +1369,14 @@ needed a division rounding difference, a zero divisor or a magnitude cap.
 18. Charge a per-digit cost or add a checkpoint inside an expression to bound big-integer work
     (RT10P-R1). The bound is `maxStringBytes`, and the tightening lever is the governance
     slice's `maxIntegerDigits`.
-19. Touch anything in `scripts/kern-5-rt9-linked-assign/` beyond the two named digest literals
+19. Change any interpreter- or process-global setting at kernel import time. The CPython digit cap
+    is lifted inside each conversion and restored in a `finally` (RT10P-C15a); a module-level
+    `sys.set_int_max_str_digits` call removes a safety limit for every other user of a shared
+    interpreter.
+20. Decide the result bound by measuring the converted text alone. The bit-length pre-check runs
+    first so an oversized result is refused without paying its quadratic conversion (RT10P-C15),
+    and the byte count includes the sign on every leg.
+21. Touch anything in `scripts/kern-5-rt9-linked-assign/` beyond the two named digest literals
     and the emitted-artifact re-seal option (A) licenses.
 
 ## Standing review question
@@ -1358,6 +1448,12 @@ unsupported; it must never fall back to source or host semantics.
 
 | Date | Correction |
 | --- | --- |
+| 2026-09-03 | **FLAWED on targeted review: the digit-cap lift was process-global.** `sys.set_int_max_str_digits(0)` at kernel start removes a CPython safety limit for the whole lifetime of any interpreter the emitted module is imported into, including one an embedder shares. Replaced by `_lifted_digits`, which saves `sys.get_int_max_str_digits()`, sets 0, converts and restores in a `finally`, guarded with `hasattr` — applied to `_int_value`'s `str` on the way out **and** to `_int_operand`/`_same_operands`' `int` on the way in, because the cap governs both directions and an operand payload may legitimately be longer than 4300 digits whenever `maxStringBytes` is. Accepted and recorded: while a window is open the setting is still interpreter-global, so an embedder running other threads may observe the lifted cap for one conversion; CPython exposes no per-thread or context-local form, and the alternative is a second, hand-rolled decimal conversion on one leg only. The restore is unobservable through the envelope, so `digit-window-driver.py` imports the emitted module, runs it and reports the limit at import, after import and after execution — all three must be 4300 while the run returns its 5120-digit value. That probe is what kills M28. |
+| 2026-09-03 | **The result bound measured the conversion it was supposed to avoid paying for.** `meter.text(String(value))` decides whether a value was allowed only *after* a quadratic base-10 conversion, so an oversized result cost its own conversion before being refused. All three legs now derive a lower bound on the decimal digit count from the binary size first — Python `bit_length()`, JS/RT-1 `toString(16)` plus the leading nibble — and refuse without converting when `floor((bits-1) * log10(2)) + sign >= maxStringBytes + 1`, using `30102/100000`, strictly under `log10(2)`, so the floor is never above the true digit count and the pre-check can only refuse a value that genuinely cannot fit. Inconclusive falls through to the exact conversion, which stays the semantic gate. Recorded as the contract in RT10P-C15: **conversion cost is bounded by the limit, not by the operand magnitude.** No step is charged. Measured boundary at `maxStringBytes: 20`: `2^70` is decisive, `2^69` is not, and `-2^69` is decisive because the sign counts — the rows that kill M26 and a sign-dropping pre-check mutant. |
+| 2026-09-03 | **The pre-check is a cost bound, not a second semantic gate, and its mutants say so.** Weakening `>=` to `>` is behaviour-preserving at the envelope: a value the weakened pre-check lets through is still refused by the exact conversion. The contract at risk is the pre-check *firing at all*, so the boundary is pinned on a shared exported predicate (`arithmeticResultExceedsLimit`, `kir-runtime/inspect.ts`) that RT-1 calls and both kernels transliterate, plus a soundness sweep over 2^0…2^512 and their negations asserting that anything pre-refused really does exceed the limit. Without that pin M26 would have been an equivalent mutant; recorded so the kill is not read as stronger than it is. |
+| 2026-09-03 | **Sign accounting: the byte count is the canonical text including the minus sign, and it always was on the exact path.** `meter.text` measures UTF-8 bytes of the whole string, so `-` was already counted; the pre-check adds `+ sign` to match. Three gating rows pin it identically on all three legs at `maxStringBytes: 20`: 19 digits plus a sign is exactly at the limit and succeeds, 20 digits plus a sign faults, and a 20-digit product that is admitted has a negation that is not. The third is the one only the sign explains, and it is what kills M27. |
+| 2026-09-03 | **VERIFIED, not a finding: an oversized integer literal cannot enter the runtime.** A result bound is half a bound, so the operand side was checked rather than assumed. `canonicalScalar` (`linked-kir-program/expression.ts:39-50`) already runs every integer and decimal literal's canonical text through `meter.text`, so a literal longer than `maxStringBytes` is refused at **link** with the same `runtime-limit-exceeded` / `execution` fault on all three legs — measured with a 30-digit literal at `maxStringBytes: 20`, and pinned in `type-gate.test.mjs` alongside a row proving the same literal is admitted under the suite default, so the gate is the limit and not the literal's shape. `**` and `<<` stay fail-closed as T3/T4, and `>>` has no operator-table row at all, so no cheap magnitude amplifier is admitted. |
+| 2026-09-03 | **A nested intermediate faults at its own operator node, and the step index at which it fires is not envelope-observable.** `(a * b) + (c * d)` with either product over the limit faults at that product, before `+` runs: the `print` ahead of it is committed and the one after it never runs, byte-identically on all three legs. The in-limit twin succeeds at exactly 20 bytes and costs exactly 8 execution steps. `tick-discipline.test.mjs` sweeps 90 step budgets for both overflowing variants — neither succeeds at any budget, committed events are monotonic in the budget and end at exactly one. **What could not be pinned:** a size fault and a step-limit fault share one diagnostic code and produce byte-identical envelopes, so the step at which the fault fired cannot be read off the envelope, and left-to-right operand order therefore stays structurally pinned by RT10P-C13 rather than behaviourally by these rows. Stated rather than papered over. |
 | 2026-09-03 | **BLOCKING, fixed: an arithmetic result was the one integer payload nothing bounded.** Measured before the fix, with `maxStringBytes: 20`: `return 10000000000 * 10000000000` returned the 21-digit `100000000000000000000` and **succeeded on all three legs**. Every other integer in the linked lane is already `meter.text`-bounded — a request argument at `inspect.ts:160-167`, a literal by the frontend — so arithmetic was the only amplification path. Fixed as RT10P-C15 by threading the meter into the four helpers on all three legs and calling the *existing* `meter.text`, which raises the *existing* `runtime-limit-exceeded` / `execution` fault. Three gating fixtures added: at the limit (success, exactly 20 bytes), one byte over (failure, byte-identical envelopes on all three legs), and a position pin whose failure envelope carries exactly one prior `stdout` event, proving the fault fires at the operator node rather than at the envelope boundary. `meter.text` charges no step, so every pinned metering constant survives — `size-at-limit` is pinned at 4, its arithmetic-free twin's cost. This does not pre-empt `maxIntegerDigits`: `maxStringBytes` bounds a serialized payload, the deferred cap bounds magnitude, and the governance slice still owns the second. |
 | 2026-09-03 | **BLOCKING, fixed: CPython's 4300-digit int/str cap made the Python leg diverge on a value the other two legs call exact.** Measured before the fix: nine squarings of a ten-digit seed reach 5120 digits; RT-1 and the emitted JavaScript both returned it, the emitted Python leg returned `handler-link-error`. Fixed as RT10P-C15a with a `hasattr`-guarded `sys.set_int_max_str_digits(0)` at kernel start — the only correct place, because the cap also applies to `int(text)` on the way in. The regression row is **gating and three-leg**, not a `precision-probe.json` row: the probe table asserts nothing by ruling, so a row there could not have caught this. No 5000-digit literal is committed; the seed and the depth are, and the expected value is recomputed with `BigInt` in the test. |
 | 2026-09-03 | **ACCEPTED RISK, recorded as RT10P-R1: one uninterruptible big multiplication per operator node.** Review raised at 0.97 that a `*` node costs one `meter.step()` and one uninterruptible host multiplication, so neither `maxSteps` nor the timeout bounds it. With RT10P-C15 in place both operands and the result are `maxStringBytes`-bounded, so the per-operation cost is polynomial in `maxStringBytes` — identical to the model RT-3's comparison operators already carry, since `BigInt(left) < BigInt(right)` parses two bounded payloads inside one metered node with no checkpoint either. **No checkpoint inside an expression and no per-digit charge**: both are forbidden by RT10P-C10, which `tick-discipline.test.mjs` pins statically and through the RT-2 queued-abort fence, and a per-digit charge would break every metering constant. The tightening lever is the governance slice's `maxIntegerDigits`. |
