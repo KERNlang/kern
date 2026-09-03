@@ -1,8 +1,9 @@
 # KERN 5 RT-10-pre: linked-KIR integer arithmetic (`+`, `-`, `*`, unary `-`)
 
-**Status:** IMPLEMENTED (production diff landed, RT-10-pre 135/135, whole gate green; the
-emitted-artifact digests in rt4/rt5/rt6 re-sealed under the coordinator's option-(A) ruling —
-see *Implementation* and the Corrections Log)
+**Status:** IMPLEMENTED, REVIEWED (production diff landed, RT-10-pre 142/142, whole gate green;
+the emitted-artifact digests in rt4/rt5/rt6 re-sealed twice under the coordinator's option-(A)
+ruling — once for the arithmetic helpers, once for the result-size bound and the CPython
+digit-cap lift the review round added — see *Implementation* and the Corrections Log)
 **Date:** 2026-09-02
 **Base:** `06b74443` — `feat/kern-5-rt9-linked-assign` (`29feebaf`) merged into this branch on
 top of `1a88c705`. **This slice stacks on RT-9 and its PR waits for RT-9 to merge** (RT10P-O1).
@@ -53,6 +54,14 @@ Three findings during design changed the tribunal's contract, and two of them ma
 3. Two of the three linked expression walkers **silently default** on an unknown variant
    (`contracts.ts:225`, `:290`), so a `unary` variant is admitted into them with no `tsc`
    error. Only `containsAsyncCall` has the exhaustive `never` tripwire (RT10P-C12).
+
+The review round added two more, both about the *result* rather than the operands:
+
+4. Arithmetic is the only expression that **mints a new integer payload**, and nothing bounded
+   it: two in-limit operands could produce a result past `limits.maxStringBytes` on every leg
+   (RT10P-C15).
+5. CPython ≥ 3.11 caps `int`↔`str` conversion at 4300 digits, so a large exact result that
+   RT-1 and the emitted JavaScript return made the emitted Python leg diverge (RT10P-C15a).
 
 The frontend does not move. No `.kern`, no F5 policy, no amendment record, no census change.
 
@@ -165,7 +174,7 @@ thunk (`kir-js-esm/emitter.ts:115-117`, `kir-python/emitter.ts:105-107`). `arith
 | Precision | exact mathematical result, unbounded | RT-1 already lifts a tagged integer through `BigInt(value.value)` (`kir-runtime/expression.ts:83-86`); the emitted JS does the same via `__intOperand` (`kir-js-esm/target-execution.ts:97-100`); the emitted Python via `int(operand["value"])` (`kir-python/target-execution.ts:107-110`). No leg ever sees a host double. |
 | Serialization | canonical decimal string, no sign for zero, no `+`, no leading zero | `String(bigint)` and Python `str(int)` agree on every value in the table (cross-checked, below), and `KernKirValue`'s integer payload is already a string (`kir-runtime/contracts.ts:8`). |
 | `-0` | `neg(0)` is `"0"`, never `"-0"` | BigInt has no negative zero and Python `str(-0)` is `"0"`. The canonical form is a consequence of the value model, not a normalization step the builder writes. **Builder must not** add a sign-stripping branch; if one is needed the value model is wrong. |
-| Magnitude | **no cap, and no gating claim beyond i64** (RT10P-C5a) | `KernKirLimits` (`kir-runtime/contracts.ts:20`) has no integer-magnitude field. Adding `maxIntegerDigits` changes the public request schema, request validation, every fixture that builds limits, both emitted kernels, and fault precedence against the step and envelope limits. That is a resource-governance slice. |
+| Magnitude | **no *magnitude* cap, and no gating claim beyond i64** (RT10P-C5a); the payload's *size* is bounded by the existing `maxStringBytes` (RT10P-C15) | `KernKirLimits` (`kir-runtime/contracts.ts:20`) has no integer-magnitude field. Adding `maxIntegerDigits` changes the public request schema, request validation, every fixture that builds limits, both emitted kernels, and fault precedence against the step and envelope limits. That is a resource-governance slice. Enforcing the *existing* per-string limit on a minted payload adds no field and no new fault code, so it is not that slice — see RT10P-C15. |
 | Wire | a big integer survives the request boundary in both directions | Verified: an argument `{tag:"integer", value:"18446744073709551617"}` executes and the envelope carries the value as a JSON **string**, so no double is ever constructed. |
 
 The reference (non-linked) semantics at `packages/core/src/ir/semantics/lambda-runtime.ts:138-170`
@@ -195,14 +204,21 @@ double-precision shortcut on any leg still dies:
 | Row | Expression | Frozen |
 | --- | --- | --- |
 | `add-s53-twice` | `9007199254740993 + 9007199254740993` | `18014398509481986` |
-| `add-sub-i64-max` | `4611686018427387904 + 4611686018427387904 - 1` | `9223372036854775807` |
+| `add-i64-max` | `4611686018427387903 + 4611686018427387904` | `9223372036854775807` |
 | `sub-i64-max-minus-s53` | `9223372036854775807 - 9007199254740993` | `9214364837600034814` |
 | `mul-i64-near-max` | `3037000499 * 3037000499` | `9223372030926249001` |
 | `mul-i64-near-max-neg` | `-3037000499 * 3037000499` | `-9223372030926249001` |
 | `neg-i64-max` | `-9223372036854775807` | `-9223372036854775807` |
 
 `behavior.test.mjs` asserts the range invariant on the table itself before any row runs, so a
-future row that leaves i64 fails the suite rather than quietly widening the gate.
+future row that leaves i64 fails the suite rather than quietly widening the gate. The invariant
+scans **leaf literals and the final result**, not intermediates, so a row must additionally be
+read for intermediate overflow by hand: the original `add-i64-max` row was
+`4611686018427387904 + 4611686018427387904 - 1`, whose left subtree evaluates to exactly `2^63`
+— outside the gated interval, and therefore an out-of-range *result* of the `+` node that the
+scan could not see. Replaced with `4611686018427387903 + 4611686018427387904`, which reaches
+`2^63 - 1` with no intermediate leaving the range, and re-verified with `node` BigInt and
+`python3` (both `9223372036854775807`).
 
 ### [RT10P-C6 DECIDED] An integer parameter gains a static type — the RT-8 orphan
 
@@ -283,7 +299,7 @@ Pinned by the negative row `neg-arith-call-argument`, whose expected label is
 
 ### [RT10P-C9 DECIDED] Metering is inherited: one `meter.step()` per expression node
 
-Model **measured at base** on eight rt3-linkable controls, not assumed:
+Model **measured at base** on nine rt3-linkable controls, not assumed:
 
 > execution steps = (statements executed, `return` included on the entry)
 > + (expression nodes evaluated)
@@ -356,19 +372,40 @@ Both must carry the `KIR_BINARY_OPERAND_TYPE` label through the existing `_opera
 `__operandFault` path so the defense-in-depth label is identical on all three legs (the RT-3
 lesson, mutant 11 of that slice).
 
-### [RT10P-C12 VERIFIED] Three expression walkers, and only one has a tripwire
+### [RT10P-C12 VERIFIED] Three expression walkers, and all three now have a tripwire
 
 | Walker | Site | Behavior on an unknown variant |
 | --- | --- | --- |
 | `containsAsyncCall` | `linked-kir-program/expression.ts:112-135` | `default:` calls `asyncCallVariantUnhandled(expression: never)` — **`tsc` error**, the designed tripwire |
-| `expressionInvokesCapability` | `linked-kir-program/contracts.ts:225-226` | `default: return false` — **silent** |
-| `expressionCallDepth` | `linked-kir-program/contracts.ts:290-291` | `default: return 0` — **silent** |
+| `expressionInvokesCapability` | at base `linked-kir-program/contracts.ts:225-226`, `default: return false` — **silent**; now `default:` calls `expressionVariantUnhandled(expression: never)` |
+| `expressionCallDepth` | at base `linked-kir-program/contracts.ts:290-291`, `default: return 0` — **silent**; now the same tripwire |
 
 All three must gain a `unary` arm that recurses into `argument`. Two of them will compile
 happily without it, which is exactly why `walker-coverage.test.mjs` builds a linked
 `{kind:'unary', op:'-', argument:<call>}` node by hand and asserts all three look inside it.
 At base, `containsAsyncCall` throws `unhandled linked expression variant unary` and the other
 two answer `false`/`0` — three RED rows, each for the right reason.
+
+**Amended by the review round.** A `unary` arm closes today's gap and leaves tomorrow's open:
+the two permissive `default:` arms would admit the *next* expression variant with no `tsc`
+error, exactly as they admitted this one. Both now enumerate `literal` and `identifier`
+explicitly and route `default:` through a shared `expressionVariantUnhandled(expression: never)`
+that throws `handler-entry-unsupported` at `link`, mirroring `containsAsyncCall`. Verified by
+adding a probe variant to `LinkedKernKirExpression`: `tsc -b` then reports
+`TS2345 … not assignable to parameter of type 'never'` at three sites — the two walkers and
+`containsAsyncCall`. `walker-coverage.test.mjs` grew from 5 to 8 rows: each walker is called with
+an unknown-kind node and must throw the closed link fault rather than answer `false`/`0`.
+
+**Both walkers stay in `contracts.ts`, which the tripwire pushes to 503 lines, and the split is
+deferred with a hard reason.** Extracting them into `linked-kir-program/walkers.ts` was
+implemented and reverted: a new source file under `packages/core/src` becomes a new compiled-core
+`.js`, and `scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs:10-13` pins the
+compiled-core inventory at an authenticated `count: 354` plus a path digest. Moving it to 355
+fails `check-kern-canonicalizer-coverage.mjs` with *C-PY-1 lowering historical membership requires
+the authenticated current inventory*, and that file is a historical attestation — not in *Allowed
+files*, and re-attesting it is not an admission slice's decision. Three lines over a soft
+style ceiling is the cheaper of the two costs. A slice that may re-attest the compiled-core
+inventory should do the split.
 
 The type gate makes a call inside a unary unreachable through F5 (a boolean-returning call is
 refused as `KIR_UNARY_OPERAND_TYPE`, and an integer-returning call is not callable at all —
@@ -378,6 +415,70 @@ is still pinned.
 `scripts/kern-5-rt5-async-user-fn-call/variant-coverage.test.mjs:51-58` independently enforces
 that every member of `LinkedKernKirExpression` has a row in its coverage table, so the `unary`
 row there is mandatory — see *Blast radius*.
+
+### [RT10P-C15 VERIFIED] An arithmetic result is bounded by the existing `maxStringBytes`
+
+Found by review, measured before it was fixed: with `maxStringBytes: 20`, the program
+`return 10000000000 * 10000000000` produced the 21-digit payload `100000000000000000000` and
+**succeeded on all three legs**. Arithmetic is the only expression in the linked lane that mints
+a new integer payload — every other integer arrives either through request inspection
+(`inspect.ts:160-167` already calls `meter.text`) or as a frontend-validated literal — so it was
+the one path where the per-string limit had no reader.
+
+The contract: **if the canonical decimal text of an arithmetic result is longer than
+`limits.maxStringBytes`, every leg raises the limit fault the runtimes already raise for an
+oversized value.** No new fault code, no new limit field, no new envelope shape.
+
+| Leg | Site | Enforcement |
+| --- | --- | --- |
+| RT-1 | `kir-runtime/expression.ts` `integerValue(value, meter)` | `meter.text(String(value), 'arithmetic result')` → `KernKirFault('runtime-limit-exceeded', 'execution', …)`, the same call `inspect.ts:52` makes for request text |
+| emitted JavaScript | `kir-js-esm/target-execution.ts` `__intValue(value, meter)` | `meter.text(String(value))` → `__Fault('runtime-limit-exceeded','execution')` (`target-base.ts:81-87`) |
+| emitted Python | `kir-python/target-execution.ts` `_int_value(value, meter)` | `meter.text(str(value))` → `_Fault("runtime-limit-exceeded", "execution")` (`target-base.ts:135-139`) |
+
+The meter reaches the helpers the way it already reached `json-call`: `__meter` / `_meter` is in
+scope at every expression node, so both emitters pass it as the arithmetic helpers' last
+argument (`family === 'arithmetic'` and the `unary` case only — the logical and comparison arms
+are byte-identical to base, which keeps RT10P-C11 intact). RT-1's evaluator tables take the
+meter as a third parameter that the boolean-producing rows simply do not declare.
+
+`meter.text` charges **no step** (`inspect.ts:50-56` calls `check()`, not `step()`), so every
+pinned metering constant is unchanged — verified: `tick-discipline` is 21/21 with the new
+`size-at-limit` fixture pinned at 4, exactly its arithmetic-free twin `add-return`.
+
+Three gating fixtures, all three-leg byte-identical, with `maxStringBytes: 20` in the request:
+
+| Fixture | Program | Contract |
+| --- | --- | --- |
+| `size-at-limit` | `return 9999999999 * 9999999999` | success, `99999999980000000001`, exactly 20 bytes |
+| `size-over-limit` | `return 10000000000 * 10000000000` | failure, one `runtime-limit-exceeded` / `execution` diagnostic, `result: {presence:"absent"}` |
+| `size-fault-position` | `print "a"` / `let n = 10000000000 * 10000000000` / `print "b"` / `return n` | failure, and `events` is exactly `[{op:"stdout",text:"a"}]` — the fault fires **at the operator node**, so the following statement never runs and the limit is not deferred to the envelope boundary |
+
+This does **not** change the deferred magnitude cap. `KernKirLimits.maxIntegerDigits` remains
+the intended long-term bound and remains the resource-governance slice's to add: `maxStringBytes`
+bounds the *serialized payload*, which is a byte budget shared with text and already part of the
+public request schema, while `maxIntegerDigits` would bound *magnitude* with its own fault
+precedence against the step and envelope limits. C15 removes an unbounded amplification; it does
+not pre-empt the cap.
+
+### [RT10P-C15a VERIFIED] The emitted Python kernel lifts CPython's int/str digit cap
+
+CPython ≥ 3.11 raises `ValueError` on any `int`↔`str` conversion over 4300 digits
+(`sys.set_int_max_str_digits`). Measured before the fix: a nine-times-squared ten-digit seed
+reaches 5120 digits; RT-1 and the emitted JavaScript both returned it, and the emitted Python leg
+returned `handler-link-error` — a three-leg divergence on a value both other legs call exact,
+inside a `maxStringBytes` the request allows.
+
+The kernel prelude now calls `sys.set_int_max_str_digits(0)` once at kernel start, guarded with
+`hasattr` for < 3.11. It is the *only* correct place: the cap applies to `int(text)` on the way in
+as well as `str(value)` on the way out, so a per-helper guard would leave the parse direction
+broken.
+
+The gating row is three-leg, not a precision-probe row — the probe table asserts nothing by
+ruling, so a row there could not have caught this. `behavior.test.mjs` builds the squaring chain
+from a ten-digit literal (nine `let`s, each squaring the previous binding), asserts the result
+clears 4300 digits, and compares all three legs byte for byte against a `BigInt` recomputation.
+No 5000-digit literal is committed anywhere: the seed and the depth are, and the expected value is
+recomputed in the test.
 
 ### [RT10P-C13 DECIDED] Left-to-right evaluation order is unobservable in this slice
 
@@ -421,6 +522,32 @@ the call-argument gate for every caller and, once RT-9 lands, the assign type ga
 is a separate admission edge and it is **deferred**, with both rows above kept as fail-closed
 regression fences.
 
+### [RT10P-R1 ACCEPTED RISK] One uninterruptible big multiplication per operator node
+
+Raised by review at 0.97: a `*` node costs exactly one `meter.step()` and performs one
+uninterruptible host multiplication, so neither `maxSteps` nor the timeout bounds the CPU or the
+allocation of that single operation.
+
+**Accepted, not mitigated, and the bound is why.** With RT10P-C15 in place both operands and the
+result are bounded by `limits.maxStringBytes`: an operand reaches a helper only as a
+request-inspected payload, a frontend-validated literal, or a previous arithmetic result, and all
+three are `meter.text`-bounded. So per-operation cost is polynomial in `maxStringBytes` —
+schoolbook-to-Karatsuba multiplication of two `n`-digit integers, with `n ≤ maxStringBytes` — which
+is exactly the model RT-3's comparison operators already carry: `BigInt(left) < BigInt(right)`
+parses two `maxStringBytes`-bounded payloads inside one metered node with no checkpoint either.
+
+Therefore **no checkpoint inside an expression and no per-digit charge**. Both are forbidden, and
+for the same reason they were forbidden before: RT10P-C10 pins zero new await points and zero new
+`checkAbort()` sites, and `tick-discipline.test.mjs` asserts it statically and through the RT-2
+queued-abort fence at microtask depths 0-4. A per-digit charge would additionally break every
+pinned metering constant and the six inherited-metering identities.
+
+**The tightening lever is the governance slice's `maxIntegerDigits`**, which bounds magnitude
+directly and can be set far below `maxStringBytes`. A deployment that considers a
+`maxStringBytes`-sized multiplication too expensive lowers `maxStringBytes`; a deployment that
+wants a magnitude bound independent of the text budget waits for that slice. Recorded so the next
+reviewer sees a ruling rather than a gap.
+
 ### Pre-registered contracts — DEFERRED, do not build
 
 Recorded now so the next slices inherit the decision instead of re-litigating it.
@@ -445,8 +572,8 @@ Recorded now so the next slices inherit the decision instead of re-litigating it
 | `kir-runtime/linked-kir-program/contracts.ts:5-25` | `LinkedKernKirBinaryOperator` gains `'+' \| '-' \| '*'`; the contract interface gains `resultType`; `family` gains `'arithmetic'`; three table rows added and `resultType` added to all eight existing rows (RT10P-C4). |
 | `contracts.ts` (new, next to the binary table) | `LinkedKernKirUnaryOperator`, `LinkedKernKirUnaryOperatorContract`, `LINKED_KIR_UNARY_OPERATORS`, `linkedKirUnaryOperator` (RT10P-C3). |
 | `contracts.ts:82-111` | `LinkedKernKirExpression` gains the `unary` variant. Placement inside the union is free; the RT-3 golden scrapes the union with `/readonly kind: '([a-z-]+)'/gu`. |
-| `contracts.ts:212-227` | `expressionInvokesCapability` gains a `unary` arm — **silent default today** (RT10P-C12). |
-| `contracts.ts:274-292` | `expressionCallDepth` gains a `unary` arm — **silent default today**. |
+| `contracts.ts:212-227` | `expressionInvokesCapability` gains a `unary` arm — **silent default today** — and, per the review round, an exhaustive `never` tripwire (RT10P-C12). |
+| `contracts.ts:274-292` | `expressionCallDepth`, same two changes. |
 | `linked-kir-program/index.ts` | re-export the unary operator contract next to the binary one. |
 | `linked-kir-program/expression.ts:72` | `staticExpressionType`: binary answers `LINKED_KIR_BINARY_OPERATORS[op].resultType`; new `unary` arm answers `LINKED_KIR_UNARY_OPERATORS[op].resultType`. |
 | `expression.ts:87` | `crossCallExpressionType`: binary answers `'boolean'` only when `resultType` is `'boolean'`, otherwise `undefined`; `unary` answers `undefined` (RT10P-C8). |
@@ -454,12 +581,13 @@ Recorded now so the next slices inherit the decision instead of re-litigating it
 | `expression.ts:281-299` | the binary arm needs **no change** — the op table and the operand gate already do the work. |
 | `expression.ts` (new arm before `:331`) | `if (kind === 'unary')`: `canonicalRecord(fields, ['argument','op'], …)`, `linkedKirUnaryOperator` → `KIR_UNARY_OP_UNSUPPORTED`, compile the argument at `depth + 1`, `staticExpressionType` must equal `operandType` → `KIR_UNARY_OPERAND_TYPE`. |
 | `kir-runtime/linked-kir-program/link.ts:436` | the parameter `bindName` records `'integer'` for an integer parameter (RT10P-C6). Nothing else in `link.ts` changes. |
-| `kir-runtime/expression.ts:99-108` | `BINARY_EVALUATORS` gains `+`, `-`, `*` over `integerOperand`, plus an `integerValue` constructor. |
+| `kir-runtime/expression.ts:99-108` | `BINARY_EVALUATORS` gains `+`, `-`, `*` over `integerOperand`, plus an `integerValue` constructor. Per RT10P-C15 the evaluator types take the meter as a third parameter and `integerValue` bounds its payload with `meter.text`. |
 | `kir-runtime/expression.ts:231-295` | `evaluateExpression` gains `case 'unary'` calling a `UNARY_EVALUATORS` table keyed by the operator union. |
-| `compiler/kir-js-esm/target-execution.ts:112` | `__intValue`, `__add`, `__sub`, `__mul`, `__neg`. |
-| `compiler/kir-js-esm/emitter.ts:110-119` | new `case 'unary'` emitting `helper(<argument>)`. The `binary` case does not change (RT10P-C11). |
-| `compiler/kir-python/target-execution.ts:147` | `_int_value`, `_add`, `_sub`, `_mul`, `_neg`. |
-| `compiler/kir-python/emitter.ts:100-109` | new `case 'unary'`. The `binary` case does not change. |
+| `compiler/kir-js-esm/target-execution.ts:112` | `__intValue`, `__add`, `__sub`, `__mul`, `__neg`; each takes the meter and `__intValue` calls `meter.text` (RT10P-C15). |
+| `compiler/kir-js-esm/emitter.ts:110-119` | new `case 'unary'` emitting `helper(<argument>,__meter)`. The `binary` case gains one `family === 'arithmetic'` arm passing `__meter`; the logical and comparison arms are byte-identical to base (RT10P-C11). |
+| `compiler/kir-python/target-execution.ts:147` | `_int_value`, `_add`, `_sub`, `_mul`, `_neg`; each takes the meter and `_int_value` calls `meter.text` (RT10P-C15). |
+| `compiler/kir-python/target-base.ts:1-6` | `import sys` and the guarded `sys.set_int_max_str_digits(0)` at kernel start (RT10P-C15a). |
+| `compiler/kir-python/emitter.ts:100-109` | new `case 'unary'` passing `_meter`; the `binary` case gains the same one `arithmetic` arm. |
 
 Sites that must **not** change, with the reason: `link.ts:368-370` (the `if` condition gate is
 already correct once `resultType` is honest); `link.ts:301-315` (`let` already records the
@@ -485,24 +613,67 @@ first draft carried are dead and are recorded in the Corrections Log.
 | `scripts/kern-5-rt6-void-fallthrough/compatibility.test.mjs:27` | Modified | `RT3_GOLDEN_SHA256` → **`cb579944…`**. |
 | `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs:11` | Modified | `RT3_GOLDEN_SHA256` → **`cb579944…`**. RT-9 asserts the RT-3 golden is at *its* re-pinned seal, so the RT-3 move breaks RT-9's own guard — a dependent the first draft did not have. |
 | `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs:16` | Modified | `RT3_K0_GOLDEN_PRE_RT9_SHA256` `ac690563…` → **`0eca34b6680ca2861fe6cb03fb5c1a0e31326aceb1ee3307afa6650d064f2e86`**. This is a digest of the RT-3 golden with `rt2GoldenSha256` reset to RT-9's pre-image `aa7f116d…`, so it is a *second* derived constant that moves with the golden. |
-| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs:97` | Modified | `compiledCoreDigest` (currently `ca8b6b59a1b13a78b384b49a031087654c233eaf671eb636ebf7690642f8a808`) moves because `packages/core/src` changes. Then one `pnpm write:kern-canonicalizer-coverage` pass republishes the receipt JSONs; because that repin edited a `.mjs` under `scripts/kern-canonicalizer`, `coverageImplementationDigest` — which path-frames every `.mjs` in that directory — moves as a side effect, so **check whether a second `--write` pass is needed** (RT-9's log records the case where it was not). |
+| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs:97` | Modified | `compiledCoreDigest` (currently `ca8b6b59a1b13a78b384b49a031087654c233eaf671eb636ebf7690642f8a808`) moves because `packages/core/src` changes. **No new source file may be added under `packages/core/src` in this slice**: `scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs:10-13` pins the compiled-core inventory at an authenticated `count: 354` plus a path digest, and a 355th file fails the coverage write with *C-PY-1 lowering historical membership requires the authenticated current inventory*. That attestation is not in *Allowed files*. Then one `pnpm write:kern-canonicalizer-coverage` pass republishes the receipt JSONs; because that repin edited a `.mjs` under `scripts/kern-canonicalizer`, `coverageImplementationDigest` — which path-frames every `.mjs` in that directory — moves as a side effect, so **check whether a second `--write` pass is needed** (RT-9's log records the case where it was not). |
 | `package.json` | Modified | one script, `test:kern-5-rt10-pre-linked-arithmetic`. |
 
 RT-2's golden (`cc7fb869…`), RT-9's `RT2_GOLDEN_SHA256` and `RT2_K0_GOLDEN_PRE_RT9_SHA256`,
 RT-9's own K0 golden (`2378f458…`, which scrapes the **statement** union), the F5 policy
-(`e025392a…`), RT-4's and RT-6's **artifact** digests, and RT-5's RT-2 digest do not move:
-every compatibility fixture in those suites is arithmetic-free, and that is the independent
-proof that arithmetic-free emission stays byte-identical. They must pass **unmodified**.
+(`e025392a…`) and RT-5's RT-2 digest do not move. They must pass **unmodified**.
+
+**Amended 2026-09-02 (option (A) ruling) and again 2026-09-03 (review round).** This paragraph
+originally also claimed that RT-4's and RT-6's **artifact** digests do not move, "because every
+compatibility fixture in those suites is arithmetic-free". That reasoning is half right and its
+conclusion is wrong: `KERNEL_SOURCE` is a whole-program module-level constant
+(`kir-js-esm/emitter.ts:23`, `kir-python/emitter.ts:22`), so **every emitted-artifact digest in
+the repository moves on any slice that adds or edits a target-kernel helper**, arithmetic-free
+programs included. The standing rule, ruled by the coordinator and now applied twice in this
+slice, is:
+
+> an **artifact** digest (`javascript/pythonArtifactSha256` and its manifest) is expected to move
+> whenever the target kernel changes; `linkedProgramSha256` and `projectionArtifactSha256` are
+> **never** expected to move with it, and that second half is the assertion that keeps the first
+> half honest.
+
+Re-sealed in `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs` (20),
+`scripts/kern-5-rt5-async-user-fn-call/compatibility.test.mjs` (48) and
+`scripts/kern-5-rt6-void-fallthrough/k0-build-golden.json` (2) — 70 digest lines for the
+arithmetic helpers, then the same 70 again for RT10P-C15's meter parameter and RT10P-C15a's
+`import sys`. What the surviving half of the original claim really proves is still proved: in
+every re-sealed row the linked and projection digests are byte-identical, so the delta is the
+kernel text alone. RT-6's `compatibility.test.mjs` needs no edit — it recomputes against that
+golden rather than carrying constants.
 
 ## Allowed files
 
 - `packages/core/src/kir-runtime/linked-kir-program/{contracts,expression,link,index}.ts`
 - `packages/core/src/kir-runtime/expression.ts`
 - `packages/core/src/compiler/kir-js-esm/{contracts,emitter,target-execution}.ts`
-- `packages/core/src/compiler/kir-python/{contracts,emitter,target-execution}.ts`
+- `packages/core/src/compiler/kir-python/{contracts,emitter,target-execution,target-base}.ts`
+  (`target-base.ts` for RT10P-C15a only)
 - `scripts/kern-5-rt10-pre-linked-arithmetic/**` (new)
-- the seven prior-slice files enumerated in *Blast radius*, each limited to the stated edit
-- `package.json` — one script
+- the prior-slice files enumerated in *Blast radius*, each limited to the stated edit. The
+  authoritative list is that table, not a count — it grew from 7 to 10 as dependents were
+  discovered (Corrections Log 2026-09-02) and to 13 when the artifact digests were re-sealed
+  under option (A):
+  1. `scripts/kern-5-rt3-binary-expression/k0-golden.json` — `linkedExpressionKinds`
+  2. `scripts/kern-5-rt3-binary-expression/type-gate.test.mjs` — the operator fail-closed list
+     and the eight-key table pin
+  3. `scripts/kern-5-rt4-user-fn-call/probe-matrix.json` — `rt3GoldenSha256` and
+     `linkedExpressionKinds`
+  4. `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs` — `RT3_PRE_SLICE_SHA256` **and**
+     20 artifact digests (option A)
+  5. `scripts/kern-5-rt5-async-user-fn-call/variant-coverage.test.mjs` — the `unary` row
+  6. `scripts/kern-5-rt5-async-user-fn-call/compatibility.test.mjs` — the hard-coded RT-3
+     inventory **and** 48 artifact digests (option A)
+  7. `scripts/kern-5-rt6-void-fallthrough/compatibility.test.mjs` — `RT3_GOLDEN_SHA256`
+  8. `scripts/kern-5-rt6-void-fallthrough/k0-build-golden.json` — 2 artifact digests (option A)
+  9. `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs` — `RT3_GOLDEN_SHA256` and
+     `RT3_K0_GOLDEN_PRE_RT9_SHA256`
+  10. `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` plus the coverage receipts
+      republished by `write:kern-canonicalizer-coverage`
+- `package.json` — the RT-10-pre script, plus wiring RT-9 and RT-10-pre into
+  `test:kern-5-script-family` (review round)
+- `scripts/ci/test-tier-contract.test.mjs` — the matching `kern5EvidenceCommands` entries
 - `.Codex/specs/kern-5-rt10-pre-linked-arithmetic/spec.md`
 
 ## FROZEN files
@@ -518,7 +689,11 @@ proof that arithmetic-free emission stays byte-identical. They must pass **unmod
 - `scripts/kern-5-rt2-boolean-if/**` in its entirety.
 - `scripts/kern-5-rt4-user-fn-call/compatibility.test.mjs`, the RT-6 twin and
   `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs` **except** the named digest literals
-  (one, one and two respectively); every *artifact* digest in all three must pass untouched.
+  (one, one and two respectively) — **and except the emitted-artifact digests**, which move on
+  every kernel-helper slice under the option-(A) ruling; see the amendment at the end of *Blast
+  radius*. What must pass untouched in all three is every `linkedProgramSha256` and every
+  `projectionArtifactSha256`, and the re-seal is verified against exactly that: the committed
+  diffs contain zero lines of either kind.
 - `scripts/kern-5-rt9-linked-assign/**` apart from those two literals: RT-9's statement-union
   golden, behavior, type-gate and tick suites must pass unmodified.
 - `packages/core/src/ir/**` — the reference lane, and specifically
@@ -547,12 +722,12 @@ pins, so a fixture cannot be quietly re-expected.
 | Suite | Tests | What it pins | At base |
 | --- | --- | --- | --- |
 | `probe-matrix.test.mjs` | 9 | F5 facts only: projection status and diagnostic codes for 55 positions and all 34 gating expressions, plus the projected node shapes for 14 of them — the two `FRONTEND_INVALID_EXPRESSION` walls, the helper body, the F2 precedence pair, and the `assign` accumulator shape | **GREEN 9/9** — F5 already projects everything; the matrix is the sequencing gate and must stay green after the build |
-| `compatibility.test.mjs` | 5 | the RT-2 golden byte-identical at RT-9's seal; the RT-3 golden at its post-slice seal with the one-element undo reproducing the pre-image; **five** derived literals across rt4/rt4/rt6/rt9/rt9 recomputed from the live golden; the RT-5 coverage row; the F5 policy digest unmoved | **RED 2/5** |
+| `compatibility.test.mjs` | 5 | the RT-2 golden byte-identical at RT-9's seal; the RT-3 golden at its post-slice seal with the one-element undo reproducing the pre-image; **five** derived literals across rt4/rt4/rt6/rt9/rt9 recomputed from the live golden; the RT-5 coverage row; the F5 policy digest unmoved | **RED 3/5** |
 | `k0-golden.test.mjs` | 6 | the 55-row admission map; `LINKED_KIR_BINARY_OPERATORS` imported live from `dist` and serialized whole; the unary union and the expression union scraped from `contracts.ts`; the gating-table and precision-probe digests and row well-formedness | **RED 3/6** |
-| `behavior.test.mjs` | 48 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, and the emitted operand order | **RED 2/48** |
+| `behavior.test.mjs` | 52 | the i64-range invariant on the table itself, all 34 gating rows three-leg byte-identical, the non-gating precision probe, `neg(0)`, the two parameter rows, the three `assign` rows, the three condition positions, the helper body, the two tag-proving failure envelopes, the named-helper census on both legs, the host-infix absence scan on both legs, the emitted operand order, and (review round) the three RT10P-C15 size rows plus the RT10P-C15a 5120-digit round trip | **RED 2/48 at base; 52 rows after the review round** |
 | `type-gate.test.mjs` | 41 | 32 refusals, each with its **label text** pinned, plus the three label-disambiguation rows, the async-operand row, the `assign` admitted row, the admitted siblings that make each refusal non-vacuous, and the frontend-wall row | **RED 8/41** |
-| `walker-coverage.test.mjs` | 5 | the three expression walkers over a hand-built linked `unary` node (RT10P-C12) | **RED 0/5** |
-| `tick-discipline.test.mjs` | 21 | absolute `execution` counts on 15 rows, the six inherited-metering identities, the no-`await` static assertion on the RT-1 dispatch region and both emitted operator-helper regions, the checkpoint census against two arithmetic-free controls, queued-abort fences at microtask depths 0-4 on two fixtures, the pre-cancel fail-closed envelope | **RED 6/21** |
+| `walker-coverage.test.mjs` | 8 | the three expression walkers over a hand-built linked `unary` node, and (review round) all three failing closed on an unknown-kind node (RT10P-C12) | **RED 0/5 at base; 8 rows after the review round** |
+| `tick-discipline.test.mjs` | 21 | absolute `execution` counts on 16 rows (the sixteenth is RT10P-C15's `size-at-limit`, pinned at its arithmetic-free twin's cost), the six inherited-metering identities, the no-`await` static assertion on the RT-1 dispatch region and both emitted operator-helper regions, the checkpoint census against two arithmetic-free controls, queued-abort fences at microtask depths 0-4 on two fixtures, the pre-cancel fail-closed envelope | **RED 6/21** |
 
 `probe-matrix` runs first — it proves every negative is a link decision and not a frontend
 gap. `compatibility` runs second, in the rt4/rt5/rt6/rt9 position, so a drifted golden is
@@ -610,7 +785,7 @@ diff new-js.txt new-py.txt   # → no output
 | `assoc-add-left` | `1 + 2 + 3` | `6` |
 | `mixed-neg-mul` | `-2 * -3` | `6` |
 | `mixed-deep` | `(2 + 3) * (4 - 9)` | `-25` |
-| `add-sub-i64-max` | `4611686018427387904 + 4611686018427387904 - 1` | `9223372036854775807` |
+| `add-i64-max` | `4611686018427387903 + 4611686018427387904` | `9223372036854775807` |
 | `sub-i64-max-minus-s53` | `9223372036854775807 - 9007199254740993` | `9214364837600034814` |
 | `mul-i64-near-max` | `3037000499 * 3037000499` | `9223372030926249001` |
 | `mul-i64-near-max-neg` | `-3037000499 * 3037000499` | `-9223372030926249001` |
@@ -713,8 +888,9 @@ are rt3-linkable and were **measured** at base; arithmetic rows are derived and 
 | `param-neg` | `param a integer` / `return -a` | 1 + 2 + 1 | 4 |
 | `mixed-neg-mul` | `return -2 * -3` | 1 + 5 | 6 |
 | `assign-arith` | `let n=1` / `assign n = n + 1` / `return n` | 2 + 4 + 2 | 8 |
+| `size-at-limit` | `return 9999999999 * 9999999999` | 1 + 3 | 4 — RT10P-C15's `meter.text` charges no step |
 
-Four identities are asserted over the pinned constants, so a constant cannot move alone:
+Six identities are asserted over the pinned constants, so a constant cannot move alone:
 
 1. `add-return == return-binary-control` — an arithmetic binary costs exactly what a
    comparison binary costs; there is no helper tick.
@@ -723,7 +899,7 @@ Four identities are asserted over the pinned constants, so a constant cannot mov
 3. `prec-mul-then-add == prec-paren-add-first` — the meter is precedence-blind, which is why
    the value table is the precedence oracle (RT10P-C9).
 4. `add-let - let-literal-control == 2` — the two extra operand nodes, nothing else.
-5. `assign-arith - add-in-let == 2` and `assign-arith - let-literal-control == 4` — an
+5. `assign-arith - add-let == 2` and `assign-arith - let-literal-control == 4` — an
    arithmetic `assign` is one statement tick plus its three value nodes, exactly the RT9-C8
    `1 + ticks(value)` rule with an arithmetic value.
 
@@ -735,8 +911,9 @@ vs emitted JavaScript).
 
 ## Mutant list
 
-Sixteen mutants, each argued non-equivalent against the real RT-1 / JS / Python semantics
-rather than against the spec text. Twelve is the standing floor.
+Sixteen mutants at design time plus four from the review round, each argued non-equivalent
+against the real RT-1 / JS / Python semantics rather than against the spec text. Twelve is the
+standing floor.
 
 | # | Mutant | Why it is not equivalent | Killed by |
 | --- | --- | --- | --- |
@@ -756,6 +933,10 @@ rather than against the spec text. Twelve is the standing floor.
 | M14 | `expressionInvokesCapability` / `expressionCallDepth` keep their silent default for `unary` | a capability or a deep call chain hidden inside a unary is invisible to the closure walk and to the depth policy | **`walker-coverage`** |
 | M15 | `containsAsyncCall` returns `false` for a `unary` instead of recursing | an async call under a unary escapes the position gate | `walker-coverage` |
 | M16 | RT-1 charges an extra `meter.step()` inside the arithmetic dispatch (one tick per helper) | every arithmetic row costs one more than its comparison twin; identity 1 breaks in one direction only | `tick-discipline` identity 1, `add-return` |
+| M22 | RT-1's `integerValue` drops the `meter.text` bound (RT10P-C15) | RT-1 returns a 21-byte payload under `maxStringBytes: 20`, so its envelope diverges from both emitted legs, which still fault | `behavior` `size-over-limit`, `size-fault-position` |
+| M23 | the emitted JavaScript `__intValue` drops the bound | the JavaScript leg succeeds where RT-1 and Python fault | `behavior` `size-over-limit`, `size-fault-position` |
+| M24 | the emitted Python `_int_value` drops the bound | the Python leg succeeds where the other two fault | `behavior` `size-over-limit`, `size-fault-position` |
+| M25 | either walker gets a permissive `default:` back (RT10P-C12) | an unknown expression variant is answered `false`/`0` instead of failing closed, which is the amendment's whole point | **`walker-coverage`** the two fail-closed rows |
 
 No mutant here relies on a division rounding difference, a zero-divisor path, or a magnitude
 cap — those are the three phantom classes the deferred operators would have introduced.
@@ -764,13 +945,29 @@ cap — those are the three phantom classes the deferred operators would have in
 
 ## Acceptance criteria
 
-1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **135/135**.
-2. `test:kern-5-rt2-boolean-if`, `-rt3-binary-expression`, `-rt4-user-fn-call`,
-   `-rt5-async-user-fn-call`, `-rt6-void-fallthrough`, `-rt8-integer-signatures` and
-   `-rt9-linked-assign` all green
-   at their **pre-slice counts**. Record each count at base before implementing; do not copy a
-   count from an older spec, which was measured on an older base. Only the six enumerated
-   prior-slice edits are licensed.
+1. `pnpm test:kern-5-rt10-pre-linked-arithmetic` — **142/142** (135 at design time; the review
+   round added four `behavior` rows and three `walker-coverage` rows).
+2. The seven prior suites green at the **pre-slice counts measured on this base**, with one
+   declared exception. Record each count at base before implementing; do not copy a count from
+   an older spec, which was measured on an older base, nor from a truncated run.
+
+   | Suite | Pre-slice | Post-slice | Why |
+   | --- | --- | --- | --- |
+   | `test:kern-5-rt2-boolean-if` | 35 | 35 | unchanged |
+   | `test:kern-5-rt3-binary-expression` | 142 | **139** | **the declared exception.** Three rows asserted `+`, `-` and `*` fail closed; admitting them is this slice, so they leave the negative list. Nothing else in RT-3 moves and its own K0 golden does not. |
+   | `test:kern-5-rt4-user-fn-call` | 50 | 50 | unchanged; 20 artifact digests re-sealed in place |
+   | `test:kern-5-rt5-async-user-fn-call` | 86 | 86 | unchanged; 48 artifact digests re-sealed in place |
+   | `test:kern-5-rt6-void-fallthrough` | 52 | 52 | unchanged; 2 build-golden digests re-sealed in place |
+   | `test:kern-5-rt8-integer-signatures` | 28 | 28 | unchanged |
+   | `test:kern-5-rt9-linked-assign` | 82 | 82 | unchanged |
+
+   Only the prior-slice edits enumerated in the *Blast radius* table are licensed. That table is
+   the authority; the licensed set grew from 7 files to 10, and to 13 with the option-(A)
+   artifact re-seal, each growth recorded in the Corrections Log.
+2a. `node --test scripts/ci/test-tier-contract.test.mjs` green with `test:kern-5-rt9-linked-assign`
+   and `test:kern-5-rt10-pre-linked-arithmetic` present in both `test:kern-5-script-family` and
+   `kern5EvidenceCommands`, in rt order. Without this the two suites are defined but never run in
+   required CI (review round).
 3. F5 / closure / census unchanged; `pnpm test:kern-canonicalizer` green after the
    `compiledCoreDigest` re-pin and the `write:kern-canonicalizer-coverage` pass.
 4. `pnpm --filter @kernlang/core build` (tsc) clean; `biome check` clean on the nine touched
@@ -895,8 +1092,13 @@ failure the moment the RT-3 golden moves without its three dependents.
 
 Landed on base `732ed52c` (the RED oracle re-pinned onto the RT-9 base) across three commits:
 `837f27e8` (the shared contract, RT-1's evaluator tables and both emitted legs), `7c3108f3`
-(the six licensed prior-slice re-pins plus the canonicalizer receipts) and `3fc8b335` (three
-prior-slice dependents *Blast radius* did not enumerate — see the Corrections Log).
+(the licensed prior-slice re-pins plus the canonicalizer receipts) and `3fc8b335` (three
+prior-slice dependents *Blast radius* did not enumerate — see the Corrections Log), then the
+option-(A) artifact re-seal `0a7d7607`.
+
+The review round added five more: the CI wiring, the RT10P-C15 result bound on all three legs,
+the RT10P-C15a CPython digit-cap lift, the RT10P-C12 walker tripwires, and the oracle/spec
+reconciliation with its second artifact re-seal.
 
 ### Production diff
 
@@ -906,26 +1108,35 @@ mechanical: adding `resultType` to the eight existing binary rows pushed each si
 object past the formatter width, so all eight were re-wrapped into six-line objects. That
 reflow is +96/−8 of the diff and the semantic net is ~82 lines, inside the estimate's band.
 
+After the review round, `git diff --numstat 732ed52c..HEAD -- packages/core/src` is
+**+217 / −21**, i.e. **196 net lines**, still inside the ≤250 cap. The review round's own additions are the meter
+parameter on eight kernel helpers and RT-1's two evaluator tables, the guarded
+`sys.set_int_max_str_digits(0)`, and the shared `never` tripwire with two explicit leaf arms per
+walker.
+
 | File | + | − |
 | --- | --- | --- |
-| `kir-runtime/linked-kir-program/contracts.ts` | 102 | 10 |
+| `kir-runtime/linked-kir-program/contracts.ts` | 117 | 13 |
 | `kir-runtime/linked-kir-program/expression.ts` | 22 | 2 |
 | `kir-runtime/linked-kir-program/link.ts` | 6 | 1 |
 | `kir-runtime/linked-kir-program/index.ts` | 4 | 0 |
-| `kir-runtime/expression.ts` | 16 | 0 |
+| `kir-runtime/expression.ts` | 23 | 3 |
 | `compiler/kir-js-esm/target-execution.ts` | 5 | 0 |
-| `compiler/kir-js-esm/emitter.ts` | 4 | 0 |
+| `compiler/kir-js-esm/emitter.ts` | 7 | 1 |
+| `compiler/kir-python/target-base.ts` | 6 | 0 |
 | `compiler/kir-python/target-execution.ts` | 20 | 0 |
-| `compiler/kir-python/emitter.ts` | 4 | 0 |
-| **total** | **183** | **13** |
+| `compiler/kir-python/emitter.ts` | 7 | 1 |
+| **total** | **217** | **21** |
 
 Every site the spec named is present and nothing else. Both emitters' `binary` cases are
 byte-identical to base, which discharges RT10P-C11 by the diff rather than by argument: the
 `arithmetic` family falls through the existing non-`logical` eager arm. Each emitter gained
 one `case 'unary'`; each target kernel gained `__intValue`/`_int_value` and the four helpers.
 
-The slice adds **zero** comments: no invariant here is unshowable by the code, because every
-contract is carried by a `satisfies`-checked table.
+The slice adds **three** comments, each stating a constraint the code cannot show: why
+arithmetic is the only payload-minting expression (RT-1's `integerValue`), why CPython's digit
+cap must be lifted at kernel start (the Python prelude), and why both walkers are exhaustive on
+purpose (`contracts.ts`). Everything else is carried by a `satisfies`-checked table.
 
 Criterion 5 holds: the production diff adds **zero** occurrences of `await`, `setImmediate`,
 `queueMicrotask`, `Promise` or `checkAbort()` under `packages/core/src/kir-runtime/` or in
@@ -940,9 +1151,12 @@ every row, and every gating row was confirmed inside `[-2^63, 2^63)`.
 
 ### Gates — measured, this base
 
+Measured after the review round (the design-time run was RT-10-pre 135/135 with the same
+prior-suite numbers):
+
 | Gate | Total | Pass | Fail |
 | --- | --- | --- | --- |
-| `test:kern-5-rt10-pre-linked-arithmetic` | **135** | **135** | 0 |
+| `test:kern-5-rt10-pre-linked-arithmetic` | **142** | **142** | 0 |
 | `test:kern-5-rt2-boolean-if` | 35 | 35 | 0 |
 | `test:kern-5-rt3-binary-expression` | 139 | 139 | 0 |
 | `test:kern-5-rt4-user-fn-call` | 50 | 50 | 0 |
@@ -950,10 +1164,11 @@ every row, and every gating row was confirmed inside `[-2^63, 2^63)`.
 | `test:kern-5-rt6-void-fallthrough` | 52 | 52 | 0 |
 | `test:kern-5-rt9-linked-assign` | 82 | 82 | 0 |
 | `test:kern-5-rt8-integer-signatures` | 28 | 28 | 0 |
+| `node --test scripts/ci/test-tier-contract.test.mjs` | 9 | 9 | 0 |
 | `node --test scripts/kern-canonicalizer/*.test.mjs` | 872 | 872 | 0 |
 
-RT-10-pre is **135/135**, matching acceptance criterion 1 exactly: probe-matrix 9,
-compatibility 5, k0-golden 6, behavior 48, type-gate 41, walker-coverage 5, tick-discipline 21.
+RT-10-pre is **142/142**, matching acceptance criterion 1 exactly: probe-matrix 9,
+compatibility 5, k0-golden 6, behavior 52, type-gate 41, walker-coverage 8, tick-discipline 21.
 
 RT-3 measures 139, not its base 142: the three rows that asserted `+`, `-` and `*` fail closed
 are gone, because admitting them is this slice. Nothing else in RT-3 moved and its own K0
@@ -967,7 +1182,7 @@ declarations because the conquer worktree's `node_modules` links were never crea
 canonicalizer suite proper, `check-kern-canonicalizer.mjs`, `check-kern-canonicalizer-coverage.mjs`
 and `composition.mjs` all run green directly; the blocker is the environment, not the slice.
 
-### Mutant kill table — 21 applied, 21 killed, 0 survivors
+### Mutant kill table — 25 applied, 25 killed, 0 survivors
 
 Each mutant was applied by hand to the source, `tsc -b` re-run, the naming suite re-run, and
 the source restored from a byte-copy and `touch`ed so the next build re-emits (RT-9's log
@@ -996,6 +1211,15 @@ records the stale-`dist` trap this avoids). The final restore is byte-identical 
 | M19 | the Python kernel's `_mul` lowers through a host float | `behavior` `3037000499 * 3037000499` and its negative twin — the two widest in-i64 separators |
 | M20 | `/` is admitted, reusing the `*` helpers | `k0-golden` 1, 2, 4 ("no deferred operator has a table row") and `type-gate` `refuse-div` plus the operator-label row |
 | M21 | unary `!` is admitted, reusing `__neg` | `k0-golden` 1, 3, 4 and `type-gate` `refuse-unary-not` plus the operator-label row |
+| M22 | RT-1's `integerValue` drops `meter.text` (RT10P-C15) | `behavior` 2/3 size rows — `size-over-limit` and `size-fault-position`; the at-limit row survives, exactly as the mutant predicts |
+| M23 | the emitted JavaScript `__intValue` drops `meter.text` | `behavior` the same 2/3, from the other side: *emitted JavaScript diverged from RT-1* |
+| M24 | the emitted Python `_int_value` drops `meter.text` | `behavior` the same 2/3: *emitted Python diverged from RT-1* |
+| M25 | `expressionInvokesCapability` gets `default: return false` back (RT10P-C12) | **`walker-coverage`** 1/8, "the closure walk fails closed on an expression variant it does not handle" — `RT10PRE_WALKER_DEFAULT` |
+
+M22-M25 were applied and reverted the same way, each `tsc -b`-rebuilt and the source restored
+from a byte-copy and `touch`ed. Every one died, and each died on the row the mutant list named —
+no size mutant killed the at-limit row, which is the check that the three size fixtures separate
+on the bound rather than on arithmetic.
 
 M20 and M21 are the widening probes acceptance criterion 6 asks for, applied and reverted:
 each adds a row to one operator table, and the oracle names the table, the union and the
@@ -1038,19 +1262,30 @@ needed a division rounding difference, a zero divisor or a magnitude cap.
    thunk (RT10P-C11).
 10. Charge a `meter.step()` per helper call, or exempt an arithmetic node from the
     per-expression-node tick (RT10P-C9).
-11. Add a magnitude check, a digit cap, or any `KernKirLimits` field.
-12. Leave the silent `default` in `expressionInvokesCapability` or `expressionCallDepth`
+11. Add a magnitude check, a digit cap, or any `KernKirLimits` field. Enforcing the **existing**
+    `maxStringBytes` on a minted arithmetic payload is required, not forbidden (RT10P-C15): it
+    adds no field, no fault code and no envelope shape. Adding `maxIntegerDigits` is still the
+    governance slice's.
+12. Leave a permissive `default` in `expressionInvokesCapability` or `expressionCallDepth`: a
+    `unary` arm alone is not enough, both must route `default` through a `never` tripwire
     (RT10P-C12).
-13. Edit any prior-slice oracle file beyond the six enumerated edits in *Blast radius*.
+13. Edit any prior-slice oracle file beyond the edits enumerated in the *Blast radius* table.
+    That table is the authority; no constraint here states a count, because the licensed set
+    grew twice under recorded rulings.
 14. Accept a fixture whose expected value was not computed by BigInt **and** cross-checked by
     `python3`, or satisfy a row by cross-leg agreement alone.
 15. Rescue a RED by widening the slice to `/`, `%`, `**`, an integer cross-call, or the
     frontend.
 16. Assert only the closed link code in a negative test. The label text is the assertion.
 17. Promote a `precision-probe.json` row into the gating table, or add a gating row whose
-    operands or result leave `[-2^63, 2^63)` (RT10P-C5a). The range invariant is asserted on
-    the table itself.
-18. Touch anything in `scripts/kern-5-rt9-linked-assign/` beyond the two named digest literals.
+    operands, **intermediates** or result leave `[-2^63, 2^63)` (RT10P-C5a). The asserted
+    invariant scans leaf literals and the final result only, so intermediates must be read by
+    hand — the original `add-i64-max` row failed exactly there.
+18. Charge a per-digit cost or add a checkpoint inside an expression to bound big-integer work
+    (RT10P-R1). The bound is `maxStringBytes`, and the tightening lever is the governance
+    slice's `maxIntegerDigits`.
+19. Touch anything in `scripts/kern-5-rt9-linked-assign/` beyond the two named digest literals
+    and the emitted-artifact re-seal option (A) licenses.
 
 ## Standing review question
 
@@ -1106,7 +1341,10 @@ emitters' expression paths, and expect **zero**.
    same tables.
 2. Land RT-1's evaluator rows and both emitters in the same compatible change; neither target
    may accept a linked shape the other or RT-1 rejects.
-3. Land the six prior-slice re-pins in *Blast radius*, then the canonicalizer coverage pass.
+3. Land the prior-slice re-pins enumerated in the *Blast radius* table — ten files, plus the
+   emitted-artifact re-seal option (A) licenses in three of them — then the canonicalizer
+   coverage pass. Wire both new suites into `test:kern-5-script-family` and the CI tier contract
+   in the same push.
 4. Run the suite through `pnpm test:kern-5-rt10-pre-linked-arithmetic`. It needs Node 22
    (`KERN_NODE22`) for the emitted-ESM leg and CPython 3.12 (`KERN_PYTHON312`) for the
    emitted-Python leg, matching RT-2…RT-9.
@@ -1118,7 +1356,16 @@ unsupported; it must never fall back to source or host semantics.
 
 | Date | Correction |
 | --- | --- |
-| 2026-09-03 | **A suite total was undercounted by four because a per-file sweep was cut off by a timeout.** RT-5 was first reported as 82; the authoritative `pnpm test:kern-5-async-user-fn-call` run measures **86/86**. The gap is `provider-propagation.test.mjs` (4 tests), the twelfth file in a directory a ten-minute manual sweep listed only eleven of before it was killed, and the resumed sweep started from `position-gate` without re-listing the directory. Corrected here and in the gate table. The lesson is the same one the spec's own acceptance criterion 2 states — "record each count at base before implementing; do not copy a count from an older spec" — extended one step: do not copy a count from a *truncated run* either. Only the per-suite `pnpm` script is authoritative, because it enumerates its own files. |
+| 2026-09-03 | **BLOCKING, fixed: an arithmetic result was the one integer payload nothing bounded.** Measured before the fix, with `maxStringBytes: 20`: `return 10000000000 * 10000000000` returned the 21-digit `100000000000000000000` and **succeeded on all three legs**. Every other integer in the linked lane is already `meter.text`-bounded — a request argument at `inspect.ts:160-167`, a literal by the frontend — so arithmetic was the only amplification path. Fixed as RT10P-C15 by threading the meter into the four helpers on all three legs and calling the *existing* `meter.text`, which raises the *existing* `runtime-limit-exceeded` / `execution` fault. Three gating fixtures added: at the limit (success, exactly 20 bytes), one byte over (failure, byte-identical envelopes on all three legs), and a position pin whose failure envelope carries exactly one prior `stdout` event, proving the fault fires at the operator node rather than at the envelope boundary. `meter.text` charges no step, so every pinned metering constant survives — `size-at-limit` is pinned at 4, its arithmetic-free twin's cost. This does not pre-empt `maxIntegerDigits`: `maxStringBytes` bounds a serialized payload, the deferred cap bounds magnitude, and the governance slice still owns the second. |
+| 2026-09-03 | **BLOCKING, fixed: CPython's 4300-digit int/str cap made the Python leg diverge on a value the other two legs call exact.** Measured before the fix: nine squarings of a ten-digit seed reach 5120 digits; RT-1 and the emitted JavaScript both returned it, the emitted Python leg returned `handler-link-error`. Fixed as RT10P-C15a with a `hasattr`-guarded `sys.set_int_max_str_digits(0)` at kernel start — the only correct place, because the cap also applies to `int(text)` on the way in. The regression row is **gating and three-leg**, not a `precision-probe.json` row: the probe table asserts nothing by ruling, so a row there could not have caught this. No 5000-digit literal is committed; the seed and the depth are, and the expected value is recomputed with `BigInt` in the test. |
+| 2026-09-03 | **ACCEPTED RISK, recorded as RT10P-R1: one uninterruptible big multiplication per operator node.** Review raised at 0.97 that a `*` node costs one `meter.step()` and one uninterruptible host multiplication, so neither `maxSteps` nor the timeout bounds it. With RT10P-C15 in place both operands and the result are `maxStringBytes`-bounded, so the per-operation cost is polynomial in `maxStringBytes` — identical to the model RT-3's comparison operators already carry, since `BigInt(left) < BigInt(right)` parses two bounded payloads inside one metered node with no checkpoint either. **No checkpoint inside an expression and no per-digit charge**: both are forbidden by RT10P-C10, which `tick-discipline.test.mjs` pins statically and through the RT-2 queued-abort fence, and a per-digit charge would break every metering constant. The tightening lever is the governance slice's `maxIntegerDigits`. |
+| 2026-09-03 | **BLOCKING, fixed: the RT-9 and RT-10-pre suites were defined but never run in required CI.** `test:kern-5-script-family` — the single command the `kern-5-evidence` CI job runs — ended at `test:kern-5-rt8-integer-signatures`, and `kern5EvidenceCommands` in `scripts/ci/test-tier-contract.test.mjs` ended there too, so the contract that exists to catch exactly this omission agreed with it. Both suites appended in rt order and the contract's expected list updated; `node --test scripts/ci/test-tier-contract.test.mjs` is 9/9. Recorded as acceptance criterion 2a, because "the leaf script exists" and "CI runs the leaf script" are two different facts and only the second is a gate. |
+| 2026-09-03 | **Extracting the two walkers into their own file was implemented and reverted: `packages/core/src` cannot gain a file in this slice.** `walkers.ts` would have kept `contracts.ts` at 320 lines instead of 503, but a new source file becomes a new compiled-core `.js`, and `scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs:10-13` pins that inventory at an authenticated `count: 354` plus a path digest. `check-kern-canonicalizer-coverage.mjs --write` failed with *C-PY-1 lowering historical membership requires the authenticated current inventory* — a historical attestation, not in *Allowed files*, and not an admission slice's to re-attest. Both walkers stay in `contracts.ts` at 503 lines, three over a soft style ceiling, and the split is recorded for a slice that may re-attest the inventory. One trap worth naming: `tsc -b` does not delete a stale `dist` output, so the first re-pin of `compiledCoreDigest` was measured against a `dist` that still carried `walkers.js` and had to be recomputed after removing it. |
+| 2026-09-03 | **The two permissive walker defaults were closed for today's variant only, and the review round closed them for tomorrow's.** RT10P-C12 originally required a `unary` arm in `expressionInvokesCapability` and `expressionCallDepth`; both kept `default: return false` / `return 0`, so the *next* expression variant would have been admitted with no `tsc` error, exactly as `unary` was. Both now enumerate `literal` and `identifier` and route `default` through a shared `expressionVariantUnhandled(expression: never)`. Verified by adding a probe variant to the union: `tsc -b` reports `TS2345 … not assignable to parameter of type 'never'` at three sites, the two walkers and `containsAsyncCall`. Both walkers moved into `linked-kir-program/walkers.ts` — `contracts.ts` would otherwise have crossed 500 lines, and a walker is not a contract. `walker-coverage.test.mjs` grew 5 → 8 with a fail-closed row per walker, which is what kills M25. |
+| 2026-09-03 | **The `add-sub-i64-max` gating row had an intermediate of exactly `2^63`, outside the interval RT10P-C5a gates on.** `4611686018427387904 + 4611686018427387904 - 1` evaluates its left subtree to `9223372036854775808`, which is an out-of-range *result* of the `+` node under the same "operands or result" criterion that moved eight rows into `precision-probe.json`. The asserted range invariant scans leaf literals and the final result, so it could not see it. Replaced with `add-i64-max` = `4611686018427387903 + 4611686018427387904`, re-verified with `node` BigInt and `python3` (both `9223372036854775807`), and the frozen-table digest and the probe-matrix key re-sealed additively. *Builder must NOT* #17 now says "operands, **intermediates** or result" and names the scan's limit, because the constraint was already right and the check behind it was weaker than the constraint. |
+| 2026-09-03 | **The normative sections were reconciled with what actually landed.** Five sections contradicted the Implementation record and the rulings above them: *Blast radius* and *FROZEN files* still forbade the artifact re-seal that option (A) had licensed and the header already reported; *Allowed files* licensed seven prior-slice files where thirteen had landed; *Deploy order* step 3 and *Builder must NOT* #13 both said "six"; and acceptance criterion 2 demanded all seven prior suites at pre-slice counts while RT-3 deliberately went 142 → 139. All five now state the landed contract, and the licensed set is stated once as an explicit list rather than three times as a count — a count is what drifted. Criterion 2 carries a per-suite table with the RT-3 exception declared. Also corrected: "Four identities" over a list of five covering six (now "Six"), the `add-in-let` fixture name (`add-let`), "eight rt3-linkable controls" over a nine-row table, the compatibility row's `RED 2/5` where the pass-at-base count is 3, and the 2026-09-03 entry that named the RT-5 script without its `rt5-` segment in the one entry whose point is that only the per-suite script name is authoritative. |
+| 2026-09-03 | **The artifact digests were re-sealed a second time, by the same rule that ruled the first.** RT10P-C15 adds a meter parameter to eight kernel helpers and RT10P-C15a adds `import sys` plus two lines to the Python prelude, so all **70** artifact digest lines moved again — 20 in `rt4/compatibility.test.mjs`, 48 in `rt5/compatibility.test.mjs`, 2 in `rt6/k0-build-golden.json`, carrying **50 distinct values** because RT-5 replicates RT-4's five call-free fixtures. Re-sealed by recomputation, and the same guarantee holds: zero `linkedProgramSha256` and zero `projectionArtifactSha256` lines in the diff, and the three suites return to 50/50, 86/86 and 52/52. This is the second application of the standing rule and the reason it is stated as a rule rather than as a one-off ruling. |
+| 2026-09-03 | **A suite total was undercounted by four because a per-file sweep was cut off by a timeout.** RT-5 was first reported as 82; the authoritative `pnpm test:kern-5-rt5-async-user-fn-call` run measures **86/86**. The gap is `provider-propagation.test.mjs` (4 tests), the twelfth file in a directory a ten-minute manual sweep listed only eleven of before it was killed, and the resumed sweep started from `position-gate` without re-listing the directory. Corrected here and in the gate table. The lesson is the same one the spec's own acceptance criterion 2 states — "record each count at base before implementing; do not copy a count from an older spec" — extended one step: do not copy a count from a *truncated run* either. Only the per-suite `pnpm` script is authoritative, because it enumerates its own files. |
 | 2026-09-02 | **RULED option (A): the emitted-artifact digests are re-sealed, and the kernel constant is why they move on every kernel-helper slice.** The coordinator ruled that `KERNEL_SOURCE` is a whole-program constant *by design* (`kir-js-esm/emitter.ts:23`, `kir-python/emitter.ts:22`) and that a conditional kernel is an architecture change for a later slice, not this one; RT-9's precedent — re-seal in place and log it, because a SHA-256 constant records one fact about a file's bytes at one moment while "may this slice move it?" is a spec question already answered — applies unchanged. Re-sealed **70** digests with recomputed values: `rt4/compatibility.test.mjs` 20 across five call-free fixtures, `rt5/compatibility.test.mjs` 48 across twelve call-free and helper-bearing fixtures, and `rt6/k0-build-golden.json` 2. RT-6's `compatibility.test.mjs` needed no edit — it recomputes against that golden rather than carrying constants. **What was deliberately not touched, and how that is guaranteed:** every `linkedProgramSha256` and every `projectionArtifactSha256`. The re-seal script asserted each stable digest equalled its live value before writing anything — 5 in rt4, 12 in rt5, 2 in rt6, 19 in total, all unchanged — and the committed diff contains **zero** `linkedProgramSha256` or `projectionArtifactSha256` lines. Those digests stay inside the same `deepEqual` the artifact digests live in, so a linked-encoding regression hiding inside a future artifact re-seal still fails the suite; no new test row was added, and the three suites return to their pre-slice totals 50/50, 86/86 and 52/52. The standing rule this establishes: **an artifact digest is expected to move whenever the target kernel gains a helper, and a linked or projection digest is never expected to move with it** — the second half is the assertion that keeps the first half honest. `per-program kernel assembly` is recorded as a deferred design item in *Pre-registered contracts*. |
 | 2026-09-02 | **BLOCKING: the emitted target kernel is embedded in every artifact, so every frozen emitted-artifact digest moves — and *Blast radius* claimed the opposite.** The spec asserts "RT-4's and RT-6's **artifact** digests … do not move: every compatibility fixture in those suites is arithmetic-free, and that is the independent proof that arithmetic-free emission stays byte-identical." Half of that is true and half is false. `KERNEL_SOURCE` is a module-level constant (`kir-js-esm/emitter.ts:23`, `kir-python/emitter.ts:22`) concatenating the whole `TARGET_EXECUTION_SOURCE` into **every** artifact, so RT10P-C11's four kernel helpers land in arithmetic-free artifacts too — measured directly: an artifact for `return flag` contains `__add`, `__sub`, `__mul`, `__neg`, `__intValue` and `def _add(`…`def _int_value(`. Three rows go red and no more: `rt4/compatibility.test.mjs` ("every call-free digest is byte-identical to the pre-slice build"), `rt5/compatibility.test.mjs` ("every RT-4 digest, call free and helper bearing …") and `rt6/compatibility.test.mjs` ("the RT-6 build golden pins the emitted artifacts …"). **What the failures prove is the spec's real claim:** in every red row `linkedProgramSha256` and `projectionArtifactSha256` are **unchanged** and only `javascript/pythonArtifactSha256` and their manifests moved, so the linked encoding and the F5 projection of an arithmetic-free program *are* byte-identical and the delta is the kernel text alone. The exhaustive blast radius of frozen artifact-digest constants is exactly those three files plus `rt6/k0-build-golden.json`; `kern-5-admission-census` pins only `projectionArtifactSha256`, which does not move, and the other seven consumers of `…ArtifactSha256` compare two live artifacts rather than a frozen constant. **Not resolved here, deliberately.** Two options, both real: (A) re-seal the artifact digests in those three files and log it — the RT-9 precedent, and the primitive that keeps the guard byte-exact and fail-closed for the next licensed move; (B) assemble `KERNEL_SOURCE` per program so a program that uses no arithmetic embeds no arithmetic helper, which keeps all three guards green and is inside this slice's allowed files, but invents a conditional-kernel mechanism the spec never contemplated and trades a single canonical kernel for a per-program one. (A) is a seal decision; (B) is an architecture decision. Neither is the implementer's to take unilaterally, so both are reported and the digests are left untouched. |
 | 2026-09-02 | **Three prior-slice dependents of the expression-union move that *Blast radius* did not enumerate — the same class its own last row names.** *Blast radius* listed one golden and one coverage table. Three more guards read the same two facts. (1) `kern-5-rt3-binary-expression/type-gate.test.mjs:44` lists `'+', '-', '*'` among thirteen operators that must fail closed, and `:243` pinned the shared table to exactly RT-3's eight keys. Admitting the three operators is the slice, so they leave the negative list (ten remain) and the shared-contract row now asserts RT-3's eight are still *in* the table rather than that nothing else is — an additive guard, so the next admission slice does not reopen it. RT-3 therefore measures 139 rather than its base 142. (2) `kern-5-rt4-user-fn-call/probe-matrix.json` scrapes `linkedExpressionKinds` from `contracts.ts` **independently of the RT-3 golden**, so it needed `"unary"` too; nothing digests that file's bytes, so the move is free. (3) `kern-5-rt5-async-user-fn-call/compatibility.test.mjs:292` carries a hard-coded copy of the RT-3 inventory. Landed as `3fc8b335`. The derived-fact count is therefore 6 digests + 4 inventories, not 6 + 1. |
