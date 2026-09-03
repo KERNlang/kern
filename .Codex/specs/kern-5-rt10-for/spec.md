@@ -381,9 +381,10 @@ untouched.
 Every criterion below is a fixture in `scripts/kern-5-rt10-for/`. None rests on an ASSUMED or OPEN
 claim.
 
-- [ ] All 22 frozen behavior rows return their frozen integer with **byte-identical envelopes** on
-      RT-1, emitted JavaScript and emitted Python, and each value was computed by `node` BigInt
-      **and** cross-checked by `python3` (both agree on all 22 — verified 2026-09-03).
+- [ ] All 24 frozen behavior rows return their frozen integer with **byte-identical envelopes** on
+      RT-1, emitted JavaScript and emitted Python, and each value **and trip count** was computed by
+      `node` BigInt **and** cross-checked by `python3` (`diff` of the two runs is empty — verified
+      2026-09-03).
 - [ ] `to` is exclusive: `for i from 0 to 3` sums to `3`, never `6`.
 - [ ] Empty range: `from 3 to 3` → `0`; `from 3 to 0 step 1` → `0`; `from 0 to 3 step -1` → `0`.
 - [ ] Negative step counts down: `from 3 to 0 step -1` → `6`; `from 6 to 0 step -2` → `12`;
@@ -451,6 +452,35 @@ The RED reason is one reason, stated once: **the linker refuses `for` as unsuppo
 closure walkers throw the never-tripwire.** No RED comes from a fixture typo — every fixture's
 projection is asserted `projected` before its link decision is read, and `probe-matrix` is green at
 base precisely so that a projection regression can never masquerade as a link RED.
+
+### Measured base gate — 2026-09-03, `feat/kern-5-rt10-for` @ `03479550`
+
+**109 tests: 21 GREEN, 88 RED.** Every file run individually with
+`node --test scripts/kern-5-rt10-for/<file>.test.mjs`.
+
+| File | tests | pass | fail | Every RED's message at base |
+| --- | --- | --- | --- | --- |
+| `probe-matrix` | 8 | **8** | 0 | — all GREEN; F5 already projects `for` and both body fences already refuse |
+| `compatibility` | 8 | **8** | 0 | — all GREEN; the neighbour pins must never go red |
+| `walker-coverage` | 10 | 0 | **10** | 8 × `TypeError: Cannot read properties of undefined (reading 'kind')` (both statement walkers reach `statement.value` on a `for`); 1 × `expected the KIR_VOID_HANDLER_VALUE_RETURN gate to fire, but the linker reported: entry.function.handler.children[0]: statement must be a leaf`; 1 × `the union must carry the for member this slice adds` |
+| `type-gate` | 27 | 2 | **25** | every refusal row: `expected the <LABEL> gate to fire, but the linker reported: entry.function.handler.children[N]: statement must be a leaf` — except `neg-empty-body`, whose base message is `… statement kind for is outside RT-1` (the leaf case, RT10F-C4); the admitted rows: `expected 'admitted', actual 'handler-entry-unsupported'`. The 2 GREEN are `neg-while` and `neg-each`, which are refused at base with `statement must be a leaf` and must stay so |
+| `behavior` | 39 | 2 | **37** | 36 × `javascript compile failed: handler-entry-unsupported`; 1 × `for-empty-range` (the three-leg admission sweep, naming the first row it reaches). The 2 GREEN are the table-shape rows — the i64 range check and the unique-name/trip-count check — which pin the frozen table itself and are green by construction |
+| `metering` | 8 | 1 | **7** | 7 × `rt10f-meter-<name>: linking does not succeed inside the scanned step range`. The 1 GREEN is *the* anchor row — `the straight-line twins reproduce the base costs the identities are derived from` — which pins `4`, `2`, `4`, `7` as base measurements, so a constant drift breaks the build before any identity can be satisfied vacuously |
+| `tick-discipline` | 9 | 0 | **9** | 9 × `javascript compile failed: handler-entry-unsupported` |
+
+One RED was found to be red for the **wrong** reason during this measurement and fixed before the
+oracle landed: `metering` initially failed 8/8 with `project is not defined`, because an
+`export * from` re-export does not bring a name into the re-exporting module's own scope. Every
+helper `k0-support.mjs` calls is now imported by name as well as re-exported. See *Corrections Log*.
+
+### Neighbour gates at base — must stay green
+
+| Command | Base |
+| --- | --- |
+| `pnpm test:ci-contract` | **16/16 pass** — with this slice's `kern5EvidenceCommands` entry and the `test:kern-5-script-family` append already applied, so the tier contract is satisfied by the wiring as committed |
+| `node --test scripts/kern-5-r2-js-lowering/closure.test.mjs scripts/kern-5-r1-runtime-owner/*.test.mjs scripts/kern-5-c-py-1-contract/*.test.mjs` | **53/53 pass** |
+| `pnpm lint` | **exit 0**, `Checked 1448 files`, 2 pre-existing infos (`String.raw`), no error. `biome.json` `files.includes` covers `packages/*/src/**` and two named scripts only, so `scripts/kern-5-rt10-for/**` carries no lint gate and is formatted by hand to the same 120-column, 2-space style as its neighbours |
+| `pnpm test:kern-5-rt10-cross-call-integer` | run at base; the RT-10-X suite is additionally pinned by this slice's `compatibility.test.mjs` through its k0-golden digest and by two live admission rows |
 
 ## Out of Scope
 
@@ -605,4 +635,6 @@ at the loop head; and for any edited digest literal outside the licensed RT-2 ch
 | 2026-09-03 | **The metering rows are identities over base measurements, not post-slice absolutes, and the reason is recorded rather than hidden.** RT-10-X measured every post-slice expectation against a shadow implementation applied to `packages/core/dist`; that was cheap there (seven table edits) and is not cheap here (six sites of real control flow). Instead the loop's charge `2 + n·(1 + B)` is turned into five differences whose only unknowns — `B = 4` for `assign acc = acc + 1`, `4` for `acc + i`, `7` for `acc + idp(i)`, and `2` for a `1 + 2` bound — were all measured at base (RT10F-C6). Recorded as accepted risk in RT10F-O7 with the builder required to report the absolutes it measures. |
 | 2026-09-03 | **The counter's read-only rule needs a label selector, not a second gate, and the shadowing rule is not a new string.** RT-9's note requires that `KIR_ASSIGN_TO_LOOP_COUNTER` be "the RT-9 `KIR_ASSIGN_TARGET_NOT_LET` gate with a loop-specific label" and that "rt10 must not add a second mechanism". Implemented as one new `LinkScope.counters` set read at the existing `link.ts:353` gate. Separately, counter shadowing **projects** at base (measured for both a `let` and a parameter), so the refusal must come from the linker — and it reuses the existing `duplicate binding <name>` wording rather than minting a `KIR_FOR_COUNTER_SHADOWS`. Net new diagnostic strings for the whole slice: three (`KIR_FOR_ZERO_STEP`, `KIR_FOR_BOUND_NOT_INTEGER`, `ERR_KIR_LOOP_ZERO_STEP`). |
 | 2026-09-03 | **The "no cancel-mid-loop fixture" pin and the "zero new `checkAbort()`" standing answer are in tension, and the resolution is to license exactly one new site.** A loop is the first construct whose statement count is not bounded by the program text, so no checkpoint at its head means no interruptibility. But `for` admits no `capability` child, so a loop body has no suspension point and the external-signal half of the check can never change state mid-loop — only the deadline half can fire. So the head checkpoint is required for the deadline and is useless for cancellation, which is exactly why there is no cancel-mid-loop fixture *and* exactly one new checkpoint site. Both halves are now stated in RT10F-C9 rather than left as a contradiction between two inherited rules. |
-| 2026-09-03 | **All 22 frozen values were computed twice and agree.** `node` BigInt and CPython 3.12 produce identical text for all 22 rows including the nested golden **18**, the triple-nested **8**, the i64-adjacent trip count **2**, and the three negative-step rows. `diff` of the two runs is empty. This discharges *Builder must NOT* rule 16 for the table as committed. |
+| 2026-09-03 | **One oracle file was RED for the wrong reason, and the cause is an ESM re-export subtlety worth recording.** `metering.test.mjs` failed 8/8 with `project is not defined` rather than with the loop refusal, because `k0-support.mjs` re-exports the RT-4 helper chain with `export * from` and then *calls* `project`, `stepRequest`, `provider`, `executeKernKir`, `linkVerifiedKernKirProgram`, `LIMITS` and `ENTRY` itself. A star re-export publishes names to consumers; it does not bind them in the re-exporting module's own scope. Fixed by importing every called helper by name alongside the re-export, and the row now fails with `linking does not succeed inside the scanned step range` — the single right reason. This is exactly the class of defect the "RED for one reason, and prove it by reading each message" discipline exists to catch: without reading the messages the suite looked correctly RED. |
+| 2026-09-03 | **RT-4's `directStepBudget` cannot measure a nested loop, so this slice owns a wider budget probe.** Its `BUDGETS` window is a fixed linear scan of 1…90 total steps, and the nested metering fixture's charge sits above that even before linking is counted. `loopStepBudget` binary-searches 1…4000 and then asserts the threshold is sharp — one step under the answer must fail — which is what makes a binary search sound over a monotone predicate. Verified equal to `directStepBudget` on three base twins (4, 13, 6) before being used for anything. |
+| 2026-09-03 | **All 24 frozen values were computed twice and agree.** `node` BigInt and CPython 3.12 produce identical value *and trip-count* text for all 24 rows including the nested golden **18**, the triple-nested **8**, the i64-adjacent trip count **2**, and the three negative-step rows. `diff` of the two runs is empty. This discharges *Builder must NOT* rule 16 for the table as committed. One row was wrong in the first draft and the cross-check caught it: `for-let-in-body` (`let d = i + 1` / `acc = acc + d` over `0..3`) was written as `9` and is `6`. |
