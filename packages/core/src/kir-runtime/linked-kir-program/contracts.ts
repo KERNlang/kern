@@ -264,7 +264,11 @@ export type LinkedKernKirStatement =
 // Exhaustive on purpose, like `containsAsyncCall`: a permissive `default` would let a future
 // expression variant slip past the capability closure and the call-depth policy with no tsc error.
 function expressionVariantUnhandled(expression: never): never {
-  throw new KernKirFault('handler-entry-unsupported', 'link', `unhandled variant ${JSON.stringify(expression)}`);
+  throw new KernKirFault(
+    'handler-entry-unsupported',
+    'link',
+    `unhandled variant ${String((expression as { kind?: unknown }).kind)}`,
+  );
 }
 
 type CapabilityClosure = ReadonlyMap<string, LinkedKernKirHandler> | undefined;
