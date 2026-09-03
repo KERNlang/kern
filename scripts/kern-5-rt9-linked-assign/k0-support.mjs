@@ -33,10 +33,9 @@ export const ASYNC_TEXT_HELPER = Object.freeze({
   returns: 'string',
 });
 
-// An integer-returning helper is not callable at all on this base: `linkedKirCrossCallType`
-// has no integer row, so `expression.ts:148` refuses the call with KIR_CALL_SIGNATURE_TYPE
-// before any assign gate can be reached. The call-typed fixtures therefore carry the two
-// cross-call shapes that do resolve: boolean and list<boolean>.
+// The call-typed fixtures carry the two cross-call shapes RT-9 was written over — boolean and
+// list<boolean>; RT-10-X later added the integer row, so an integer-returning helper is callable
+// and its own slice owns those positions.
 export const SYNC_BOOL_HELPER = Object.freeze({
   body: Object.freeze(['return value="true"']),
   name: 'h',
@@ -224,8 +223,8 @@ export const POSITIONS = Object.freeze({
     }),
   'neg-integer-into-text': () =>
     route([`let name=s value=${T('a')}`, 'assign target="s" value="1"', 'return value="s"']),
-  // An integer list reads `undefined` in both cross-call directions and `undefined` statically,
-  // against the binding's `integer`, so only the static half of the gate can refuse it.
+  // An integer list reads `undefined` in both cross-call directions against the binding's
+  // `integer`, so after RT-10-X both halves of the gate refuse it rather than the static one alone.
   'neg-integer-list-into-integer': () =>
     route(['let name=n value="1"', 'assign target="n" value="[1, 2]"', 'return value="n"'], { returns: 'number' }),
   'neg-list-into-text': () =>

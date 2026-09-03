@@ -100,9 +100,9 @@ test('the cross-call half of the gate separates the two assigns into one call-ty
 });
 
 // `neg-bool-into-integer` cannot separate the halves: `crossCallExpressionType` answers
-// `boolean` for a boolean literal, so both halves fire on it independently. An integer list
-// is the mirror of `neg-list-into-text` — `undefined` in both cross-call directions — so the
-// static table is the only one that can refuse it.
+// `boolean` for a boolean literal, so both halves fire on it independently. An integer list is
+// the mirror of `neg-list-into-text` — `undefined` in both cross-call directions — and since
+// RT-10-X gave the binding an `integer` cross-call type both halves refuse it.
 test('the static half of the gate separates the two assigns into one integer binding', async () => {
   const admitted = await admission(POSITIONS['integer-from-identifier']());
   assert.equal(admitted.rt1, 'admitted');
