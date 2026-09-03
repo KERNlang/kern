@@ -5,7 +5,7 @@
       "abi": "kern.runtime.handler.v1",
       "constitutionSha256": "f25716593bbb2d9417ab004438baf34085befb0cfc25f4bf22276b6277ec6d96",
       "proofInventorySha256": "4a8dbec281ac89709431e26f9e142ce15f14958310d233f88a393bba46212a57",
-      "declarationSchemaSha256": "e541d11673e78174dcbaab7ae5fc8e2af1ab4543603a63be53d9d806252962bf",
+      "declarationSchemaSha256": "16fb0ac434f5124265167835879dc3c1a7ffad94dc0a01d52d85b44943d13828",
       "goldensSha256": "bb2e3b34ec936a9f88b45a94a80500f110f18ed3e7be7e7caf4062de2610f15c"
     }
   ]

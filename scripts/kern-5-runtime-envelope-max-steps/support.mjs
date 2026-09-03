@@ -16,6 +16,7 @@ import {
   executeSourceRunnerAsync,
   executeSourceRunnerSync,
 } from '../../packages/core/dist/runtime-envelope/source-runner-engine.js';
+import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS as LIVE_ENVELOPE_LIMIT_KEYS } from '../../packages/core/dist/runtime-envelope/types.js';
 import { validateInternalRuntimeLimits } from '../../packages/core/dist/runtime-envelope/value.js';
 import {
   executeKernRuntimeHandlerAsync,
@@ -33,6 +34,7 @@ export {
   executeSourceRunnerAsync,
   executeSourceRunnerSync,
   KERN_RUNTIME_HANDLER_ABI,
+  LIVE_ENVELOPE_LIMIT_KEYS,
   makeEnv,
   registerAllContracts,
   validateInternalRuntimeLimits,
@@ -239,9 +241,13 @@ const KIR_LIMIT_KEY_DECLARATIONS = Object.freeze([
   'packages/core/src/compiler/kir-python/request.ts',
 ]);
 
+export function declarationSource(path) {
+  return readFileSync(join(REPO_ROOT, path), 'utf8');
+}
+
 export function declaredLimitKeys(path, name = 'LIMIT_KEYS') {
-  const source = readFileSync(join(REPO_ROOT, path), 'utf8');
-  const match = new RegExp(`(?:const ${name}|${name}) = \\[([^\\]]*)\\]`, 'u').exec(source);
+  const source = declarationSource(path);
+  const match = new RegExp(`(?:const ${name}|${name}) = (?:Object\\.freeze\\()?\\[([^\\]]*)\\]`, 'u').exec(source);
   if (match === null) throw new Error(`${path} declares no ${name} array`);
   return [...match[1].matchAll(/'([^']+)'/gu)].map(([, key]) => key).sort();
 }

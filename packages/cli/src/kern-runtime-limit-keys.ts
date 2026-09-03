@@ -18,4 +18,4 @@ type ExactLimitKeys = [Exclude<keyof KernRuntimeHandlerLimits, Declared>] extend
     : never
   : never;
 
-export const KERN_RUNTIME_HANDLER_LIMIT_KEYS: ExactLimitKeys = DECLARED;
+export const KERN_RUNTIME_HANDLER_LIMIT_KEYS: ExactLimitKeys = Object.freeze(DECLARED);

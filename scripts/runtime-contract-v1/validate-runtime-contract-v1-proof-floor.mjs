@@ -17,9 +17,9 @@ const EXPECTED_HASHES = Object.freeze({
   proofInventory:
     "4a8dbec281ac89709431e26f9e142ce15f14958310d233f88a393bba46212a57",
   declarationSchema:
-    "e541d11673e78174dcbaab7ae5fc8e2af1ab4543603a63be53d9d806252962bf",
+    "16fb0ac434f5124265167835879dc3c1a7ffad94dc0a01d52d85b44943d13828",
   goldens: "bb2e3b34ec936a9f88b45a94a80500f110f18ed3e7be7e7caf4062de2610f15c",
-  lineage: "6fea5882e6b8d83008e0fb8a7a760f55c431b64c252906c36e772b80cc93ae59",
+  lineage: "5501947055b963ef9e81ca4365ca0fb3323a0c3aca5b3db5410ca583685ac802",
 });
 
 const EXPECTED = Object.freeze({

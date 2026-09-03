@@ -1,9 +1,15 @@
 # KERN 5: `maxIterations` — a dedicated iteration budget for the runtime envelope
 
-**Status:** IMPLEMENTED
-**Date:** 2026-09-02 (evidence remeasured 2026-09-03)
+**Status:** IMPLEMENTED (two review-fix passes applied; MS-R2 and MS-R7 amended)
+**Date:** 2026-09-02 (evidence remeasured 2026-09-03, second review-fix pass)
 **Base:** `1a88c705` (`origin/main`, CI census sweep merged)
 **Confidence:** 0.93 (was 0.89; the RC-v1 re-pin OPEN that capped it is resolved as MS-R7)
+
+**Amendments after review, both blocking findings:** MS-R2 — `maxIterations` is REQUIRED
+internally but OPTIONAL at the public v1 boundary, defaulting to that request's
+`maxCollectionLength`, so `kern.runtime.handler.v1` keeps its promise; MS-R7 — the RC-v1
+authority is composed from the whole amendment chain, with the record's `rowsChanged`
+validated against the actual artefact delta and no amendment id in any validator.
 
 ## Executive Summary
 
@@ -14,8 +20,10 @@ answers two unrelated questions, and the answers pull in opposite directions: a 
 that wants a long-running loop must also permit a 33.5-million-element list, and a caller
 that wants a tight value ceiling must accept a short loop.
 
-This slice splits the knob. `maxIterations` becomes a seventh, **required** key on the envelope
-and handler limits records and is the only source of `iterationBudget`;
+This slice splits the knob. `maxIterations` becomes a seventh key on the envelope and handler
+limits records — **required** on the internal record, **optional with the legacy
+`maxCollectionLength` default** at the public v1 boundary (MS-R2) — and is the only source of
+`iterationBudget`;
 `maxCollectionLength` returns to meaning collection length and nothing else. No envelope
 byte changes for any program that does not exhaust a budget.
 
@@ -134,7 +142,7 @@ under 120 s. Nothing here changes that, and this slice must not touch `scheduler
 | Field / Behavior | Shape | Evidence | Tag |
 |---|---|---|---|
 | `InternalRuntimeEnvelopeLimits.maxIterations` | required positive safe integer | `runtime-envelope/types.ts:6-13` (absent today) | VERIFIED |
-| `KernRuntimeHandlerLimits.maxIterations` | required positive safe integer | `runtime-handler.ts:56-63` (absent today) | VERIFIED |
+| `KernRuntimeHandlerLimits.maxIterations` | **optional**; absent means that request's `maxCollectionLength`, present must be a positive safe integer | `runtime-handler.ts` type + `acceptedOptions` normalization; MS-R2 | VERIFIED |
 | envelope exact-key set | `maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxStringBytes` → gains `maxIterations` | `runtime-envelope/value.ts:30`; probe below | VERIFIED |
 | handler `LIMIT_KEYS` | same six → gains `maxIterations` | `runtime-handler.ts:164-171` | VERIFIED |
 | shared key declaration | `INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS` in `runtime-envelope/types.ts`, consumed by `value.ts` and `runtime-handler.ts` | added by this slice; L1 reads it | VERIFIED |
@@ -142,11 +150,20 @@ under 120 s. Nothing here changes that, and this slice must not touch `scheduler
 | `iterationBudget` source | `limits.maxIterations` at all four sites | `execute.ts:44,73`; `execute-compat.ts:49,80` | VERIFIED |
 | budget-exhaustion diagnostic | `unsupported-runtime-input`, `phase:"execution"` | `normalize.ts:147`; probe below | VERIFIED |
 | collection-ceiling diagnostic (arguments) | `invalid-handler-arguments`, `phase:"execution"` | `handler-entry.ts:93-94`; probe below | VERIFIED |
-| F5 `profileLimits.maxWorkSteps` | `33554432` | `kern-frontend-f5-projection/policy.json:35` | VERIFIED |
+| F5 `profileLimits.maxWorkSteps` | `33554432` | `kern-frontend-f5-projection/policy.json:35`; superseded — see the F5 note below | VERIFIED |
 | F5 `runtimeLimits.maxCollectionLength` | `1048576`, **unchanged** by this slice | `policy.json:56` | VERIFIED |
 | F5 `RUNTIME_KEYS` | six keys, exact-set checked | `policy-validation.mjs:41-43,55,64` | VERIFIED |
 | F5 relationship failure message | `F5 projection policy: limit relationship` | `policy-validation.mjs:22,86-88` | VERIFIED |
 | `INTERNAL_RUNTIME_ENVELOPE_FORMAT` | `kern.runtime.internal.r0`, **not bumped** | `types.ts:4`; see MS-R4 | VERIFIED |
+| shared key declaration frozen | `Object.freeze([...])` in both package declarations | `runtime-envelope/types.ts`, `cli/src/kern-runtime-limit-keys.ts`; L1 mutation row | VERIFIED |
+
+> **F5 scalars are superseded.** `.Codex/specs/kern-5-f5-profile-budget/spec.md` is the
+> stacked successor to this slice and owns the F5 profile budget. Every F5 scalar this
+> document cites as current — `profileLimits.maxWorkSteps = 33554432` and the
+> `runtimeLimits.maxIterations = 33554432` that MS-R5 derives from it — is the value **as of
+> this slice**; where that successor moves them, its numbers govern and these become
+> historical. `runtimeLimits.maxCollectionLength = 1048576` is this slice's own invariant and
+> is not delegated.
 
 ### RED-at-base probes (exact strings, recorded)
 
@@ -210,7 +227,7 @@ The slice directory keeps its original `…-max-steps` slug because two commits 
 script already reference it; the *key* is `maxIterations` and nothing in the contract carries
 the old spelling.
 
-## [MS-R2 DECIDED] `maxIterations` is REQUIRED
+## [MS-R2 AMENDED] `maxIterations` is REQUIRED internally, OPTIONAL at the public v1 boundary
 
 Blast radius measured, not estimated. Discriminator: an envelope/handler limits record is
 any record carrying `maxDiagnostics`; a KIR record additionally carries `maxSteps` already.
@@ -267,26 +284,64 @@ Three sites deserve naming because they are not simple literals:
   `policy.runtimeLimits` whole — but each still sits downstream of a hardcoded validator that
   rejects a seven-key object until updated. There is no free ride.
 
-REQUIRED is chosen over OPTIONAL-with-fallback because:
+### The amendment (post-review, blocking finding 1)
 
-1. **The fallback *is* the bug.** `maxIterations ?? maxCollectionLength` keeps one number
-   answering two questions for all 77 existing callers and makes the coupling permanent and
-   invisible. Nothing would be fixed except the F5 call site.
-2. **The amendment cost is identical.** `maxIterations?: number` changes the frozen public
-   declaration text just as `maxIterations: number` does (MS-R3), so OPTIONAL does not avoid the
-   constitution work — it only avoids the sweep.
-3. **Exact-key validation is a deliberate KERN 5 invariant.** `value.ts:30-40` and
-   `runtime-handler.ts` reject unknown *and* missing keys so that no limits shape can drift
-   silently. An optional key is a hole in the one mechanism that would otherwise catch this
-   class of bug next time.
-4. **The sweep is 1 decision, not 77.** For all 76 non-F5 sites,
-   `maxIterations := <that record's current maxCollectionLength>` is behavior-preserving *by
-   construction* — it is literally the value the effect machine receives today. Only F5
-   chooses a genuinely new number. So the sweep is mechanical transcription plus one ruling,
-   and byte-identity across it is provable rather than hoped for.
-5. **There is no external caller to break.** `validateRuntimeContractV1` returns
-   `runtimeAbiFrozen: false` (`validate-runtime-contract-v1.mjs:337-344`) and the lineage
-   holds exactly one version. This is the window in which the shape may still change.
+The first implementation made the key required **everywhere**, including at the public
+`executeKernRuntimeHandler{Sync,Async}` boundary, while `KERN_RUNTIME_HANDLER_ABI` stayed
+`kern.runtime.handler.v1`. That is a breaking change to a v1 surface: every six-key request
+that the exported API accepted before the slice was refused after it, with the ABI id
+unchanged. Two dispositions were available — bump to a v2 ABI with a v1 adapter, or make the
+key optional at the public boundary only. The second is chosen.
+
+**The ruling, exactly:**
+
+- **Internally REQUIRED.** `InternalRuntimeEnvelopeLimits` keeps all seven keys required and
+  `validateInternalRuntimeLimits` keeps refusing a six-key record with
+  `limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxIterations,maxStringBytes`.
+  Every internal execute site therefore still reads one unambiguous number, and exact-key
+  validation stays total on the record the effect machine is configured from.
+- **OPTIONAL with a legacy default at the public v1 boundary.** `acceptedOptions`
+  (`runtime-handler.ts`) normalizes before it validates: when `maxIterations` is absent it
+  becomes **that request's `maxCollectionLength`** — the exact number the effect machine
+  received for the same request before the split — and the normalized seven-key record is what
+  reaches the internal validator. A six-key v1 caller therefore keeps byte-identical
+  behaviour, including its exhaustion boundary, and gains nothing it did not have.
+- **A present value is still checked.** It must be a positive safe integer; `0`, `-1`, `1.5`,
+  `'1'`, `null` and `Number.MAX_SAFE_INTEGER + 2` all raise `KernRuntimeHandlerError`
+  `invalid-limits`, message `runtime handler limits are invalid`, on both paths.
+- **The public type carries the optionality.** `KernRuntimeHandlerLimits.maxIterations` is
+  `readonly maxIterations?: number`. The alternative — leaving the type required while the
+  runtime accepts absence — was rejected as a type-level lie: the `.d.ts` is the frozen public
+  declaration RC-v1 pins (MS-R3), so a required type would publish a requirement the
+  implementation does not have. The frozen text is amended to
+  `readonly maxIterations?: number;` and the RC-v1 amendment record carries that exact byte
+  change (MS-R7).
+- **The ABI id stays `kern.runtime.handler.v1`.** With the default in place, no request the
+  v1 API accepted before the slice is refused after it, and no envelope byte moves for any
+  such request; the only change to the surface is that a caller *may* now send a seventh key.
+  That is additive, so there is no wire break left to signal, and the constitution's `limits`
+  inventory (MS-R3) remains the field that records the shape change.
+
+**What survives from the original REQUIRED argument, and what does not:**
+
+1. **The fallback *was* the bug — inside the envelope.** `maxIterations ?? maxCollectionLength`
+   *as the internal contract* keeps one number answering two questions. As a **boundary
+   normalization** it does not: the internal record still carries two independent numbers, and
+   the 76-site sweep (below) still sets both explicitly, so no shipped caller relies on the
+   default. The default exists for callers outside this repo, which is precisely the population
+   the v1 promise covers.
+2. **The amendment cost is identical.** Unchanged: `maxIterations?: number` moves the frozen
+   declaration text just as `maxIterations: number` does. The optionality is one additional
+   additive amendment record, not a different protocol.
+3. **Exact-key validation stays a deliberate invariant** where it does the work — on the
+   internal record, and on the *keys* of the public record (an unknown key is still refused).
+   The public boundary now admits a missing `maxIterations` and nothing else.
+4. **The sweep stays as it is: 1 decision, not 77.** Explicit is fine, and better than fine —
+   every in-repo record still names its own budget, so the sweep's byte-identity argument is
+   untouched and the default is never silently exercised in-tree.
+5. **There is no external caller to break** — and with the default there is nothing to break
+   even if there were. `runtimeAbiFrozen: false` remains the reason the *internal* record could
+   still change shape; it is no longer the reason the public one may.
 
 **The forcing function is the consumer, not a repo test.** An earlier draft leaned on
 `runtime-contract-v1-parity.test.ts` (the `Assert<Equal<…>>`) as the reason the public type
@@ -444,6 +499,59 @@ writer inside its own pin.
 Leg **L7** is RED until the record and the writer exist and the chain verifies. A silent
 recompute leaves L7's `amend.mjs must exist` failing, so the shortcut is not available.
 
+### [MS-R7 AMENDED] the authority is composed from the whole chain (post-review, blocking finding 2)
+
+The first implementation hard-coded one amendment path in
+`validate-runtime-contract-v1-authority.mjs` and trusted its digests: it never validated the
+record's format, disposition or `rowsChanged`, never anchored the chain, and recognized only
+the first parent→result edge, so a legitimate successor could not be validated at all. The
+chain walk now lives in one pure module and both consumers read it:
+
+- **`scripts/runtime-contract-v1/amendment-chain.mjs`** — record validation (format, slice
+  uniqueness, additive disposition, exact digest key sets, no unexpected fields), generic
+  loading of `amendments/*.json`, chain composition (single genesis edge, genesis anchored,
+  no fork, no cycle, no orphan) into an **ordered state list** `[anchor, …results]`, and the
+  artefact-delta rule below.
+- **`amend.mjs`** keeps `verifyRuntimeContractAmendmentChain()` and its refusal strings, and
+  now writes atomically: every substitution in `lineage.json` and the record is computed and
+  proven unique **in memory first**, then each file is replaced by write-temp-and-rename. A
+  record the writer cannot rewrite leaves the lineage byte-identical (asserted).
+- **The authority validator** loads the records generically — **no amendment id appears in
+  either script**, asserted by L7 — proves the declared `chain-anchor.json` is the digest of
+  the **introduction commit's own artefact bytes** (the ratified lineage, from git, not a
+  self-declared constant), composes every edge, authorizes an artefact transition only from
+  state *i* to state *j ≥ i* of the composed list, requires the terminal state to equal both
+  the live artefact digests and the live `lineage.json` pin, refuses a pending re-pin, and
+  returns `amendments` / `amendedRows` as evidence.
+
+**The `rowsChanged` rule (needs-check 1.00: `rowsChanged` was never checked).** The validator
+computes the *actual* structural delta between the parent artefacts (introduction commit) and
+the child artefacts (live bytes) and requires the composed `rowsChanged` to explain it
+exactly. A row's terminal token (`limits.maxIterations` → `maxIterations`) must appear in
+every change it explains, and:
+
+- every change — an added object key, an added array element, a scalar modification, or a
+  changed line inside a pinned text such as the frozen declaration — must be attributed to at
+  least one declared row, so a record claiming `["limits.maxIterations"]` cannot bless an
+  unrelated edit;
+- every declared row must be attributed by at least one change, so a record cannot declare
+  rows it did not touch;
+- under `disposition: "additive"` no structural **removal** is authorized at all; an additive
+  amendment may add anything and may rewrite only the rows it declares.
+
+Arrays are aligned index-wise when their length is unchanged (so the declaration-schema string
+is compared line by line rather than read as a remove-plus-add), by `id` when they carry unique
+string ids, and as a multiset otherwise.
+
+**This slice ships two amendment records, and the chain composes them.**
+`kern-5-runtime-envelope-max-iterations` adds the seventh key (all four artefacts move);
+`kern-5-runtime-envelope-max-iterations-optional-v1` relaxes the frozen declaration text to
+`readonly maxIterations?: number;` for MS-R2 (only `public-declaration-schema.json` moves).
+Both declare `rowsChanged: ["limits.maxIterations"]`, both are additive, the second's parents
+are the first's results, and the terminal state is the live pin. The independent proof floor
+(`validate-runtime-contract-v1-proof-floor.mjs`) re-pins the two digests that moved. L7 proves
+a *third* amendment composes on top in a scratch copy, so the protocol is not one-shot.
+
 ## [MS-R4 DECIDED] `kern.runtime.internal.r0` is NOT bumped
 
 The format string identifies the **envelope output**, not the request options.
@@ -564,21 +672,35 @@ blast radius and belongs to the deferred "F5 composition performance" milestone.
 
 ## Migration note: what a legacy six-key caller sees
 
-`maxIterations` is REQUIRED and fails closed (MS-R2). That is intended, and
-`runtimeAbiFrozen` is `false` with one lineage version, so no published consumer is owed a
-compatibility window. An external caller that still passes the six-key record gets, exactly:
+**Nothing changes for a v1 caller.** `maxIterations` is optional at the public boundary and
+defaults to that request's `maxCollectionLength` (MS-R2), which is the number the effect
+machine received for the same request before the split. So a six-key request through
+`executeKernRuntimeHandlerSync` / `…Async` is accepted, runs with the identical iteration
+budget it had at base, and produces the identical envelope bytes. There is no compatibility
+window to schedule and no breaking change to announce under `kern.runtime.handler.v1`.
 
-- through the public handler — `KernRuntimeHandlerError`, code `invalid-limits`, message
-  `runtime handler limits are invalid`, from both `executeKernRuntimeHandlerSync` and
-  `…Async`;
-- through the internal validator — `InternalRuntimeEnvelopeError`, code `invalid-limits`,
-  message `limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxIterations,maxStringBytes`.
+What a caller does see:
 
-One-line fix: add `maxIterations: <n>` to the limits record, where `<n>` is the value that
-record previously carried in `maxCollectionLength` when that field was doubling as the
-iteration budget. The amendment record carries no notes field and `amend.mjs` writes it by
-structural marker, so this note lives here rather than in
-`amendments/kern-5-runtime-envelope-max-iterations.json`.
+- **A six-key request** — accepted. `maxIterations := maxCollectionLength` for that request.
+  L1 pins this differentially at three bounds: with `maxCollectionLength: n` a loop of `n`
+  iterations succeeds and a loop of `n` under `maxCollectionLength: n - 1` fails with
+  `unsupported-runtime-input`, for `n ∈ {3, 10, 25}`. No other limit value tracks all three,
+  so the default is provably `maxCollectionLength` and not another field.
+- **A seven-key request with a wrong-typed or non-positive `maxIterations`** — refused:
+  `KernRuntimeHandlerError`, code `invalid-limits`, message
+  `runtime handler limits are invalid`, on both paths, for `0`, `-1`, `1.5`, `'1'`, `null` and
+  `Number.MAX_SAFE_INTEGER + 2`. Absence is admitted; a value is checked.
+- **An unknown limit key** — still refused, unchanged.
+- **The internal validator** — unchanged and still total: `InternalRuntimeEnvelopeError`, code
+  `invalid-limits`, message
+  `limits must contain exactly maxBytes,maxCollectionLength,maxDepth,maxDiagnostics,maxEvents,maxIterations,maxStringBytes`
+  for a six-key record. Internal callers get no default; only the public boundary normalizes.
+
+Recommended (not required) migration: name the budget explicitly,
+`maxIterations: <n>`, where `<n>` is the value that record carried in `maxCollectionLength`
+while that field was doubling as the iteration budget. Every in-repo record does this; the
+default exists for callers outside this repository. The amendment records carry no notes field
+and `amend.mjs` writes them by structural marker, so this note lives here.
 
 ## Blast Radius
 
@@ -596,6 +718,11 @@ structural marker, so this note lives here rather than in
 | `packages/core/src/runtime-envelope/execute.ts` | Modify | `iterationBudget` from `maxIterations` at `:44`, `:73` |
 | `packages/core/src/runtime-envelope/execute-compat.ts` | Modify | Same at `:49`, `:80` |
 | `packages/core/src/runtime-handler.ts` | Modify | Type `:56-63`, `LIMIT_KEYS` `:164`, `acceptedLimits` `:293` |
+| `scripts/runtime-contract-v1/amendment-chain.mjs` | Add | Shared pure chain composer, record validator and artefact-delta rule (MS-R7) |
+| `scripts/runtime-contract-v1/amend.mjs` | Add/Modify | Chain writer; atomic staged rewrites (MS-R7) |
+| `scripts/runtime-contract-v1/validate-runtime-contract-v1-authority.mjs` | Modify | Compose the authority from the whole chain; no amendment id (MS-R7) |
+| `scripts/runtime-contract-v1/amendments/{kern-5-runtime-envelope-max-iterations,kern-5-runtime-envelope-max-iterations-optional-v1}.json` | Add | The two additive records this slice ships (MS-R2, MS-R7) |
+| `scripts/runtime-contract-v1/validate-runtime-contract-v1-proof-floor.mjs` | Re-pin | The two artefact digests the optional-key amendment moved |
 | `scripts/runtime-contract-v1/constitution.json` | Modify | `limits` list gains `maxIterations` (MS-R3) |
 | `scripts/runtime-contract-v1/public-declaration-schema.json` | Modify | Frozen `.d.ts` text (MS-R3) |
 | `scripts/runtime-contract-v1/goldens.json` | Modify | Golden limits record + boundary case (MS-R3) |
@@ -619,10 +746,14 @@ Each row is one oracle leg. Every claim behind them is VERIFIED above; no ASSUME
 claim feeds a fixture.
 
 - [ ] **L1 contract.** `validateInternalRuntimeLimits` accepts a seven-key record including
-      `maxIterations` and refuses a six-key record without it; `executeKernRuntimeHandlerSync`
-      and `…Async` accept the seven-key record and throw `KernRuntimeHandlerError`
-      `invalid-limits` for the six-key record. Non-integer, zero and negative `maxIterations` are
-      refused as positive-safe-integer violations.
+      `maxIterations` and refuses a six-key record without it. `executeKernRuntimeHandlerSync`
+      and `…Async` accept both the seven-key record **and** a six-key v1 record, whose absent
+      `maxIterations` is exactly that request's `maxCollectionLength` — pinned differentially at
+      bounds 3, 10 and 25 (admits `n`, refuses `n - 1`) and against a seven-key request that
+      clears the same ceiling. A present `maxIterations` that is non-integer, zero, negative,
+      a string or beyond the safe range is refused as `invalid-limits` on both paths. The
+      exported limit-key declaration is frozen: `push` and index assignment throw, and the
+      extra-field admission that mutating it used to buy is refused (MS-R2).
 - [ ] **L2 decoupling.** At all six execution sites — envelope sync/async, compat sync/async,
       handler sync/async — over one program: `maxIterations: 2` flips a known-good run to the
       budget diagnostic (accepted-not-consumed trap); `{maxIterations: 5, maxCollectionLength: 10000}`
@@ -652,9 +783,12 @@ claim feeds a fixture.
       no fix.
 - [ ] **L7 RC-v1 amendment.** `scripts/runtime-contract-v1/amend.mjs` and an additive
       amendment record for this slice exist, the chain verifies with no pending re-pin, the
-      record's parents are the base digests and its results are both the live artefacts and
-      the live pin, `lineage.json` still holds one version, and the writer is not inside the
-      pinned artefact set.
+      genesis record's parents are the base digests, the **terminal** result is both the live
+      artefacts and the live pin, `lineage.json` still holds one version, and the writer is not
+      inside the pinned artefact set. The authority validator names no amendment id, composes
+      the whole chain as its authority, refuses a record whose `rowsChanged` disagrees with the
+      actual artefact delta, refuses a chain that does not anchor to the ratified artefacts,
+      and a third amendment composes on top of the settled chain in a scratch copy (MS-R7).
 - [ ] `pnpm test:kern-runtime-envelope`, `pnpm test:kern-runtime-contract-v1`,
       `pnpm test:kern-frontend-f5-projection` and `pnpm test:kern-frontend-closure` pass.
 - [ ] `scripts/kern-5-admission-census` is byte-identical: this slice admits nothing (MS-R1).
@@ -667,26 +801,33 @@ claim feeds a fixture.
 does not need — it moves no composition `.kern` and no pinned digest that the closure
 protocol governs. Builds `@kernlang/core` first, then runs the five legs in order.
 
-**47 tests: 34 RED, 13 GREEN at base `1a88c705`**, plus the four documenting L8 rows added in
-the review-fix pass, which are GREEN at base by construction (55 tests shipped in total).
+**63 tests shipped: 42 RED, 21 GREEN at base `1a88c705`.** The count grew twice after the
+design draft — the L8 scheduler rows and the mutation-survivor rows of the first review pass,
+then the MS-R2 / MS-R7 rows of the second — and this table, the prose and the gate table below
+are recounted from the shipped files, not from the draft.
 
 | Leg | File | Tests | RED | GREEN |
 |---|---|---|---|---|
-| L1 contract | `contract.test.mjs` | 10 | 6 | 4 |
+| L1 contract | `contract.test.mjs` | 17 | 10 | 7 |
 | L2 decoupling | `budget-decoupling.test.mjs` | 8 | 8 | 0 |
 | L3 byte identity | `byte-identity.test.mjs` | 4 | 3 | 1 |
 | L4 F5 policy | `f5-policy.test.mjs` | 8 | 6 | 2 |
-| L5 caller sweep | `caller-sweep.test.mjs` | 6 | 4 | 2 |
+| L5 caller sweep | `caller-sweep.test.mjs` | 7 | 4 | 3 |
 | L6 runner convergence | `runner-convergence.test.mjs` | 5 | 2 | 3 |
-| L7 RC-v1 amendment | `rc-v1-amendment.test.mjs` | 6 | 5 | 1 |
+| L7 RC-v1 amendment | `rc-v1-amendment.test.mjs` | 10 | 9 | 1 |
 | L8 scheduler deadline | `scheduler-deadline.test.mjs` | 4 | 0 | 4 |
 
-The 13 already-green tests each pin something that must **not** move: L1's unknown-key
-refusal and the KIR/envelope key-set disjointness; L3's golden integrity; L4's
+Sum: 17 + 8 + 4 + 8 + 7 + 5 + 10 + 4 = **63**; RED 10 + 8 + 3 + 6 + 4 + 2 + 9 + 0 = **42**;
+GREEN 7 + 0 + 1 + 2 + 3 + 3 + 1 + 4 = **21**.
+
+The 21 already-green tests each pin something that must **not** move: L1's unknown-key
+refusal, the KIR/envelope key-set disjointness, the legacy `maxCollectionLength` budget the
+v1 default now formalizes (green at base *because* that was the base behaviour, and the whole
+point of MS-R2), and the refusal of a wrong-typed value; L3's golden integrity; L4's
 `maxCollectionLength` stays `1048576` and the three pre-existing relationships; L5's sweep
-coverage and lineage self-consistency; L6's three source-runner properties, which are green
-because that runner is *already* decoupled and must stay so; L7's `versions.length === 1`
-sidecar invariant.
+coverage, KIR disjointness and lineage self-consistency; L6's three source-runner properties,
+which are green because that runner is *already* decoupled and must stay so; L7's
+`versions.length === 1` sidecar invariant; and L8's four documenting rows.
 
 ### RED-at-base strings, verbatim
 
@@ -713,9 +854,23 @@ L7 writer and record absent
   error: 'scripts/runtime-contract-v1/amendments/ must exist'
   error: ENOENT ... amendments/kern-5-runtime-envelope-max-iterations.json
   error: ERR_MODULE_NOT_FOUND ... scripts/runtime-contract-v1/amend.mjs
+L1 (MS-R2) six-key acceptance equals the seven-key envelope / declared override
+  error: 'runtime handler limits are invalid'   (the seven-key half is refused at base)
+L1 (MS-R2) the shared declaration cannot be widened at runtime
+  error: SyntaxError ... does not provide an export named 'INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS'
+L7 (MS-R7) the validator names no amendment / rows disagree / anchor / third amendment
+  error: ERR_MODULE_NOT_FOUND ... scripts/runtime-contract-v1/amend.mjs
+  error: evidence.amendments is undefined   (the base validator returns no chain evidence)
 ```
 
-Every RED is the absent key, or the absent amendment protocol, on the path that will carry it.
+Two rows are GREEN at base **because** MS-R2 formalizes the base behaviour: `an absent
+maxIterations is exactly that request maxCollectionLength` and the public-boundary
+positive-safe-integer refusal both hold at `1a88c705`, where `maxCollectionLength` *was* the
+budget and an unknown key was already refused as `invalid-limits`. That is the point — the
+default is the legacy behaviour, so its fixture cannot be RED.
+
+Every other RED is the absent key, or the absent amendment protocol, on the path that will
+carry it.
 None is an incidental failure or an unrelated assertion.
 
 ### Red-teaming the oracle
@@ -756,14 +911,16 @@ None is an incidental failure or an unrelated assertion.
 
 ## Implementation Evidence
 
-Re-measured on 2026-09-03 after the review-fix pass (shared limit-key declaration, the CLI
-asset repair, leg L8 and the historical reconstructions). Every suite below was run in this
-worktree at the review-fix HEAD.
+Re-measured on 2026-09-03 after the **second** review-fix pass (MS-R2's public v1 default,
+MS-R7's composed amendment chain, the frozen declarations and the atomic writer), which
+followed the first pass (shared limit-key declaration, the CLI asset repair, leg L8 and the
+historical reconstructions). Every suite below was run in this worktree at the second
+review-fix HEAD.
 
 | Gate | Tests | Pass | Fail | Skip |
 |---|---|---|---|---|
-| `pnpm test:kern-5-runtime-envelope-max-steps` | 55 | 55 | 0 | 0 |
-| `pnpm test:kern-runtime-contract-v1` | 88 | 88 | 0 | 0 |
+| `pnpm test:kern-5-runtime-envelope-max-steps` | 63 | 63 | 0 | 0 |
+| `pnpm test:kern-runtime-contract-v1` | 89 | 89 | 0 | 0 |
 | `pnpm --filter @kernlang/core test` | 6910 | 6910 | 0 | 0 |
 | `pnpm test:kern-canonicalizer` | 872 | 872 | 0 | 0 |
 | `pnpm test:kern-5-rt2-boolean-if` | 35 | 35 | 0 | 0 |
@@ -774,6 +931,9 @@ worktree at the review-fix HEAD.
 | `pnpm test:kern-checker` | 29 | 29 | 0 | 0 |
 | `node --test scripts/ci/test-tier-contract.test.mjs` | 9 | 9 | 0 | 0 |
 | `pnpm --filter @kernlang/cli build` | — | pass | — | — |
+| `pnpm lint` | 1449 files | pass | 0 | — |
+| `pnpm test:kern-5-fitness` | — | pass | — | — |
+| `node --test scripts/kern-5-r2-js-lowering/closure.test.mjs scripts/kern-5-r1-runtime-owner/*.test.mjs` | — | pass | — | — |
 
 `test:kern-formatter` and `test:kern-checker` were **red at the pre-review HEAD** (10/18 and
 14/29) and are green here; see the Corrections Log.
@@ -794,9 +954,10 @@ The four suites that the MS-R0 correction touched were re-run individually:
 
 ### Mutant battery (kill table)
 
-Twelve mutants, applied one at a time by byte-copy restore, each with a rebuild of
-`@kernlang/core` where the mutated file was TypeScript. Ten died on the first pass; two
-survived and were closed by new fixtures, after which both die.
+Twenty mutants, applied one at a time and restored from git, each with a rebuild of
+`@kernlang/core` where the mutated file was TypeScript. Of the first fourteen, twelve died
+immediately and two survived and were closed by new fixtures; the six added for the second
+review-fix pass (M15-M20) all died on the first pass, each on the row written for it.
 
 | # | Mutant | Verdict | Killed by |
 |---|---|---|---|
@@ -814,6 +975,12 @@ survived and were closed by new fixtures, after which both die.
 | M12 | A pure-KIR limits record keeps `maxIterations` | KILLED | new L5 `no KIR-shaped limits record learns the envelope iteration key` |
 | M13 | One key removed from the shared `INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS` declaration | KILLED | six L1 rows, including `one shared declaration per package carries the envelope limit key set` |
 | M14 | One key removed from the CLI `DECLARED` list | KILLED | `tsc -b packages/cli`: the exhaustiveness type collapses to `never` and all three importers fail |
+| M15 | The public boundary defaults an absent `maxIterations` to `maxBytes` | KILLED | L1 `an absent maxIterations is exactly that request maxCollectionLength` (all three bounds) and `a declared maxIterations overrides the legacy default` |
+| M16 | The boundary treats a non-number `maxIterations` as absent, so a string is defaulted instead of refused | KILLED | L1 `a present maxIterations must be a positive safe integer at the public boundary` |
+| M17 | The authority validator hard-codes one amendment file name again | KILLED | L7 `the authority validator names no amendment and authorizes the composed chain` and the rows-disagree row |
+| M18 | The authority validator skips the `rowsChanged`/delta assertion | KILLED | L7 `the authority validator refuses a record whose rows disagree with the artefact delta` |
+| M19 | The shared limit-key declaration is no longer frozen | KILLED | L1 `the shared limit-key declaration cannot be widened at runtime` and the per-package declaration row |
+| M20 | The writer rewrites `lineage.json` before proving the record is rewritable | KILLED | `a pending record the writer cannot rewrite leaves the lineage untouched` |
 
 M9 mattered: the MS-R0 fixtures asserted the invariant over the test file's own key
 literals, so the shipped KIR validator could be widened with the whole slice fence green.
@@ -845,6 +1012,18 @@ ones out of source and pins each.
   `unsupported-runtime-input` for this slice; the successor slice is named there.
 - **RECORDED as MS-R10:** the scheduler deadline is not polled during execution. Pre-existing,
   bounded out of process on the packaged F5 path, pinned by leg L8, fixed elsewhere.
+- **RESOLVED as MS-R2 (amended):** whether the public v1 surface may fail closed on a six-key
+  request is DECIDED — it may not. The boundary defaults, the ABI id stays `v1`, and the
+  optionality is published in the frozen declaration text rather than hidden behind a required
+  type.
+- **RESOLVED as MS-R7 (amended):** how a *second* amendment is authorized is DECIDED — the
+  chain composes, the authority is its terminal state, and `rowsChanged` is checked against the
+  real artefact delta. The per-edge delta is checked composed (introduction commit → live),
+  because intermediate artefact bytes are not recoverable from the records alone; a future
+  slice that wants per-edge delta receipts would have to carry the changed content in the
+  record, which this slice deliberately does not do.
+- **OPEN (successor):** `.Codex/specs/kern-5-f5-profile-budget/spec.md` owns the F5 profile
+  budget and supersedes the F5 scalars cited here.
 
 ## Deploy Order
 
@@ -892,5 +1071,10 @@ which is precisely why the required key is affordable now and would not be later
 | The repo-wide sweep left every CLI asset validator consistent with the widened policy. | `kern-formatter-assets.ts` and `kern-checker-assets.ts` gained the interface field but kept a six-key `exactKeys` list, and both compiled policy trust anchors still named the pre-amendment byte counts. `test:kern-formatter` was 10/18 red and `test:kern-checker` 14/29 red at HEAD — both inside `test:pr-frontend-tooling`. | Both validators now consume the shared declaration and both policy anchors are re-pinned to the bytes `build:packages` emits. Both suites are 29/29. |
 | The spec could cite evidence by absolute filesystem path. | Two absolute `/Users/...` paths pinned the document to one machine, and a third sat in the sibling CI-census-sweep spec. | All three are repo-relative or worktree-agnostic; the gitignored lane-2 measurement artifacts are described rather than located, with the numbers cited from `.Codex/specs/kern-5-f5-iteration-budget/spec.md`. |
 | What `maxIterations` counts, and whether the budget diagnostic should change, were open questions. | Both were decidable from the code that already exists. | MS-R8 states the quantity (loop frames only) and MS-R9 keeps `unsupported-runtime-input` for this slice with `runtime-envelope-budget-diagnostic` named as the successor. Neither remains in Open Questions. |
-| The required key's fail-closed break needed no written migration path. | It is intended, but the exact strings a legacy caller sees were nowhere in the document. | A migration note records both error identities verbatim and the one-line fix. The amendment record has no notes field and `amend.mjs` rewrites it by structural marker, so the note lives in the spec. |
+| The required key's fail-closed break needed no written migration path. | It is intended, but the exact strings a legacy caller sees were nowhere in the document. | A migration note was written; the second review pass then removed the break itself (next row), so that note now records an acceptance rather than a refusal. |
+| The required key's fail-closed break was a v1-safe decision, since `runtimeAbiFrozen` is false. | `runtimeAbiFrozen` governs the *internal* record's freedom to change shape. `KERN_RUNTIME_HANDLER_ABI` still read `kern.runtime.handler.v1` while exact-key validation refused every six-key request the exported API had accepted, which is a breaking change to a v1 surface however the internal record is labelled. | MS-R2 amended: the key is REQUIRED internally and OPTIONAL at the public boundary, where an absent value becomes that request's `maxCollectionLength` — the exact legacy budget. The public type carries `readonly maxIterations?: number` (a required type over a runtime that admits absence was rejected as a type-level lie), a second RC-v1 amendment record moves the frozen declaration text, and the ABI id stays `v1` because no wire break remains. |
+| One hard-coded amendment record was enough for the authority validator to trust the new digests. | `validate-runtime-contract-v1-authority.mjs` read that record's digests without validating its format, disposition or `rowsChanged`, without anchoring the chain to the ratified artefacts, and it recognized only the first parent→result edge, so this slice's own second amendment could not have been validated at all. `rowsChanged` was never compared with anything (needs-check 1.00). | MS-R7 amended: one shared pure module composes the chain for both the writer and the validator; the validator loads `amendments/*.json` generically with no id in the source, proves the declared anchor is the introduction commit's own bytes, authorizes transitions only between composed states, and requires the composed `rowsChanged` to explain the actual parent→child artefact delta exactly. L7 gains four rows, including a third amendment composing in a scratch copy. |
+| The writer's sequential rewrites were safe enough. | `--write` substituted four lineage digests before it checked the record's own marker, so a record it could not rewrite left the lineage half-updated (needs-check 0.99). | Every substitution is computed and proven unique in memory first; both files are then replaced by write-temp-and-rename, with a test that a non-rewritable record leaves the lineage byte-identical and no staging file behind. |
+| The exported limit-key declaration was readonly, so it was authority. | `Object.isFrozen` was false and appending a suitably sorted key made `validateInternalRuntimeLimits` accept that extra limit field (needs-check 1.00). | Both package declarations are `Object.freeze`d, with an L1 row asserting `push` and index assignment throw and that the extra-field admission is gone. |
+| The oracle's leg table matched the shipped suite. | The table summed to 51 against a prose claim of 55 and a gate table of 55; the shipped files carried 55, then 63 after this pass. | The leg table, the prose and the gate table are all recounted from the shipped files (63 = 42 RED + 21 GREEN) and the sums are written out so the next drift is visible. |
 | The autonomous builder would carry the slice to a green repository gate. | It builder-failed on turn 4 with the work nearly complete: four commits landed and 29 files were left uncommitted mid-replay of the 872-test canonicalizer gate, with the RT2/C-PY-1 MS-R0 regression unnoticed. | The dirty diff was audited rather than committed as found, which is what surfaced the tautological digest normalization and the KIR shape violation. |

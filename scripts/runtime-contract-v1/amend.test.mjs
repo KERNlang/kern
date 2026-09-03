@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const AMEND = resolve(ROOT, 'scripts/runtime-contract-v1/amend.mjs');
 const CONTRACT = 'scripts/runtime-contract-v1';
-const RECORD = `${CONTRACT}/amendments/kern-5-runtime-envelope-max-iterations.json`;
+const AMENDMENTS = `${CONTRACT}/amendments`;
+const DIGEST_KEYS = ['constitutionSha256', 'declarationSchemaSha256', 'goldensSha256', 'proofInventorySha256'];
 const roots = [];
 
 function scratch() {
@@ -32,7 +33,25 @@ function run(root, ...args) {
 const text = (root, path) => readFileSync(resolve(root, path), 'utf8');
 const json = (root, path) => JSON.parse(text(root, path));
 const write = (root, path, value) => writeFileSync(resolve(root, path), value);
-const putRecord = (root, value, path = RECORD) => write(root, path, `${JSON.stringify(value, null, 2)}\n`);
+const putRecord = (root, value, path) => write(root, path, `${JSON.stringify(value, null, 2)}\n`);
+const sameDigests = (left, right) => DIGEST_KEYS.every((key) => left?.[key] === right?.[key]);
+
+function recordPaths(root) {
+  return readdirSync(resolve(root, AMENDMENTS))
+    .filter((name) => name.endsWith('.json') && name !== 'chain-anchor.json')
+    .sort()
+    .map((name) => `${AMENDMENTS}/${name}`);
+}
+
+function genesisPath(root) {
+  const anchor = json(root, `${AMENDMENTS}/chain-anchor.json`);
+  return recordPaths(root).find((path) => sameDigests(json(root, path).parentDigests, anchor));
+}
+
+function terminalPath(root) {
+  const [version] = json(root, `${CONTRACT}/lineage.json`).versions;
+  return recordPaths(root).find((path) => sameDigests(json(root, path).resultDigests, version));
+}
 
 test('the settled amendment chain verifies and writing it is idempotent', () => {
   const root = scratch();
@@ -55,19 +74,24 @@ test('a consumed amendment cannot authorize later artifact drift', () => {
 
 test('a deleted or corrupted consumed amendment breaks the chain', () => {
   const deleted = scratch();
-  rmSync(resolve(deleted, RECORD));
+  rmSync(resolve(deleted, terminalPath(deleted)));
   assert.match(run(deleted).output, /does not reach the current pin/u);
 
+  const unanchored = scratch();
+  rmSync(resolve(unanchored, genesisPath(unanchored)));
+  assert.match(run(unanchored).output, /not genesis-anchored/u);
+
   const corrupted = scratch();
-  const value = json(corrupted, RECORD);
+  const path = terminalPath(corrupted);
+  const value = json(corrupted, path);
   value.resultDigests.constitutionSha256 = 'a'.repeat(64);
-  putRecord(corrupted, value);
+  putRecord(corrupted, value, path);
   assert.match(run(corrupted).output, /does not reach the current pin/u);
 });
 
 test('a successor edge is accepted only from the consumed result', () => {
   const root = scratch();
-  const value = json(root, RECORD);
+  const value = json(root, terminalPath(root));
   const successor = {
     ...value,
     slice: 'successor',
@@ -84,7 +108,7 @@ test('a successor edge is accepted only from the consumed result', () => {
 
 test('a pending amendment must name the current pin as its parent', () => {
   const root = scratch();
-  const value = json(root, RECORD);
+  const value = json(root, terminalPath(root));
   const successor = { ...value, slice: 'successor', parentDigests: value.resultDigests, rowsChanged: ['limits.future'] };
   delete successor.resultDigests;
   putRecord(root, successor, `${CONTRACT}/amendments/successor.json`);
@@ -99,6 +123,25 @@ test('a pending amendment must name the current pin as its parent', () => {
   assert.equal(text(root, lineagePath), before);
 });
 
+test('a pending record the writer cannot rewrite leaves the lineage untouched', () => {
+  const root = scratch();
+  const value = json(root, terminalPath(root));
+  putRecord(root, {
+    format: value.format,
+    slice: 'successor',
+    disposition: 'additive',
+    rowsChanged: ['limits.future'],
+    parentDigests: value.resultDigests,
+  }, `${CONTRACT}/amendments/successor.json`);
+  write(root, `${CONTRACT}/constitution.json`, `${text(root, `${CONTRACT}/constitution.json`)}\n`);
+  const before = text(root, `${CONTRACT}/lineage.json`);
+  const result = run(root, '--write');
+  assert.equal(result.ok, false);
+  assert.match(result.output, /is not uniquely rewritable/u);
+  assert.equal(text(root, `${CONTRACT}/lineage.json`), before);
+  assert.deepEqual(readdirSync(resolve(root, AMENDMENTS)).filter((name) => name.endsWith('.staged')), []);
+});
+
 test('forked, orphaned, and non-additive records are refused', () => {
   for (const [mutate, pattern] of [
     [(value) => { value.slice = 'fork'; }, /exactly one genesis/u],
@@ -106,7 +149,7 @@ test('forked, orphaned, and non-additive records are refused', () => {
     [(value) => { value.slice = 'replacement'; value.disposition = 'replacing'; }, /not an additive amendment/u],
   ]) {
     const root = scratch();
-    const value = json(root, RECORD);
+    const value = json(root, genesisPath(root));
     mutate(value);
     putRecord(root, value, `${CONTRACT}/amendments/extra.json`);
     assert.match(run(root).output, pattern);

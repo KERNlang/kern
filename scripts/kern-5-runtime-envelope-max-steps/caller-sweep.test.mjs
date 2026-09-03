@@ -57,11 +57,11 @@ test('L5: the runtime constitution records the widened public limits key set', (
   assert.equal(constitution.abi, 'kern.runtime.handler.v1');
 });
 
-test('L5: the frozen public declaration text carries maxIterations', () => {
+test('L5: the frozen public declaration text carries an optional maxIterations', () => {
   const schema = JSON.parse(text('scripts/runtime-contract-v1/public-declaration-schema.json'));
   const declaration = schema.declarations.find((entry) => entry.includes('interface KernRuntimeHandlerLimits'));
   assert.ok(declaration, 'KernRuntimeHandlerLimits declaration must be present');
-  assert.match(declaration, /readonly maxIterations: number;/u);
+  assert.match(declaration, /readonly maxIterations\?: number;/u);
 });
 
 test('L5: the runtime contract goldens and proof inventory both carry a maxIterations boundary', () => {

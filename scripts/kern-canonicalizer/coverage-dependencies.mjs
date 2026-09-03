@@ -170,6 +170,15 @@ const RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS = Object.freeze([
 ];`,
       },
       { current: '        maxIterations: limits.maxIterations,\n', historical: '' },
+      {
+        current: `        const requested = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
+        limits = Object.hasOwn(requested, 'maxIterations')
+            ? requested
+            : { ...requested, maxIterations: requested.maxCollectionLength };
+`,
+        historical: `        limits = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
+`,
+      },
     ],
   },
   {
@@ -177,7 +186,7 @@ const RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS = Object.freeze([
     path: 'runtime-envelope/types.js',
     replacements: [
       {
-        current: `export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = [
+        current: `export const INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS = Object.freeze([
     'maxBytes',
     'maxCollectionLength',
     'maxDepth',
@@ -185,7 +194,7 @@ const RUNTIME_ENVELOPE_MAX_ITERATIONS_RECONSTRUCTIONS = Object.freeze([
     'maxEvents',
     'maxIterations',
     'maxStringBytes',
-];
+]);
 `,
         historical: '',
       },
