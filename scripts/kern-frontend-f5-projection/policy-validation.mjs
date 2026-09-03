@@ -39,7 +39,7 @@ const CANONICAL_KEYS = [
   'maxIntegerDigits', 'maxMapEntries', 'maxNodes', 'maxRecordFields', 'maxStringBytes',
 ];
 const RUNTIME_KEYS = [
-  'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes',
+  'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes',
 ];
 
 function fail(detail) {
@@ -85,6 +85,7 @@ export function validatePolicy(policy) {
   if (!Number.isSafeInteger(policy.scheduler.timeoutMs) || policy.scheduler.timeoutMs < 1) fail('scheduler timeout');
   if (policy.profileLimits.maxDepth > policy.runtimeLimits.maxDepth ||
       policy.profileLimits.maxInstructionScalars > policy.runtimeLimits.maxStringBytes ||
+      policy.profileLimits.maxWorkSteps > policy.runtimeLimits.maxIterations ||
       policy.canonicalLimits.maxDepth > policy.profileLimits.maxDepth) fail('limit relationship');
   return Object.freeze(policy);
 }

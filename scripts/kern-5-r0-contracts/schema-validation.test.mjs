@@ -32,7 +32,7 @@ test('closed R0 runtime schemas reject added fields and wrong primitive types', 
   const request = {
     arguments: { text: 'input', textList: ['a'] }, artifactManifestSha256: 'a'.repeat(64), capabilityTranscript: [],
     control: { cancelAtTick: null, preCancelled: false, timeoutTicks: null }, entry: { handlerName: 'compose', moduleId: 'r0/compose.kern' },
-    format: 'kern.runtime.kir.r0', kirSha256: 'b'.repeat(64), limits: { maxBytes: 1, maxCollectionLength: 1, maxDepth: 1, maxDiagnostics: 1, maxEvents: 1, maxStringBytes: 1 }, requestId: 'request',
+    format: 'kern.runtime.kir.r0', kirSha256: 'b'.repeat(64), limits: { maxBytes: 1, maxCollectionLength: 1, maxDepth: 1, maxDiagnostics: 1, maxEvents: 1, maxIterations: 1, maxStringBytes: 1 }, requestId: 'request',
   };
   assert.deepEqual(validateClosedSchema(SCHEMA('runtime-request'), request), []);
   assert.notDeepEqual(validateClosedSchema(SCHEMA('runtime-request'), { ...request, extra: null }), []);

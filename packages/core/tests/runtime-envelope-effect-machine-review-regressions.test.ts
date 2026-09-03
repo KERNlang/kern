@@ -16,10 +16,11 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
-const machineOptions = { iterationBudget: limits.maxCollectionLength } as const;
+const machineOptions = { iterationBudget: limits.maxIterations } as const;
 
 function restoreRegistry(): void {
   CONTRACT_REGISTRY.clear();

@@ -32,6 +32,7 @@ const runtimeLimits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, kirLimits, limits: runtimeLimits } as const;

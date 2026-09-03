@@ -141,7 +141,7 @@ export function measureCanonicalizerRuntimeBottleneckM4103(iterationBudget) {
   }
   const composition = verifyCanonicalizerComposition();
   const { bytes, policy, tables } = exactWitness();
-  const limits = { ...policy.runtimeLimits, maxCollectionLength: iterationBudget };
+  const limits = { ...policy.runtimeLimits, maxIterations: iterationBudget };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,
     { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },

@@ -149,7 +149,7 @@ export function measureCanonicalizerKirDepthHeadroomWitnessM4111(
   const composition = verifyCanonicalizerComposition();
   const limits = {
     ...input.policy.runtimeLimits,
-    maxCollectionLength: iterationBudget,
+    maxIterations: iterationBudget,
   };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,

@@ -26,6 +26,7 @@ const limits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 16,
+  maxIterations: 128,
   maxStringBytes: 8192,
 };
 

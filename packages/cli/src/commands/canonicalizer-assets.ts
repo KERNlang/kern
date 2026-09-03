@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 
 import type { KernRuntimeHandlerLimits } from '@kernlang/core/runtime/handler';
 
+import { KERN_RUNTIME_HANDLER_LIMIT_KEYS } from '../kern-runtime-limit-keys.js';
+
 interface CanonicalValueLimits {
   readonly maxBytes: number;
   readonly maxCollectionLength: number;
@@ -52,7 +54,7 @@ const POLICY_KEYS = {
     'maxStringBytes',
   ],
   profileLimits: ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'],
-  runtimeLimits: ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+  runtimeLimits: KERN_RUNTIME_HANDLER_LIMIT_KEYS,
 } as const;
 
 function fail(message: string): never {
@@ -122,6 +124,7 @@ function parsePolicy(bytes: Buffer): CanonicalizerPolicy {
       maxDepth: runtimeLimits.maxDepth,
       maxDiagnostics: runtimeLimits.maxDiagnostics,
       maxEvents: runtimeLimits.maxEvents,
+      maxIterations: runtimeLimits.maxIterations,
       maxStringBytes: runtimeLimits.maxStringBytes,
     },
   };

@@ -48,6 +48,7 @@ const EXACT_RUNTIME_POLICY = {
   maxDepth: 64,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 65_536,
   maxStringBytes: ACTIVE_RUNTIME_BYTE_LIMITS.maxStringBytes,
 };
 const PARAMETER_MIGRATION = {

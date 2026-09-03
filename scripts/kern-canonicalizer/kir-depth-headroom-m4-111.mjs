@@ -7,7 +7,10 @@ import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
-import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  reconstructHistoricalSource,
+  reconstructRuntimeEnvelopeMaxIterationsSource,
+} from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadPublishedCanonicalizerProjectionAnalysisM4110 } from './projection-analysis-m4-110.mjs';
 
@@ -342,7 +345,11 @@ function exactInputs() {
     replacements: MEASUREMENT_REPLACEMENTS,
   });
   for (const [name, url] of Object.entries(INPUT_URLS)) {
-    if (digest(readFileSync(url)) !== INPUT_IDENTITIES[name]) {
+    let source = readFileSync(url);
+    if (name === 'runtimeHandlerSha256') {
+      source = reconstructRuntimeEnvelopeMaxIterationsSource(source);
+    }
+    if (digest(source) !== INPUT_IDENTITIES[name]) {
       fail(`${name} source identity must remain exact`);
     }
   }

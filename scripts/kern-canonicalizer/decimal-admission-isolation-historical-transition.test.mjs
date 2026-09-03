@@ -12,7 +12,11 @@ import {
   validateDecimalAdmissionIsolationHistoricalTransition,
 } from './decimal-admission-isolation-historical-transition.mjs';
 import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
-import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
+import {
+  historicalTransitionStage,
+  reconstructHistoricalTransitionChain,
+  reconstructRuntimeEnvelopeMaxIterationsTransition,
+} from './historical-transition-chain.mjs';
 import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
 const ROOT = resolve(process.cwd());
@@ -87,10 +91,10 @@ test('decimal-admission pinned source endpoints reconstruct exact Git blobs', ()
 
 test('decimal-admission compiled endpoints reconstruct the authenticated predecessor build', () => {
   for (const row of POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS) {
-    const successor = atScalarHelperHistoryCompiledPredecessor(
+    const successor = reconstructRuntimeEnvelopeMaxIterationsTransition(atScalarHelperHistoryCompiledPredecessor(
       row.path,
       readFileSync(resolve(DIST, row.path)),
-    );
+    ));
     assert.equal(digest(successor), row.currentDigest, row.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,

@@ -11,7 +11,7 @@ const POLICY_KEYS = {
   ],
   profileLimits: ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'],
   runtimeLimits: [
-    'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents',
+    'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations',
     'maxStringBytes',
   ],
 };
