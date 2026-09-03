@@ -1,0 +1,531 @@
+{
+  "positions": {
+    "bool-argument-control": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-accumulator": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-accumulator-twice": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-arith-argument": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-arith-on-result": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-assign-value": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-async-let": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-async-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-big-argument": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-big-through-helper": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-both": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-helper-chain": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-let-passthrough": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-mixed-signature": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-negative-argument": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-nested-call": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-param-only": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-param-passthrough": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-print-tag": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-result-as-operand": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-return-tag-mismatch": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-two-args": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-unary-on-result": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-uncalled-helper": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "int-under-comparison": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "number-spelling": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-async-int-argument": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-async-int-operand": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-bool-call-into-int-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-bool-into-int-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-decimal-into-int-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-arity": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-call-if-cond": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-into-bool-assign": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-into-bool-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-into-text-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-list-literal-argument": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-list-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-int-list-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-text-call-operand": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "refuse-text-into-int-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "text-argument-control": {
+      "diagnostics": [],
+      "status": "projected"
+    }
+  },
+  "shapes": {
+    "int-accumulator": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "n",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "assign",
+        "properties": {
+          "target": {
+            "kind": "identifier",
+            "name": "n"
+          },
+          "value": {
+            "kind": "binary",
+            "left": {
+              "kind": "identifier",
+              "name": "n"
+            },
+            "op": "+",
+            "right": {
+              "kind": "call",
+              "args": [
+                {
+                  "kind": "integer",
+                  "value": "7"
+                }
+              ],
+              "callee": {
+                "kind": "identifier",
+                "name": "idp"
+              },
+              "optional": false
+            }
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "n"
+          }
+        }
+      }
+    ],
+    "int-arith-argument": [
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "call",
+            "args": [
+              {
+                "kind": "binary",
+                "left": {
+                  "kind": "integer",
+                  "value": "1"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "2"
+                }
+              }
+            ],
+            "callee": {
+              "kind": "identifier",
+              "name": "idp"
+            },
+            "optional": false
+          }
+        }
+      }
+    ],
+    "int-arith-on-result": [
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "binary",
+            "left": {
+              "kind": "call",
+              "args": [
+                {
+                  "kind": "integer",
+                  "value": "7"
+                }
+              ],
+              "callee": {
+                "kind": "identifier",
+                "name": "idp"
+              },
+              "optional": false
+            },
+            "op": "+",
+            "right": {
+              "kind": "integer",
+              "value": "1"
+            }
+          }
+        }
+      }
+    ],
+    "int-assign-value": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "n",
+          "value": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      },
+      {
+        "kind": "assign",
+        "properties": {
+          "target": {
+            "kind": "identifier",
+            "name": "n"
+          },
+          "value": {
+            "kind": "call",
+            "args": [],
+            "callee": {
+              "kind": "identifier",
+              "name": "hi"
+            },
+            "optional": false
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "n"
+          }
+        }
+      }
+    ],
+    "int-nested-call": [
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "call",
+            "args": [
+              {
+                "kind": "call",
+                "args": [
+                  {
+                    "kind": "integer",
+                    "value": "7"
+                  }
+                ],
+                "callee": {
+                  "kind": "identifier",
+                  "name": "idp"
+                },
+                "optional": false
+              }
+            ],
+            "callee": {
+              "kind": "identifier",
+              "name": "idp"
+            },
+            "optional": false
+          }
+        }
+      }
+    ],
+    "int-result-as-operand": [
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "binary",
+            "left": {
+              "kind": "integer",
+              "value": "1"
+            },
+            "op": "+",
+            "right": {
+              "kind": "call",
+              "args": [
+                {
+                  "kind": "integer",
+                  "value": "7"
+                }
+              ],
+              "callee": {
+                "kind": "identifier",
+                "name": "idp"
+              },
+              "optional": false
+            }
+          }
+        }
+      }
+    ],
+    "int-unary-on-result": [
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "unary",
+            "argument": {
+              "kind": "call",
+              "args": [
+                {
+                  "kind": "integer",
+                  "value": "7"
+                }
+              ],
+              "callee": {
+                "kind": "identifier",
+                "name": "idp"
+              },
+              "optional": false
+            },
+            "op": "-"
+          }
+        }
+      }
+    ]
+  },
+  "signatures": {
+    "int-both": [
+      {
+        "name": "idp",
+        "parameters": [
+          {
+            "name": "a",
+            "type": {
+              "kind": "integer"
+            }
+          }
+        ],
+        "returns": {
+          "kind": "integer"
+        }
+      },
+      {
+        "name": "route",
+        "parameters": [],
+        "returns": {
+          "kind": "integer"
+        }
+      }
+    ],
+    "int-mixed-signature": [
+      {
+        "name": "pick",
+        "parameters": [
+          {
+            "name": "a",
+            "type": {
+              "kind": "integer"
+            }
+          },
+          {
+            "name": "flag",
+            "type": {
+              "kind": "boolean"
+            }
+          }
+        ],
+        "returns": {
+          "kind": "integer"
+        }
+      },
+      {
+        "name": "route",
+        "parameters": [],
+        "returns": {
+          "kind": "integer"
+        }
+      }
+    ],
+    "number-spelling": [
+      {
+        "name": "idp",
+        "parameters": [
+          {
+            "name": "a",
+            "type": {
+              "kind": "integer"
+            }
+          }
+        ],
+        "returns": {
+          "kind": "integer"
+        }
+      },
+      {
+        "name": "route",
+        "parameters": [],
+        "returns": {
+          "kind": "integer"
+        }
+      }
+    ],
+    "refuse-int-list-param": [
+      {
+        "name": "suml",
+        "parameters": [
+          {
+            "name": "xs",
+            "type": {
+              "element": "integer",
+              "kind": "list"
+            }
+          }
+        ],
+        "returns": {
+          "kind": "boolean"
+        }
+      },
+      {
+        "name": "route",
+        "parameters": [],
+        "returns": {
+          "kind": "boolean"
+        }
+      }
+    ],
+    "refuse-int-list-return": [
+      {
+        "name": "mkl",
+        "parameters": [],
+        "returns": {
+          "element": "integer",
+          "kind": "list"
+        }
+      },
+      {
+        "name": "route",
+        "parameters": [],
+        "returns": {
+          "element": "integer",
+          "kind": "list"
+        }
+      }
+    ]
+  }
+}

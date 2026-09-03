@@ -61,6 +61,7 @@ const kern5EvidenceCommands = [
   'pnpm test:kern-5-rt8-integer-signatures',
   'pnpm test:kern-5-rt9-linked-assign',
   'pnpm test:kern-5-rt10-pre-linked-arithmetic',
+  'pnpm test:kern-5-rt10-cross-call-integer',
 ];
 
 const shardedFrontendJobs = new Map([

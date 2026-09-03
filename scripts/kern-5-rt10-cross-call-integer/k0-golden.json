@@ -1,0 +1,88 @@
+{
+  "admission": {
+    "bool-argument-control": "admitted",
+    "int-accumulator": "admitted",
+    "int-accumulator-twice": "admitted",
+    "int-arith-argument": "admitted",
+    "int-arith-on-result": "admitted",
+    "int-assign-value": "admitted",
+    "int-async-let": "admitted",
+    "int-async-return": "admitted",
+    "int-big-argument": "admitted",
+    "int-big-through-helper": "admitted",
+    "int-both": "admitted",
+    "int-helper-chain": "admitted",
+    "int-let-passthrough": "admitted",
+    "int-mixed-signature": "admitted",
+    "int-negative-argument": "admitted",
+    "int-nested-call": "admitted",
+    "int-param-only": "admitted",
+    "int-param-passthrough": "admitted",
+    "int-print-tag": "admitted",
+    "int-result-as-operand": "admitted",
+    "int-return": "admitted",
+    "int-return-tag-mismatch": "admitted",
+    "int-two-args": "admitted",
+    "int-unary-on-result": "admitted",
+    "int-uncalled-helper": "admitted",
+    "int-under-comparison": "admitted",
+    "number-spelling": "admitted",
+    "refuse-async-int-argument": "handler-entry-unsupported",
+    "refuse-async-int-operand": "handler-entry-unsupported",
+    "refuse-bool-call-into-int-param": "handler-entry-unsupported",
+    "refuse-bool-into-int-param": "handler-entry-unsupported",
+    "refuse-decimal-into-int-param": "handler-entry-unsupported",
+    "refuse-int-arity": "handler-entry-unsupported",
+    "refuse-int-call-if-cond": "handler-entry-unsupported",
+    "refuse-int-into-bool-assign": "handler-entry-unsupported",
+    "refuse-int-into-bool-param": "handler-entry-unsupported",
+    "refuse-int-into-text-param": "handler-entry-unsupported",
+    "refuse-int-list-literal-argument": "handler-entry-unsupported",
+    "refuse-int-list-param": "handler-entry-unsupported",
+    "refuse-int-list-return": "handler-entry-unsupported",
+    "refuse-text-call-operand": "handler-entry-unsupported",
+    "refuse-text-into-int-param": "handler-entry-unsupported",
+    "text-argument-control": "admitted"
+  },
+  "behaviorTableSha256": "34b9b386f1b15e3ab2438d76be5daca5058b9f290dec5c6c6ac701b1feb8cdd1",
+  "crossCallTypeContracts": {
+    "boolean": {
+      "element": null,
+      "kind": "boolean"
+    },
+    "integer": {
+      "element": null,
+      "kind": "integer"
+    },
+    "list<boolean>": {
+      "element": "boolean",
+      "kind": "list"
+    },
+    "list<text>": {
+      "element": "text",
+      "kind": "list"
+    },
+    "text": {
+      "element": null,
+      "kind": "text"
+    }
+  },
+  "crossCallTypeNames": [
+    "boolean",
+    "integer",
+    "list<boolean>",
+    "list<text>",
+    "text"
+  ],
+  "linkedExpressionKinds": [
+    "binary",
+    "identifier",
+    "json-call",
+    "list",
+    "literal",
+    "member",
+    "record",
+    "unary",
+    "user-call"
+  ]
+}
