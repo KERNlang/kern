@@ -262,6 +262,25 @@ export const POSITIONS = Object.freeze({
       'return value="acc"',
     ]),
   'for-in-helper-body': () => program(['return value="sumto(4)"'], { helpers: [LOOP_HELPER] }),
+  'for-in-if-else': () =>
+    program([
+      'let name=acc value="0"',
+      'if cond="false"',
+      '  for name=i from="0" to="3"',
+      '    assign target="acc" value="acc + i"',
+      'else',
+      '  for name=i from="0" to="5"',
+      '    assign target="acc" value="acc + i"',
+      'return value="acc"',
+    ]),
+  'for-in-if-then': () =>
+    program([
+      'let name=acc value="0"',
+      'if cond="true"',
+      '  for name=i from="0" to="3"',
+      '    assign target="acc" value="acc + i"',
+      'return value="acc"',
+    ]),
   'for-let-in-body': () =>
     program([
       'let name=acc value="0"',

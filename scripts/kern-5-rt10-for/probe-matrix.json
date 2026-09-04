@@ -58,6 +58,14 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "for-in-if-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-in-if-then": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "for-let-in-body": {
       "diagnostics": [],
       "status": "projected"

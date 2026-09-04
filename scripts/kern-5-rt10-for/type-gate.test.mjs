@@ -139,6 +139,11 @@ test('a let and an if inside a loop body both link', async () => {
   await assertAdmitted('for-early-return');
 });
 
+test('a for nested in an if links on both branches', async () => {
+  await assertAdmitted('for-in-if-then');
+  await assertAdmitted('for-in-if-else');
+});
+
 // RT-5's position gate is unchanged by nesting: a direct call as the whole statement value is
 // admitted inside a loop body exactly as it is outside one, while the same call embedded in a
 // binary expression is still refused, because `assertAsyncCallPosition` never special-cases `for`.

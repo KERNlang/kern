@@ -143,6 +143,18 @@
       "name": "for-step-nonzero-computed",
       "program": "for i from 0 to 3 step 0 + 1 { acc = acc + 1 }",
       "trips": 3
+    },
+    {
+      "expected": "3",
+      "name": "for-in-if-then",
+      "program": "if true { for i from 0 to 3 { acc = acc + i } }",
+      "trips": 3
+    },
+    {
+      "expected": "10",
+      "name": "for-in-if-else",
+      "program": "if false { for i from 0 to 3 { acc = acc + i } } else { for i from 0 to 5 { acc = acc + i } }",
+      "trips": 5
     }
   ]
 }
