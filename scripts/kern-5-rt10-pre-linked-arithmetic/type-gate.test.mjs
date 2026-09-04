@@ -44,9 +44,6 @@ const REFUSALS = Object.freeze([
   ['refuse-unary-over-async-call', 'KIR_UNARY_OPERAND_TYPE'],
   ['refuse-arith-if-cond', 'KIR_IF_COND_NOT_BOOLEAN'],
   ['refuse-arith-call-argument', 'KIR_CALL_ARGUMENT_TYPE'],
-  ['refuse-integer-helper-call', 'KIR_CALL_SIGNATURE_TYPE'],
-  ['refuse-integer-helper-operand', 'KIR_CALL_SIGNATURE_TYPE'],
-  ['refuse-integer-param-helper-call', 'KIR_CALL_SIGNATURE_TYPE'],
 ]);
 
 const ADMITTED = Object.freeze([
@@ -70,6 +67,9 @@ const ADMITTED = Object.freeze([
   'param-add-under-comparison-in-if',
   'param-neg',
   'param-ordering',
+  'refuse-integer-helper-call',
+  'refuse-integer-helper-operand',
+  'refuse-integer-param-helper-call',
   'sub-in-return',
 ]);
 

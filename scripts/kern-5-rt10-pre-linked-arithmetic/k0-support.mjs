@@ -65,9 +65,8 @@ export const SYNC_BOOL_PARAM_HELPER = Object.freeze({
   returns: 'boolean',
 });
 
-// An integer-returning helper is not callable at all on this base: `linkedKirCrossCallType`
-// has no integer row, so `expression.ts:148` refuses the call with KIR_CALL_SIGNATURE_TYPE.
-// The two helpers below are the deferred-cross-call fences, not admitted fixtures.
+// The two helpers below were the deferred-cross-call fences on this base; RT-10-X added the
+// integer cross-call row, so their positions are admitted and that slice owns them.
 export const SYNC_INT_HELPER = Object.freeze({
   body: Object.freeze(['return value="7"']),
   name: 'hi',
@@ -82,8 +81,8 @@ export const INT_PARAM_HELPER = Object.freeze({
   returns: 'integer',
 });
 
-// The helper-body position returns a boolean, because an integer-returning helper cannot be
-// called: the arithmetic lives inside the helper and leaves it through a comparison.
+// The helper-body position returns a boolean: the arithmetic lives inside the helper and leaves
+// it through a comparison.
 export const ASYNC_BOOL_HELPER = Object.freeze({
   body: Object.freeze([CAPABILITY_REPLY, 'return value="true"']),
   name: 'ah',

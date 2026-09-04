@@ -3,6 +3,7 @@ import { KernKirFault, type KernKirValue } from '../contracts.js';
 import { canonicalRecord, denseArray, exact, plainRecord, type RuntimeMeter } from '../inspect.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  LINKED_KIR_CROSS_CALL_TYPES,
   LINKED_KIR_UNARY_OPERATORS,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirExpression,
@@ -67,6 +68,13 @@ function literal(value: KernKirValue): LinkedKernKirExpression {
   return Object.freeze({ kind: 'literal', value });
 }
 
+function literalCrossCallType(value: KernKirValue): 'boolean' | 'integer' | 'text' | undefined {
+  if (value.tag === 'boolean') return 'boolean';
+  if (value.tag === 'integer' && CANONICAL_INTEGER.test(value.value)) return 'integer';
+  if (value.tag === 'text') return 'text';
+  return undefined;
+}
+
 export function staticExpressionType(
   expression: LinkedKernKirExpression,
   scope: LinkedKernKirTypeScope,
@@ -75,37 +83,35 @@ export function staticExpressionType(
   if (expression.kind === 'unary') return LINKED_KIR_UNARY_OPERATORS[expression.op].resultType;
   if (expression.kind === 'identifier') return scope.types.get(expression.name);
   if (expression.kind === 'user-call') {
-    return scope.calls?.linked.get(expression.handlerName)?.returnType.kind === 'boolean' ? 'boolean' : undefined;
+    const kind = scope.calls?.linked.get(expression.handlerName)?.returnType.kind;
+    return kind === 'boolean' || kind === 'integer' ? kind : undefined;
   }
   if (expression.kind !== 'literal') return undefined;
-  if (expression.value.tag === 'boolean') return 'boolean';
-  if (expression.value.tag === 'integer' && CANONICAL_INTEGER.test(expression.value.value)) return 'integer';
-  return undefined;
+  const literalType = literalCrossCallType(expression.value);
+  return literalType === 'text' ? undefined : literalType;
 }
 
 export function crossCallExpressionType(
   expression: LinkedKernKirExpression,
   scope: LinkedKernKirTypeScope,
 ): LinkedKernKirCrossCallType | undefined {
-  if (expression.kind === 'binary') {
-    return LINKED_KIR_BINARY_OPERATORS[expression.op].resultType === 'boolean' ? 'boolean' : undefined;
-  }
-  if (expression.kind === 'unary') return undefined;
+  if (expression.kind === 'binary') return LINKED_KIR_BINARY_OPERATORS[expression.op].resultType;
+  if (expression.kind === 'unary') return LINKED_KIR_UNARY_OPERATORS[expression.op].resultType;
   if (expression.kind === 'identifier') return scope.crossCallTypes.get(expression.name);
   if (expression.kind === 'user-call') {
     const callee = scope.calls?.linked.get(expression.handlerName);
-    return callee === undefined ? undefined : linkedKirCrossCallType(callee.returnType);
+    if (callee === undefined) return undefined;
+    return linkedKirCrossCallType(callee.returnType);
   }
   if (expression.kind === 'list') {
     const element = expression.items.length === 0 ? undefined : crossCallExpressionType(expression.items[0], scope);
-    if (element !== 'boolean' && element !== 'text') return undefined;
+    const contract = element === undefined ? undefined : LINKED_KIR_CROSS_CALL_TYPES[element];
+    if (contract === undefined || contract.kind === 'list') return undefined;
     if (!expression.items.every((item) => crossCallExpressionType(item, scope) === element)) return undefined;
-    return linkedKirCrossCallType({ kind: 'list', element });
+    return linkedKirCrossCallType({ element: contract.kind, kind: 'list' });
   }
   if (expression.kind !== 'literal') return undefined;
-  if (expression.value.tag === 'boolean') return 'boolean';
-  if (expression.value.tag === 'text') return 'text';
-  return undefined;
+  return literalCrossCallType(expression.value);
 }
 
 // Exhaustive on purpose: a `default` that answered false would let a future expression variant carry

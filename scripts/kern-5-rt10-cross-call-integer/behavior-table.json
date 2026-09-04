@@ -1,0 +1,130 @@
+{
+  "rows": [
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-return",
+      "program": "fn hi returns=integer / return hi()"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-both",
+      "program": "fn idp param a integer returns=integer / return idp(7)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "9",
+      "name": "int-two-args",
+      "program": "fn sum param a,b integer returns=integer / return sum(4, 5)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "8",
+      "name": "int-arith-on-result",
+      "program": "return idp(7) + 1"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "8",
+      "name": "int-result-as-operand",
+      "program": "return 1 + idp(7)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "3",
+      "name": "int-arith-argument",
+      "program": "return idp(1 + 2)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "-7",
+      "name": "int-unary-on-result",
+      "program": "return -idp(7)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-nested-call",
+      "program": "return idp(idp(7))"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "5",
+      "name": "int-let-passthrough",
+      "program": "let x = 5 / return idp(x)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "9007199254740993",
+      "name": "int-param-passthrough",
+      "program": "param a integer / return idp(a), argument 9007199254740993"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "9007199254740994",
+      "name": "int-big-through-helper",
+      "program": "fn add1 param a integer returns=integer / return add1(9007199254740993)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "9223372036854775807",
+      "name": "int-big-argument",
+      "program": "return idp(9223372036854775807)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "-9007199254740993",
+      "name": "int-negative-argument",
+      "program": "return idp(-9007199254740993)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-assign-value",
+      "program": "let n = 1 / assign n = hi() / return n"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-accumulator",
+      "program": "let n = 0 / assign n = n + idp(7) / return n"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "14",
+      "name": "int-accumulator-twice",
+      "program": "let n = 0 / assign n = n + idp(7) twice / return n"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "8",
+      "name": "int-helper-chain",
+      "program": "fn outer calls inner(a + 1) / return outer(7)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "int-mixed-signature",
+      "program": "fn pick param a integer, flag boolean returns=integer / return pick(7, true)"
+    },
+    {
+      "capabilityEvents": 0,
+      "expected": "7",
+      "name": "number-spelling",
+      "program": "the number-spelled twin of int-both"
+    },
+    {
+      "capabilityEvents": 1,
+      "expected": "7",
+      "name": "int-async-let",
+      "program": "fn afi capability returns=integer / let n = afi() / return n"
+    },
+    {
+      "capabilityEvents": 1,
+      "expected": "7",
+      "name": "int-async-return",
+      "program": "fn afi capability returns=integer / return afi()"
+    }
+  ]
+}

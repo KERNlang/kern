@@ -15,83 +15,83 @@ export interface LinkedKernKirBinaryOperatorContract {
 }
 
 export const LINKED_KIR_BINARY_OPERATORS = Object.freeze({
-  '&&': {
+  '&&': Object.freeze({
     family: 'logical',
     javascriptHelper: '__and',
     operandType: 'boolean',
     pythonHelper: '_and',
     resultType: 'boolean',
-  },
-  '||': {
+  }),
+  '||': Object.freeze({
     family: 'logical',
     javascriptHelper: '__or',
     operandType: 'boolean',
     pythonHelper: '_or',
     resultType: 'boolean',
-  },
-  '==': {
+  }),
+  '==': Object.freeze({
     family: 'equality',
     javascriptHelper: '__eq',
     operandType: 'either',
     pythonHelper: '_eq',
     resultType: 'boolean',
-  },
-  '!=': {
+  }),
+  '!=': Object.freeze({
     family: 'equality',
     javascriptHelper: '__ne',
     operandType: 'either',
     pythonHelper: '_ne',
     resultType: 'boolean',
-  },
-  '<': {
+  }),
+  '<': Object.freeze({
     family: 'ordering',
     javascriptHelper: '__lt',
     operandType: 'integer',
     pythonHelper: '_lt',
     resultType: 'boolean',
-  },
-  '<=': {
+  }),
+  '<=': Object.freeze({
     family: 'ordering',
     javascriptHelper: '__le',
     operandType: 'integer',
     pythonHelper: '_le',
     resultType: 'boolean',
-  },
-  '>': {
+  }),
+  '>': Object.freeze({
     family: 'ordering',
     javascriptHelper: '__gt',
     operandType: 'integer',
     pythonHelper: '_gt',
     resultType: 'boolean',
-  },
-  '>=': {
+  }),
+  '>=': Object.freeze({
     family: 'ordering',
     javascriptHelper: '__ge',
     operandType: 'integer',
     pythonHelper: '_ge',
     resultType: 'boolean',
-  },
-  '+': {
+  }),
+  '+': Object.freeze({
     family: 'arithmetic',
     javascriptHelper: '__add',
     operandType: 'integer',
     pythonHelper: '_add',
     resultType: 'integer',
-  },
-  '-': {
+  }),
+  '-': Object.freeze({
     family: 'arithmetic',
     javascriptHelper: '__sub',
     operandType: 'integer',
     pythonHelper: '_sub',
     resultType: 'integer',
-  },
-  '*': {
+  }),
+  '*': Object.freeze({
     family: 'arithmetic',
     javascriptHelper: '__mul',
     operandType: 'integer',
     pythonHelper: '_mul',
     resultType: 'integer',
-  },
+  }),
 }) satisfies Record<LinkedKernKirBinaryOperator, LinkedKernKirBinaryOperatorContract>;
 
 export function linkedKirBinaryOperator(op: string): LinkedKernKirBinaryOperator | undefined {
@@ -108,30 +108,35 @@ export interface LinkedKernKirUnaryOperatorContract {
 }
 
 export const LINKED_KIR_UNARY_OPERATORS = Object.freeze({
-  '-': { javascriptHelper: '__neg', operandType: 'integer', pythonHelper: '_neg', resultType: 'integer' },
+  '-': Object.freeze({
+    javascriptHelper: '__neg',
+    operandType: 'integer',
+    pythonHelper: '_neg',
+    resultType: 'integer',
+  }),
 }) satisfies Record<LinkedKernKirUnaryOperator, LinkedKernKirUnaryOperatorContract>;
 
 export function linkedKirUnaryOperator(op: string): LinkedKernKirUnaryOperator | undefined {
   return Object.hasOwn(LINKED_KIR_UNARY_OPERATORS, op) ? (op as LinkedKernKirUnaryOperator) : undefined;
 }
 
-export type LinkedKernKirCrossCallType = 'boolean' | 'list<boolean>' | 'list<text>' | 'text';
+export type LinkedKernKirCrossCallType = 'boolean' | 'integer' | 'list<boolean>' | 'list<text>' | 'text';
 
 export interface LinkedKernKirCrossCallTypeContract {
   readonly element: 'boolean' | 'text' | undefined;
-  readonly kind: 'boolean' | 'list' | 'text';
+  readonly kind: 'boolean' | 'integer' | 'list' | 'text';
 }
 
 export const LINKED_KIR_CROSS_CALL_TYPES = Object.freeze({
-  boolean: { element: undefined, kind: 'boolean' },
-  'list<boolean>': { element: 'boolean', kind: 'list' },
-  'list<text>': { element: 'text', kind: 'list' },
-  text: { element: undefined, kind: 'text' },
+  boolean: Object.freeze({ element: undefined, kind: 'boolean' }),
+  integer: Object.freeze({ element: undefined, kind: 'integer' }),
+  'list<boolean>': Object.freeze({ element: 'boolean', kind: 'list' }),
+  'list<text>': Object.freeze({ element: 'text', kind: 'list' }),
+  text: Object.freeze({ element: undefined, kind: 'text' }),
 }) satisfies Record<LinkedKernKirCrossCallType, LinkedKernKirCrossCallTypeContract>;
 
-export const LINKED_KIR_CROSS_CALL_TYPE_NAMES = Object.freeze(
-  Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort(),
-) as readonly LinkedKernKirCrossCallType[];
+const CROSS_CALL_TYPE_NAMES = Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort() as LinkedKernKirCrossCallType[];
+export const LINKED_KIR_CROSS_CALL_TYPE_NAMES = Object.freeze(CROSS_CALL_TYPE_NAMES);
 
 export function linkedKirCrossCallType(type: LinkedKernKirParameterType): LinkedKernKirCrossCallType | undefined {
   const element = type.kind === 'list' ? type.element : undefined;
