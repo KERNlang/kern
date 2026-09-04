@@ -4,23 +4,21 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { workflowJob } from './workflow-text.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 async function text(relativePath) {
   return readFile(path.join(repoRoot, relativePath), 'utf8');
 }
 
-function segments(script) {
-  return script.split(' && ').map((segment) => segment.trim());
+async function laneUniverse() {
+  const policy = JSON.parse(await text('scripts/ci/ci-lane-policy.json'));
+  return policy.lanes;
 }
 
-function workflowJob(workflow, id) {
-  const marker = `  ${id}:\n`;
-  const start = workflow.indexOf(marker);
-  assert.ok(start >= 0, `workflow must define ${id}`);
-  const bodyStart = start + marker.length;
-  const next = workflow.slice(bodyStart).search(/\n  [a-z][\w-]*:\n/u);
-  return next < 0 ? workflow.slice(start) : workflow.slice(start, bodyStart + next);
+function segments(script) {
+  return script.split(' && ').map((segment) => segment.trim());
 }
 
 function commandIndex(job, command) {
@@ -177,32 +175,19 @@ test('package tests use one parallel matrix job rather than duplicated job defin
 test('pull-request CI has a required-compatible aggregator and preserves setup contracts', async () => {
   const workflow = await text('.github/workflows/ci.yml');
   const packageJson = JSON.parse(await text('package.json'));
-  const lanes = [
-    'quality',
-    'infrastructure-contracts',
-    'package-tests',
-    'semantics',
-    'frontend-foundation',
-    'frontend-properties-core',
-    'frontend-properties-extended',
-    'frontend-composition',
-    'frontend-language',
-    'frontend-tooling',
-    'product-smoke',
-    'kern-5-evidence',
-  ];
+  const lanes = await laneUniverse();
   const aggregator = workflowJob(workflow, 'build-and-test');
   assert.match(aggregator, /name: Build & Test/u);
   assert.match(aggregator, /if: \$\{\{ always\(\) \}\}/u);
   assert.match(aggregator, /timeout-minutes: 5/u);
   const needs = aggregator.match(/needs: \[([^\]]+)\]/u)?.[1].split(',').map((lane) => lane.trim());
   assert.deepEqual(
-    needs,
-    ['detect-changes', ...lanes],
+    [...needs].sort(),
+    ['detect-changes', ...lanes].sort(),
     'Build & Test needs must exactly match the change detector plus the required CI lanes',
   );
+  assert.match(aggregator, /toJSON\(needs\)/u);
   for (const lane of lanes) {
-    assert.match(aggregator, new RegExp(`needs\\.${lane}\\.result`, 'u'));
     assert.match(aggregator, new RegExp(`\\b${lane}\\b`, 'u'));
   }
 
