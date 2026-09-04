@@ -412,13 +412,23 @@ test('the emitted Python kernel leaves the process int/str digit limit exactly a
   );
   assert.deepEqual(observed.window, {
     afterWindows: CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
+    atCapLockAcquisitions: 1,
+    atCapRoundTrip: true,
     errors: [],
+    firstEnteredBeforeSecond: true,
     firstInside: [0],
     nestedInnerInside: [0],
     nestedOuterInside: [0],
     nestedResult: '0',
+    overCapLockAcquisitions: 2,
+    overCapRoundTrip: true,
+    secondAcquisitionAttempted: true,
     secondEnteredBeforeRelease: false,
     secondInside: [0],
+    shortLockAcquisitions: 0,
+    shortValues: [42, '42'],
+    stableLockBound: true,
+    threadsCompleted: true,
   });
 });
 

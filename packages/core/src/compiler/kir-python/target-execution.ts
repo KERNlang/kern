@@ -107,19 +107,47 @@ def _bool_operand(operand):
 # CPython >= 3.11 caps int<->str conversion at 4300 digits. The mutation is confined to the one
 # conversion it guards and restored in a finally, so an embedder sharing this interpreter observes
 # the lifted cap only inside that window.
-_digit_window_lock = sys.__dict__.setdefault("_kern_digit_window_lock_v1", threading.RLock())
+_digit_window_lock = sys.__dict__.setdefault("_kern_digit_window_lock", threading.RLock())
+sys.__dict__.setdefault("_kern_digit_window_active", False)
+
+
+def _decimal_digits_upper(value):
+    if value == 0:
+        return 1
+    bits = abs(value).bit_length()
+    return (bits * 30103 + 99999) // 100000
+
+
+def _conversion_within_digit_cap(convert, argument, limit):
+    if convert is int and type(argument) is str and re.fullmatch(_INTEGER, argument):
+        return len(argument) - (1 if argument.startswith("-") else 0) <= limit
+    if convert is str and type(argument) is int:
+        return _decimal_digits_upper(argument) <= limit
+    return False
 
 
 def _lifted_digits(convert, argument):
     if not hasattr(sys, "set_int_max_str_digits"):
         return convert(argument)
+    limit = sys.get_int_max_str_digits()
+    if limit == 0 and not sys.__dict__.get("_kern_digit_window_active", False):
+        return convert(argument)
+    if limit != 0 and _conversion_within_digit_cap(convert, argument, limit):
+        return convert(argument)
     with _digit_window_lock:
         previous = sys.get_int_max_str_digits()
+        if previous == 0:
+            return convert(argument)
+        if _conversion_within_digit_cap(convert, argument, previous):
+            return convert(argument)
+        active = sys.__dict__.get("_kern_digit_window_active", False)
+        sys.__dict__["_kern_digit_window_active"] = True
         sys.set_int_max_str_digits(0)
         try:
             return convert(argument)
         finally:
             sys.set_int_max_str_digits(previous)
+            sys.__dict__["_kern_digit_window_active"] = active
 
 
 # A conservative rational under log10(2): the floor it yields is never above the true digit count,
