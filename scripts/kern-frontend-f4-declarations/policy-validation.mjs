@@ -78,7 +78,7 @@ const PROFILE_LIMIT_KEYS = [
   'maxWorkSteps', 'maxEncodedBytes',
 ];
 const RUNTIME_LIMIT_KEYS = [
-  'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes',
+  'maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes',
 ];
 const PREREQUISITES = [
   'kern.frontend.f1.record-tape.1',

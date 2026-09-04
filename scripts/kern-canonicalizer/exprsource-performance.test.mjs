@@ -60,7 +60,7 @@ function directRepositoryWitness(path, ordinal, name, expectedRows) {
   return witnessForRoot(parsedRoot(source, ordinal, name), name, expectedRows);
 }
 
-function executeWitness(witness, maxCollectionLength) {
+function executeWitness(witness, maxIterations) {
   return executeKernRuntimeHandlerSync(
     {
       abi: KERN_RUNTIME_HANDLER_ABI,
@@ -75,7 +75,7 @@ function executeWitness(witness, maxCollectionLength) {
     },
     {
       enabled: true,
-      limits: { ...witness.policy.runtimeLimits, maxCollectionLength },
+      limits: { ...witness.policy.runtimeLimits, maxIterations },
     },
   );
 }

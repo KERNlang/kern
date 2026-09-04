@@ -111,7 +111,7 @@ export function loadPolicy() {
   );
   exactKeys(
     policy.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
     'runtimeLimits',
   );
   exactKeys(policy.scheduler, ['timeoutMs'], 'scheduler');

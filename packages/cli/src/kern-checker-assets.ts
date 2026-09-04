@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { KERN_CHECKER_NATIVE_WORK_FORMULA } from './kern-checker-contract.js';
+import { KERN_RUNTIME_HANDLER_LIMIT_KEYS } from './kern-runtime-limit-keys.js';
 
 export const KERN_CHECKER_ASSET_FORMAT = 'kern.cli.checker.assets.1';
 export const KERN_CHECKER_ASSET_NAMES = Object.freeze([
@@ -16,7 +17,7 @@ export const KERN_CHECKER_ASSET_NAMES = Object.freeze([
 // These release identities are compiled outside the mutable asset directory.
 export const KERN_CHECKER_TRUST = Object.freeze({
   composition: { bytes: 865, sha256: '480e066c93ee7d4bfb12d5836158b94ed129a2ff636373845b0491fdd28b9e0b' },
-  policy: { bytes: 833, sha256: '1622125a82ed423d16bf899bc091e6e62e745d897e065ddd3d202cdfaf615182' },
+  policy: { bytes: 864, sha256: '32d9bac2a7b8aefd6bf653047ebfade27dc11860edeb1020a72893dfe8477bab' },
   source: { bytes: 53_500, sha256: '27542f388bc08bfe049c66cec6c7cf6783d84b63492260874abde514a5da396c' },
 });
 
@@ -46,6 +47,7 @@ export interface KernCheckerPolicy {
     readonly maxDepth: number;
     readonly maxDiagnostics: number;
     readonly maxEvents: number;
+    readonly maxIterations: number;
     readonly maxStringBytes: number;
   };
 }
@@ -109,11 +111,7 @@ function validatePolicy(value: unknown): KernCheckerPolicy {
     ['maxDiagnostics', 'maxFactCells', 'maxInputBytes', 'maxPathBytes', 'maxResultBytes', 'maxRowsPerFamily'],
     'policy.profileLimits',
   );
-  exactKeys(
-    value.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
-    'policy.runtimeLimits',
-  );
+  exactKeys(value.runtimeLimits, KERN_RUNTIME_HANDLER_LIMIT_KEYS, 'policy.runtimeLimits');
   for (const [key, limit] of Object.entries(value.profileLimits)) positiveSafe(limit, `policy.profileLimits.${key}`);
   for (const [key, limit] of Object.entries(value.runtimeLimits)) positiveSafe(limit, `policy.runtimeLimits.${key}`);
   const policy = value as unknown as KernCheckerPolicy;

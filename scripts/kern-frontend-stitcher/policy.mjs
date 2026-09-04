@@ -22,7 +22,7 @@ const RUNTIME_KEYS = [
   'maxCollectionLength',
   'maxDepth',
   'maxDiagnostics',
-  'maxEvents',
+  'maxEvents', 'maxIterations',
   'maxStringBytes',
 ];
 const RAW_TYPE = /^[a-z][a-z0-9-]*$/u;

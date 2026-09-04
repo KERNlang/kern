@@ -188,7 +188,7 @@ export function measureCanonicalizerRuntimeBottleneckM4128(iterationBudget) {
   const input = exactWitness();
   const limits = {
     ...input.policy.runtimeLimits,
-    maxCollectionLength: iterationBudget,
+    maxIterations: iterationBudget,
   };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,

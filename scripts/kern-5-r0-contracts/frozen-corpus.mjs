@@ -50,6 +50,7 @@ export function frozenRuntimeRequest({ artifactManifestSha256, generated, target
       maxDepth: 16,
       maxDiagnostics: 8,
       maxEvents: 16,
+      maxIterations: 128,
       maxStringBytes: 8192,
     },
     requestId: `r0-${target.target}-frozen`,

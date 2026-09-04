@@ -61,6 +61,7 @@ const ACTIVE_RUNTIME_LIMITS = {
   maxDepth: 64,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 65_536,
   maxStringBytes: 1_092_204,
 };
 const CANDIDATE_PROFILE = {
@@ -216,7 +217,7 @@ export function measureCanonicalizerCombinedHeadroomWitnessM4145(
   const input = exactInput();
   const limits = {
     ...input.policy.runtimeLimits,
-    maxCollectionLength: iterationBudget,
+    maxIterations: iterationBudget,
   };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,

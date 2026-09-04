@@ -13,7 +13,7 @@ import { compileExprPy, compilePySource } from './r0-abi-template-python.mjs';
 
 const root = process.cwd();
 const fixtures = JSON.parse(readFileSync(resolve(root, 'scripts/kern-5-r0-contracts/fixtures/topology-mutations.json'), 'utf8'));
-const limits = { maxBytes: 65536, maxCollectionLength: 128, maxDepth: 16, maxDiagnostics: 8, maxEvents: 16, maxStringBytes: 8192 };
+const limits = { maxBytes: 65536, maxCollectionLength: 128, maxDepth: 16, maxDiagnostics: 8, maxEvents: 16, maxIterations: 128, maxStringBytes: 8192 };
 
 function inputFor(caseFixture) {
   const operations = caseFixture.capabilitySteps === 2 ? ['resolve', 'resolveNext'] : caseFixture.capabilitySteps ? ['resolve'] : [];

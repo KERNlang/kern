@@ -6,6 +6,7 @@
     "maxDepth": 16,
     "maxDiagnostics": 8,
     "maxEvents": 64,
+    "maxIterations": 64,
     "maxStringBytes": 4096
   },
   "envelopes": {
@@ -562,6 +563,11 @@
     },
     {
       "id": "maxEvents",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxIterations",
       "minimum": 1,
       "invalid": 0
     },
