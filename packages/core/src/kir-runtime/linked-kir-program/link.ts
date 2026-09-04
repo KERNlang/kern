@@ -153,6 +153,7 @@ function containsReturn(statements: readonly LinkedKernKirStatement[]): boolean 
   return statements.some(
     (statement) =>
       statement.kind === 'return' ||
+      (statement.kind === 'for' && containsReturn(statement.body)) ||
       (statement.kind === 'if' &&
         (containsReturn(statement.thenBranch) ||
           (statement.elseBranch !== undefined && containsReturn(statement.elseBranch)))),
@@ -167,6 +168,7 @@ interface LinkScope {
   readonly assignable: Set<string>;
   readonly bindings: Set<string>;
   readonly calls: LinkedKernKirCallScope | undefined;
+  readonly counters: Set<string>;
   readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
   readonly types: Map<string, LinkedKernKirStaticType>;
 }
@@ -186,6 +188,7 @@ function branchScope(scope: LinkScope): LinkScope {
     assignable: new Set(scope.assignable),
     bindings: new Set(scope.bindings),
     calls: scope.calls,
+    counters: new Set(scope.counters),
     crossCallTypes: new Map(scope.crossCallTypes),
     types: new Map(scope.types),
   };
@@ -351,7 +354,8 @@ function compileStatement(
     const target = assignTargetName(properties.get('target'), `${label}.target`, meter);
     if (!scope.bindings.has(target)) fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_UNDECLARED ${target}`);
     if (!scope.assignable.has(target)) {
-      fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_TARGET_NOT_LET ${target}`);
+      const reason = scope.counters.has(target) ? 'KIR_ASSIGN_TO_LOOP_COUNTER' : 'KIR_ASSIGN_TARGET_NOT_LET';
+      fault('handler-entry-unsupported', `${label}: ${reason} ${target}`);
     }
     const value = properties.get('value');
     if (value === undefined) fault('handler-entry-unsupported', `${label}.value`);
@@ -420,6 +424,68 @@ function compileIf(
   return Object.freeze({ kind: 'if' as const, condition, thenBranch, elseBranch });
 }
 
+// An omitted step is materialized as a literal one here, so no leg branches on its absence.
+const LOOP_STEP_ONE: LinkedKernKirExpression = Object.freeze({
+  kind: 'literal' as const,
+  value: Object.freeze({ tag: 'integer' as const, value: '1' }),
+});
+
+// `propertySet` in `compileFor` already requires `from` and `to` before this runs; `step` is its
+// only optional key, so a missing `from`/`to` here would mean that caller gate broke, not that a
+// bound was omitted.
+function loopBound(
+  properties: ReadonlyMap<string, CanonicalValue>,
+  key: string,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirExpression {
+  const raw = properties.get(key);
+  if (raw === undefined) {
+    if (key !== 'step') fault('handler-entry-unsupported', `${label}.${key}: missing property`);
+    return LOOP_STEP_ONE;
+  }
+  const boundLabel = `${label}.${key}`;
+  const compiled = compileLinkedExpression(raw, scope, meter, boundLabel);
+  assertAsyncCallPosition(compiled, scope, boundLabel, false);
+  if (staticExpressionType(compiled, scope) !== 'integer') {
+    fault('handler-entry-unsupported', `${boundLabel}: KIR_FOR_BOUND_NOT_INTEGER`);
+  }
+  return compiled;
+}
+
+function compileFor(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirStatement {
+  meter.step();
+  const properties = nodeProperties(node, label);
+  propertySet(properties, ['from', 'name', 'to'], ['step'], label);
+  const counter = propertyText(properties, 'name', label, meter);
+  if (scope.bindings.has(counter)) fault('handler-entry-unsupported', `${label}: duplicate binding ${counter}`);
+  const from = loopBound(properties, 'from', scope, meter, label);
+  const to = loopBound(properties, 'to', scope, meter, label);
+  const step = loopBound(properties, 'step', scope, meter, label);
+  if (step.kind === 'literal' && step.value.tag === 'integer' && BigInt(step.value.value) === 0n) {
+    fault('handler-entry-unsupported', `${label}.step: KIR_FOR_ZERO_STEP`);
+  }
+  // The counter binds into the body scope and never into `assignable`, so RT-9's one gate refuses an
+  // assignment to it and `counters` only selects which label that refusal carries.
+  const bodyScope = branchScope(scope);
+  bindName(bodyScope, counter, 'integer', 'integer');
+  bodyScope.counters.add(counter);
+  return Object.freeze({
+    body: compileBranch(node, bodyScope, meter, `${label}.body`),
+    counter,
+    from,
+    kind: 'for' as const,
+    step,
+    to,
+  });
+}
+
 function compileBlock(
   nodes: readonly StructuralKirNode[],
   scope: LinkScope,
@@ -430,7 +496,12 @@ function compileBlock(
   for (let index = 0; index < nodes.length; index += 1) {
     const childLabel = `${label}.children[${index}]`;
     const node = nodes[index];
-    if (nodeKind(node, childLabel) !== 'if') {
+    const kind = nodeKind(node, childLabel);
+    if (kind === 'for') {
+      statements.push(compileFor(node, scope, meter, childLabel));
+      continue;
+    }
+    if (kind !== 'if') {
       statements.push(compileStatement(node, scope, meter, childLabel));
       continue;
     }
@@ -462,6 +533,7 @@ function compileHandler(
     assignable: new Set<string>(),
     bindings: new Set<string>(),
     calls: callScope(context),
+    counters: new Set<string>(),
     crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
     types: new Map<string, LinkedKernKirStaticType>(),
   };
@@ -476,7 +548,12 @@ function compileHandler(
       const name = propertyText(props, 'name', childLabel, meter);
       if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${childLabel}: duplicate parameter`);
       const type = parameterType(props.get('type'), `${childLabel}.type`, meter);
-      bindName(scope, name, type.kind === 'boolean' ? 'boolean' : undefined, linkedKirCrossCallType(type));
+      bindName(
+        scope,
+        name,
+        type.kind === 'boolean' || type.kind === 'integer' ? type.kind : undefined,
+        linkedKirCrossCallType(type),
+      );
       parameters.push(Object.freeze({ name, type }));
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;

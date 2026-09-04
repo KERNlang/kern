@@ -9,6 +9,7 @@ import type {
 } from '../../kir-runtime/linked-kir-program/index.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  LINKED_KIR_UNARY_OPERATORS,
   linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
@@ -104,9 +105,14 @@ function expressionSource(
       source =
         operator.family === 'logical'
           ? `${operator.pythonHelper}(${left},lambda:${right})`
-          : `${operator.pythonHelper}(${left},${right})`;
+          : operator.family === 'arithmetic'
+            ? `${operator.pythonHelper}(${left},${right},_meter)`
+            : `${operator.pythonHelper}(${left},${right})`;
       break;
     }
+    case 'unary':
+      source = `${LINKED_KIR_UNARY_OPERATORS[expression.op].pythonHelper}(${expressionSource(expression.argument, bindings, calls)},_meter)`;
+      break;
     case 'member':
       source = `_member(${expressionSource(expression.object, bindings, calls)},${expression.optional ? 'True' : 'False'},${encodedText(expression.property)})`;
       break;
@@ -239,6 +245,47 @@ ${value.prelude}        _printed = ${value.source}
   throw new Error('return statements are emitted by the specialized handler');
 }
 
+// The comparator is selected once, right after the step is read: a positive stride picks `<`, a
+// negative one picks `>`. Each selection line carries only one comparison operator, never two,
+// because the multiplication this replaced (`(bound - cursor) * stride > 0`) was unmetered
+// arbitrary-precision work at every head test, not the pinned integer comparison.
+function forSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'for' }>,
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: () => string,
+  returnSource: (value: StatementValue) => string,
+): string {
+  const cursor = nextLocal();
+  const bound = nextLocal();
+  const stride = nextLocal();
+  const counter = nextLocal();
+  const comparator = nextLocal();
+  const from = expressionSource(statement.from, scope, calls);
+  const to = expressionSource(statement.to, scope, calls);
+  const step = expressionSource(statement.step, scope, calls);
+  const body = new Map(scope);
+  body.set(statement.counter, counter);
+  const trip = `        _meter.step()
+        _check_abort()
+        ${counter} = _int_value(${cursor}, _meter)
+${blockSource(statement.body, body, calls, nextLocal, returnSource)}        ${cursor} = ${cursor} + ${stride}
+`;
+  return `        _meter.step()
+        ${cursor} = _int_operand(${from})
+        ${bound} = _int_operand(${to})
+        ${stride} = _int_operand(${step})
+        if ${stride} == 0:
+            raise _Fault("unsupported-runtime-input", "execution", "ERR_KIR_LOOP_ZERO_STEP")
+        if ${stride} > 0:
+            ${comparator} = lambda a, b: a < b
+        else:
+            ${comparator} = lambda a, b: a > b
+        while ${comparator}(${cursor}, ${bound}):
+${indented(trip)}        _meter.step()
+`;
+}
+
 function blockSource(
   statements: readonly LinkedKernKirStatement[],
   scope: Map<string, string>,
@@ -250,6 +297,7 @@ function blockSource(
     .map((statement) => {
       if (statement.kind === 'return') return returnSource(statementValue(statement.value, scope, calls));
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
+      if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);

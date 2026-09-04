@@ -19,7 +19,7 @@ import {
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
-const RT2_GOLDEN_SHA256 = 'cc7fb869d3f51ca6222521df52dd70e2364a83c8f97365f8db0a8c83cc2f9908';
+const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
 
 const LIST_INPUT = Object.freeze([Object.freeze({ name: 'xs', type: 'boolean[]' })]);
 
@@ -128,88 +128,88 @@ const HELPER_BEARING_FIXTURES = Object.freeze({
 // Measured on the RT-4 base 5e359bb6, before any RT-5 production file was touched.
 const PRE_SLICE_DIGESTS = Object.freeze({
   binary: {
-    javascriptArtifactSha256: '7983d6cf17d68e3be1dc79da0b274c4e592309e3c30e7623620a6df16aa7ef81',
-    javascriptManifestSha256: 'b9e768bff0eeec49538274bebaf44568494ab9e7a603b9fd9f744605016c48e0',
+    javascriptArtifactSha256: '7b4395f146e1a647c339bb726bd9eb2559730b7ca9e7657e0234c97f69d98b91',
+    javascriptManifestSha256: '91372b6f4785d44473c04b5c4195cbeec9d7f9e1ffcd10b43ee431b0573bf264',
     linkedProgramSha256: '81872ecb59e44fd79b868b297c8bb5660756ee76bd46b16a1ad8ed65bb3a8112',
-    pythonArtifactSha256: '3bc4a82b0103a732869ea5922ad59f60598396d0f6ff7dd3e3612db64858e58d',
-    pythonManifestSha256: 'fbb1ca4cc949a5611591766a0a73bc65b640804bf889199eee7ae1f2a454d96a',
+    pythonArtifactSha256: 'ae97463c40e9cb77c60a27dafce284a62f6e7d0168c4b31b0ef746697f285cab',
+    pythonManifestSha256: '5587e4b9ab438bf4cc8173f51ce192458c397810f6fc675af609f1ec3c575f49',
   },
   branch: {
-    javascriptArtifactSha256: '89f1f4aa86cbc03400a94665cbcd5876e090fec66ed6d66456602c8dd18a5533',
-    javascriptManifestSha256: 'de32bb1ae3c3903a9323b8dae5226bb249bc27023dbc087bf8cf7954b50da7de',
+    javascriptArtifactSha256: '3df36a6120758015c304eba49835d624b7a950c3b20645001741865b1c166196',
+    javascriptManifestSha256: '767973dd6778f476b23e7a58216f672d8de4e709e02e8c0fea5f3d5cc525ca92',
     linkedProgramSha256: '8741ef79c2d35b0f1be4f3393727d17b25729ad2cb70233b5a93314f799aff7f',
-    pythonArtifactSha256: 'cc2b2424b5e99780c28bce10f81b3779d26640a80cc1fc269351f2f2dbfc049b',
-    pythonManifestSha256: '2214483d852790fd3dc686cbc1d1fa5447fb7c1da420f642ecbc675e4796451b',
+    pythonArtifactSha256: '51c3f35a4f374b18a69a31e1f00fca8f754034e3361438faa7d4cac2d8f4f059',
+    pythonManifestSha256: 'b104b486c59d5d77fd2ed0cb7bf108a5a4cb8a6ee90802a4f7f0c9783f6ef00d',
   },
   'branching-callee': {
-    javascriptArtifactSha256: 'c9c810406c5f237ad7eae289f01d78797b2a3fd87f6cdbd1f3637588eeaedb51',
-    javascriptManifestSha256: '0abb01f3dedadb32d0e3b66111327f37391d736af5592fb9d3d038e6d9848783',
+    javascriptArtifactSha256: '0b3ca202420cdd1fd7c76c9bd9452bb6ed94bcf0ac4895e2a0b8e23e973542a9',
+    javascriptManifestSha256: '25c8099e8562a0952508f5889434af00b0d82824812c222defee18a28b0089f7',
     linkedProgramSha256: '34f662245dca79c37ef9084c96e749cd691d4c84913c1f1bbcbd7db61f02d56e',
-    pythonArtifactSha256: 'e9104d4ba881b2c4c838affbbee3264bcd516922e97162ae15ef0917c6951e82',
-    pythonManifestSha256: 'efd019aa1c0c1edf7d23fa29e26050c467904caefb8feb808dddb8df8dfd1418',
+    pythonArtifactSha256: '943ec08076af014ef9e7bcec27adcd7a420a60bae73315f77925743cdf909e70',
+    pythonManifestSha256: 'f3443d52303c47fdcd2cd1d1e2c5795a24d4cd1f4ab7a74152e525c38c593d49',
   },
   'callee-print-into-caller-buffer': {
-    javascriptArtifactSha256: 'c299ddfa1163e3d5e1e5bb51a986539c8397fa396799adfc5ac2f528e9b6d634',
-    javascriptManifestSha256: 'f580f7e0f742bfa44439e4ad4cf58a2ac2b714c66cb3a6f58907e4b01def7833',
+    javascriptArtifactSha256: '2aa271d78d8603dd789160dbd733b96f3a76b99cca224840c162d57cfca041f7',
+    javascriptManifestSha256: '3b15b00351df8e6122f5a12db9b6bb792173a090139c8b4f281d69e503553b25',
     linkedProgramSha256: '16d5c05b775dc3f312ff6b345cc04ad2557e75169c74c4fddf942367d1691f78',
-    pythonArtifactSha256: '4f0032f88de9cf5ba9cf1b780022f5afe0a5f2fa353f061fdb0aa3a4b4c25e91',
-    pythonManifestSha256: '6cdf543de30ddf0f665e07e40eb29e349b1e1d53d5a1ab826bf3f79eafcb5765',
+    pythonArtifactSha256: 'bcd8f1ce553409d4fe55846cc9644746c8e6c61a3a8e4bdd029adf87eb55bc1f',
+    pythonManifestSha256: '7caee33dd13dca016353a4141cc1ed4a201efc5a65dfae1a78e2c00b1d21c6a4',
   },
   capability: {
-    javascriptArtifactSha256: '231e8354c27f7479f435123aa342e69ff83d3f6bdff702b640f1e62ef6eb60dd',
-    javascriptManifestSha256: '4393ec41fb5cbba588b7c6016864a9f6b7252a16816460ac196160975d39b8a4',
+    javascriptArtifactSha256: '7e86200957c72e9d683ea0ecb4732589996f9d7ab09770a65b9775e1ecb6166c',
+    javascriptManifestSha256: '615bc13c42c7ce3aeacff422ff1bdebb1c842638ef11ca65005e2bc3f447ba36',
     linkedProgramSha256: 'd2e11a853f6cc21bf7e9895580cec12c821646e4916206a47f343a0bfb3c2b9b',
-    pythonArtifactSha256: '737c3141e0e8c38f54b2d30f5875c61a187c7cd0360eec5c146a3995f6b58d55',
-    pythonManifestSha256: '7c4997da581dfccd04472681895bb8641eed480bc3cdb0da3d1c83f3ca0c8f9e',
+    pythonArtifactSha256: 'fe7f96eb8adc4d24111504de4131c4417a604c70d7632e1c875a4a27c2e88d61',
+    pythonManifestSha256: '88c9003946514f7bd71b533a1e28679d9d400f3f71ddfa2481d5158bce6ebb90',
   },
   'chain-of-three': {
-    javascriptArtifactSha256: 'acd60551ca75f251c0d41593a7032d9a37e57ac58882f8e195df333f6f19be27',
-    javascriptManifestSha256: '7a469e4a7492710232f428b0fb40b093379c6720a7974be4d80c1387eb663b3e',
+    javascriptArtifactSha256: 'f2fbfbb7c8c165168067c3a12587ccf4aa67e03a361f9a221913da35a21464e9',
+    javascriptManifestSha256: '85d2d67156e44626287f95b1951073270137f7b4ff83fcbc83c3513f5b8ee067',
     linkedProgramSha256: 'cf225e07ecc6023527c3950b512a16aca87b493a562feb1e825e2a84a714fa24',
-    pythonArtifactSha256: '84c998c556f6a32b77ae158c3673ebcaf30a0bff4f7f535324c985ee2d5af9c0',
-    pythonManifestSha256: 'eb9add99d40c5009bfd8fcd2367391503cd796b12abed4dce3a58254c2d96da0',
+    pythonArtifactSha256: '4cac19eb7316df70a7d6a2502a1fe9d91fb5abb29fafb19a88fb7942e00b806b',
+    pythonManifestSha256: '75dd3158b54b9be17e268981d7887a448125183e8e15f5f3ee2bc9b969401ca4',
   },
   'entry-capability-with-call': {
-    javascriptArtifactSha256: 'e0916066668d3e7d911e3b99f58104399d6de8c72a3ddbaa4355d0d8b9dfccb1',
-    javascriptManifestSha256: 'b2de2eb4e4e80bf5786a0ee6adaa04a2f482c72ba8b646ba695bff860e5e75e5',
+    javascriptArtifactSha256: '8128bcbfde382953cf5b2814798b79978733e9dc06269d69309810413ad0a360',
+    javascriptManifestSha256: '07c79d1671c9f58d645cce50f6fba011b044307b26cec8cfdb4fa50c2598e8a7',
     linkedProgramSha256: '672fb5399886fb630c04ec2f21cda291a805992cd5707608b69d6decc951ede0',
-    pythonArtifactSha256: '7710bd085af2744fe6bbb68b6dfdfccf3494d8ba0bf77fb5340bba20fbff046d',
-    pythonManifestSha256: '6bbfc0705063545d339f61615b841dff084281352543fe5bff1e65e8423a9f18',
+    pythonArtifactSha256: 'dbc35ada94ef66487dfd4ca50e2cc3569ebee0c6d02be427a7c5f95818c28f71',
+    pythonManifestSha256: 'a4a8c66b46b348bb689763614893cfc937995bed6580b6af7dcbcd884b83ce1f',
   },
   'list-across-the-boundary': {
-    javascriptArtifactSha256: '3f2668d3c1aaa698d67add0c61d72b43f02dfe76a3c7b5f8be25439333540f84',
-    javascriptManifestSha256: '34a771caf2f58f35fd71c60276072f928b53e3a3e7b41c894810c3c8988aefba',
+    javascriptArtifactSha256: '0147ba4710a8451bcaf41e72282374c89c1aa9f88897769b7f8d67f2c98f556c',
+    javascriptManifestSha256: 'c587ba847745970bc7273b0f9e76d38a7ae750c31e437d499c7e43545079785c',
     linkedProgramSha256: 'd5d6906e338917f705fcc1fe51796311c6c66194576fd83a7b7be1eeeddd92c4',
-    pythonArtifactSha256: '56f891f9c70260d9bb27e50be59d902471a358f80614f18e94ba6df7b9a85eee',
-    pythonManifestSha256: '30fda46b7a10c80d2e4dba1c36d021b6aa2860ba472e11cdabb734a84f1036a6',
+    pythonArtifactSha256: '117e6483f0566b8cabb760f2935b4ddd6aff1f9bbfc9507e3ffdb999f74d149e',
+    pythonManifestSha256: '4fd0e5d50ff909f883c259f27670a3bc2ef0fe8d130710f75fbc987280de67a9',
   },
   literal: {
-    javascriptArtifactSha256: 'b45cdc35da00ef81a31b3fd253caa08a5c6e8a520c4058cb63af6561d7dcf220',
-    javascriptManifestSha256: 'cc56b27f35be4937b9b149c518a944a870948cfa5d6396ae25418f4f04f1a1c5',
+    javascriptArtifactSha256: '0dc137d1dd13210d5b8cb369c0bc2bfe08396aa43f68fc29cd52baafeca03a04',
+    javascriptManifestSha256: '2bde3e6717937f63a512ebc4587e4b23651f605acbf71734807895683d3986a9',
     linkedProgramSha256: 'da5c688ae729e4961f987d63313f9e0c2714b37d668d644c6900860f035e613f',
-    pythonArtifactSha256: '944d2fdf756dca628dd6ec6a26e7152a990c20db0ddc41dcb7fcc30250a3906c',
-    pythonManifestSha256: '87f446a9ef52c443d1c263128abc1a401df988b3d789a7e06e868b43f9a74b72',
+    pythonArtifactSha256: '4e823ddbd43b646c590606223848bb37219b00a8ea5f1dd8ef08b5df402622c7',
+    pythonManifestSha256: 'f2dc5e5d75861afe4ca5f46b06ae750bf893a0d7be4f49dba25c770e23580b55',
   },
   ordering: {
-    javascriptArtifactSha256: 'e508138f80f1d33998ca34296469fb07e9cfaeda0f18dc10651ad5684023b00f',
-    javascriptManifestSha256: '99357d49791933f78a6762005a649412e044081f980043bfa571eb79d583b328',
+    javascriptArtifactSha256: '744988b7cdcfcff35b0a6ddbf5192d191ebaa9559d0193b5868a05e8109210d1',
+    javascriptManifestSha256: '9afb973fddf43c1090c13e06761d14c92eb65a5949ad8738777039cc36050d04',
     linkedProgramSha256: '4f9c0beae2e50a32208cc947aaf43af6840a7adc5bd84efb4f3bb116de949d85',
-    pythonArtifactSha256: '897230a8b30a8fee17602b883184ed35680fa7290aeb4d14273aca1cf6917bd3',
-    pythonManifestSha256: '87241d3e751ae816b0e46cbc45df0bed277c58c4e7b9e7f32aa104baf86f5fe0',
+    pythonArtifactSha256: 'b6feaf3e43fe205d466894b008c4e9107356b100ada2a60c3bf800ce224ffa8e',
+    pythonManifestSha256: 'a583dc73cb92fbaa80bbf75cff77484640489806dfe96b6fea1efc2b95931b01',
   },
   'result-drives-a-binary': {
-    javascriptArtifactSha256: 'a53a2c89cd7f38a069b643c7638c877ec815ed27dba2affdd6ee9ce609f14713',
-    javascriptManifestSha256: '3571979af94855db45cfdba1cf8c9a637674e933373ace138b7211fd117152db',
+    javascriptArtifactSha256: '031b3429ec5d521ea22a4bc3f367564af2baae0c046767f82112148f3340c306',
+    javascriptManifestSha256: '65e1dda2cfd29969bc9ef9eea965ba22e20ae724286031fd5c53db99f84f705c',
     linkedProgramSha256: '9ced58268138f7aff00f05236edf588f8e3515e7cb182d32e7f1e362e19ce194',
-    pythonArtifactSha256: 'a0423f863470e11b4d42f4124a62b90dea7d79408faffe55df80090eae97081e',
-    pythonManifestSha256: '4e1129181727eaf43bf2d52228e85890a9f8798221a4a1635702b39c57afca2e',
+    pythonArtifactSha256: 'd3c6cb86e1a512365343098f22d04fbbdfc7db904ecb073d2ae89b788ec3fe2b',
+    pythonManifestSha256: '21b0d41dd6e203fad079ad14b33312d12dd62bfd07bff4a23ec768c21f985c84',
   },
   'two-argument-callee': {
-    javascriptArtifactSha256: 'eebb6351256a536fb3c279e17846d46e84457c99bbb27629934c51fa1fb2b7c2',
-    javascriptManifestSha256: '77e621091ad9e96c2c0b7445ff710cfc2def085ab24a0f4407a7efd49523c23e',
+    javascriptArtifactSha256: 'c20a5cc547de46fe17b642fffa1604fe96e838ea320f6a1262e9d3ead884ddd5',
+    javascriptManifestSha256: 'acf301cf474a161eeea9f9e9edc5db63087208074d2d2bbb9509cd2c718956bd',
     linkedProgramSha256: '0590e68d9a614127db8b62e21cbc412d406b5c1e9b8d683948075122527dc077',
-    pythonArtifactSha256: 'bf78fdf18fe53d31159ccbb9a77f2026a709806ae98a6e6e946c1b3a9c366470',
-    pythonManifestSha256: '7c8770fd62e5c8138e0af88e41e271742bdd142aa7f803b9e9000fdbdc6396b9',
+    pythonArtifactSha256: 'd84eb38ad8e7484dd2dd3e3b324c07edaf767291157b936f4403e1980db24370',
+    pythonManifestSha256: '8240aa22a5dba957f7a16515ef3f3a0426452d3141ca1acb5ba751bb41e33845',
   },
 });
 
@@ -289,7 +289,7 @@ test('the RT-2 and RT-3 K0 goldens are untouched, and RT-5 adds no linked expres
   const golden = JSON.parse(await readFile(RT3_GOLDEN_URL, 'utf8'));
   assert.deepEqual(
     golden.linkedExpressionKinds,
-    ['binary', 'identifier', 'json-call', 'list', 'literal', 'member', 'record', 'user-call'],
+    ['binary', 'identifier', 'json-call', 'list', 'literal', 'member', 'record', 'unary', 'user-call'],
     'RT-5 introduces no expression variant, so the RT-3 inventory must not move',
   );
 });

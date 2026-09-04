@@ -1,0 +1,174 @@
+{
+  "rows": [
+    {
+      "expected": "10",
+      "expression": "7 + 3",
+      "name": "add-small"
+    },
+    {
+      "expected": "-4",
+      "expression": "-7 + 3",
+      "name": "add-neg-left"
+    },
+    {
+      "expected": "4",
+      "expression": "7 + -3",
+      "name": "add-neg-right"
+    },
+    {
+      "expected": "-10",
+      "expression": "-7 + -3",
+      "name": "add-both-neg"
+    },
+    {
+      "expected": "0",
+      "expression": "0 + 0",
+      "name": "add-zero"
+    },
+    {
+      "expected": "9007199254740994",
+      "expression": "9007199254740993 + 1",
+      "name": "add-s53"
+    },
+    {
+      "expected": "18014398509481986",
+      "expression": "9007199254740993 + 9007199254740993",
+      "name": "add-s53-twice"
+    },
+    {
+      "expected": "4",
+      "expression": "7 - 3",
+      "name": "sub-small"
+    },
+    {
+      "expected": "-4",
+      "expression": "3 - 7",
+      "name": "sub-negative-result"
+    },
+    {
+      "expected": "-10",
+      "expression": "-7 - 3",
+      "name": "sub-neg-left"
+    },
+    {
+      "expected": "10",
+      "expression": "7 - -3",
+      "name": "sub-neg-right"
+    },
+    {
+      "expected": "0",
+      "expression": "0 - 0",
+      "name": "sub-zero"
+    },
+    {
+      "expected": "1",
+      "expression": "9007199254740993 - 9007199254740992",
+      "name": "sub-s53"
+    },
+    {
+      "expected": "5",
+      "expression": "10 - 3 - 2",
+      "name": "sub-left-assoc"
+    },
+    {
+      "expected": "21",
+      "expression": "7 * 3",
+      "name": "mul-small"
+    },
+    {
+      "expected": "-21",
+      "expression": "-7 * 3",
+      "name": "mul-neg-left"
+    },
+    {
+      "expected": "-21",
+      "expression": "7 * -3",
+      "name": "mul-neg-right"
+    },
+    {
+      "expected": "21",
+      "expression": "-7 * -3",
+      "name": "mul-both-neg"
+    },
+    {
+      "expected": "0",
+      "expression": "0 * 7",
+      "name": "mul-zero"
+    },
+    {
+      "expected": "0",
+      "expression": "-7 * 0",
+      "name": "mul-neg-zero"
+    },
+    {
+      "expected": "-7",
+      "expression": "-7",
+      "name": "neg-small"
+    },
+    {
+      "expected": "-9007199254740993",
+      "expression": "-9007199254740993",
+      "name": "neg-s53"
+    },
+    {
+      "expected": "-3",
+      "expression": "-(1 + 2)",
+      "name": "neg-of-sum"
+    },
+    {
+      "expected": "7",
+      "expression": "-(-7)",
+      "name": "neg-double"
+    },
+    {
+      "expected": "10",
+      "expression": "2 * 3 + 4",
+      "name": "prec-mul-then-add"
+    },
+    {
+      "expected": "14",
+      "expression": "2 * (3 + 4)",
+      "name": "prec-paren-add-first"
+    },
+    {
+      "expected": "6",
+      "expression": "1 + 2 + 3",
+      "name": "assoc-add-left"
+    },
+    {
+      "expected": "6",
+      "expression": "-2 * -3",
+      "name": "mixed-neg-mul"
+    },
+    {
+      "expected": "-25",
+      "expression": "(2 + 3) * (4 - 9)",
+      "name": "mixed-deep"
+    },
+    {
+      "expected": "9223372036854775807",
+      "expression": "4611686018427387903 + 4611686018427387904",
+      "name": "add-i64-max"
+    },
+    {
+      "expected": "9214364837600034814",
+      "expression": "9223372036854775807 - 9007199254740993",
+      "name": "sub-i64-max-minus-s53"
+    },
+    {
+      "expected": "9223372030926249001",
+      "expression": "3037000499 * 3037000499",
+      "name": "mul-i64-near-max"
+    },
+    {
+      "expected": "-9223372030926249001",
+      "expression": "-3037000499 * 3037000499",
+      "name": "mul-i64-near-max-neg"
+    },
+    {
+      "expected": "-9223372036854775807",
+      "expression": "-9223372036854775807",
+      "name": "neg-i64-max"
+    }
+  ]
+}

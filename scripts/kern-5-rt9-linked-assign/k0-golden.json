@@ -11,7 +11,7 @@
     "call-typed-positive": "admitted",
     "capability-to-capability": "admitted",
     "control-each": "handler-entry-unsupported",
-    "control-for": "handler-entry-unsupported",
+    "control-for": "admitted",
     "control-set": "not-projected",
     "control-while": "handler-entry-unsupported",
     "helper-body-assign": "admitted",
@@ -50,6 +50,7 @@
   "linkedStatementKinds": [
     "assign",
     "capability",
+    "for",
     "if",
     "let",
     "print",

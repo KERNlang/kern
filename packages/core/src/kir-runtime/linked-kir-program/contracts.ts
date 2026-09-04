@@ -1,50 +1,142 @@
-import type { KernKirLimits, KernKirValue } from '../contracts.js';
+import { KernKirFault, type KernKirLimits, type KernKirValue } from '../contracts.js';
 
 export const KERN_LINKED_KIR_PROGRAM_FORMAT = 'kern.linked-kir-program.v1' as const;
 
-export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=';
+export type LinkedKernKirBinaryOperator = '&&' | '||' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '+' | '-' | '*';
 
 export type LinkedKernKirStaticType = 'boolean' | 'integer';
 
 export interface LinkedKernKirBinaryOperatorContract {
-  readonly family: 'logical' | 'equality' | 'ordering';
+  readonly family: 'arithmetic' | 'logical' | 'equality' | 'ordering';
   readonly javascriptHelper: string;
   readonly operandType: LinkedKernKirStaticType | 'either';
   readonly pythonHelper: string;
+  readonly resultType: LinkedKernKirStaticType;
 }
 
 export const LINKED_KIR_BINARY_OPERATORS = Object.freeze({
-  '&&': { family: 'logical', javascriptHelper: '__and', operandType: 'boolean', pythonHelper: '_and' },
-  '||': { family: 'logical', javascriptHelper: '__or', operandType: 'boolean', pythonHelper: '_or' },
-  '==': { family: 'equality', javascriptHelper: '__eq', operandType: 'either', pythonHelper: '_eq' },
-  '!=': { family: 'equality', javascriptHelper: '__ne', operandType: 'either', pythonHelper: '_ne' },
-  '<': { family: 'ordering', javascriptHelper: '__lt', operandType: 'integer', pythonHelper: '_lt' },
-  '<=': { family: 'ordering', javascriptHelper: '__le', operandType: 'integer', pythonHelper: '_le' },
-  '>': { family: 'ordering', javascriptHelper: '__gt', operandType: 'integer', pythonHelper: '_gt' },
-  '>=': { family: 'ordering', javascriptHelper: '__ge', operandType: 'integer', pythonHelper: '_ge' },
+  '&&': Object.freeze({
+    family: 'logical',
+    javascriptHelper: '__and',
+    operandType: 'boolean',
+    pythonHelper: '_and',
+    resultType: 'boolean',
+  }),
+  '||': Object.freeze({
+    family: 'logical',
+    javascriptHelper: '__or',
+    operandType: 'boolean',
+    pythonHelper: '_or',
+    resultType: 'boolean',
+  }),
+  '==': Object.freeze({
+    family: 'equality',
+    javascriptHelper: '__eq',
+    operandType: 'either',
+    pythonHelper: '_eq',
+    resultType: 'boolean',
+  }),
+  '!=': Object.freeze({
+    family: 'equality',
+    javascriptHelper: '__ne',
+    operandType: 'either',
+    pythonHelper: '_ne',
+    resultType: 'boolean',
+  }),
+  '<': Object.freeze({
+    family: 'ordering',
+    javascriptHelper: '__lt',
+    operandType: 'integer',
+    pythonHelper: '_lt',
+    resultType: 'boolean',
+  }),
+  '<=': Object.freeze({
+    family: 'ordering',
+    javascriptHelper: '__le',
+    operandType: 'integer',
+    pythonHelper: '_le',
+    resultType: 'boolean',
+  }),
+  '>': Object.freeze({
+    family: 'ordering',
+    javascriptHelper: '__gt',
+    operandType: 'integer',
+    pythonHelper: '_gt',
+    resultType: 'boolean',
+  }),
+  '>=': Object.freeze({
+    family: 'ordering',
+    javascriptHelper: '__ge',
+    operandType: 'integer',
+    pythonHelper: '_ge',
+    resultType: 'boolean',
+  }),
+  '+': Object.freeze({
+    family: 'arithmetic',
+    javascriptHelper: '__add',
+    operandType: 'integer',
+    pythonHelper: '_add',
+    resultType: 'integer',
+  }),
+  '-': Object.freeze({
+    family: 'arithmetic',
+    javascriptHelper: '__sub',
+    operandType: 'integer',
+    pythonHelper: '_sub',
+    resultType: 'integer',
+  }),
+  '*': Object.freeze({
+    family: 'arithmetic',
+    javascriptHelper: '__mul',
+    operandType: 'integer',
+    pythonHelper: '_mul',
+    resultType: 'integer',
+  }),
 }) satisfies Record<LinkedKernKirBinaryOperator, LinkedKernKirBinaryOperatorContract>;
 
 export function linkedKirBinaryOperator(op: string): LinkedKernKirBinaryOperator | undefined {
   return Object.hasOwn(LINKED_KIR_BINARY_OPERATORS, op) ? (op as LinkedKernKirBinaryOperator) : undefined;
 }
 
-export type LinkedKernKirCrossCallType = 'boolean' | 'list<boolean>' | 'list<text>' | 'text';
+export type LinkedKernKirUnaryOperator = '-';
+
+export interface LinkedKernKirUnaryOperatorContract {
+  readonly javascriptHelper: string;
+  readonly operandType: LinkedKernKirStaticType;
+  readonly pythonHelper: string;
+  readonly resultType: LinkedKernKirStaticType;
+}
+
+export const LINKED_KIR_UNARY_OPERATORS = Object.freeze({
+  '-': Object.freeze({
+    javascriptHelper: '__neg',
+    operandType: 'integer',
+    pythonHelper: '_neg',
+    resultType: 'integer',
+  }),
+}) satisfies Record<LinkedKernKirUnaryOperator, LinkedKernKirUnaryOperatorContract>;
+
+export function linkedKirUnaryOperator(op: string): LinkedKernKirUnaryOperator | undefined {
+  return Object.hasOwn(LINKED_KIR_UNARY_OPERATORS, op) ? (op as LinkedKernKirUnaryOperator) : undefined;
+}
+
+export type LinkedKernKirCrossCallType = 'boolean' | 'integer' | 'list<boolean>' | 'list<text>' | 'text';
 
 export interface LinkedKernKirCrossCallTypeContract {
   readonly element: 'boolean' | 'text' | undefined;
-  readonly kind: 'boolean' | 'list' | 'text';
+  readonly kind: 'boolean' | 'integer' | 'list' | 'text';
 }
 
 export const LINKED_KIR_CROSS_CALL_TYPES = Object.freeze({
-  boolean: { element: undefined, kind: 'boolean' },
-  'list<boolean>': { element: 'boolean', kind: 'list' },
-  'list<text>': { element: 'text', kind: 'list' },
-  text: { element: undefined, kind: 'text' },
+  boolean: Object.freeze({ element: undefined, kind: 'boolean' }),
+  integer: Object.freeze({ element: undefined, kind: 'integer' }),
+  'list<boolean>': Object.freeze({ element: 'boolean', kind: 'list' }),
+  'list<text>': Object.freeze({ element: 'text', kind: 'list' }),
+  text: Object.freeze({ element: undefined, kind: 'text' }),
 }) satisfies Record<LinkedKernKirCrossCallType, LinkedKernKirCrossCallTypeContract>;
 
-export const LINKED_KIR_CROSS_CALL_TYPE_NAMES = Object.freeze(
-  Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort(),
-) as readonly LinkedKernKirCrossCallType[];
+const CROSS_CALL_TYPE_NAMES = Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort() as LinkedKernKirCrossCallType[];
+export const LINKED_KIR_CROSS_CALL_TYPE_NAMES = Object.freeze(CROSS_CALL_TYPE_NAMES);
 
 export function linkedKirCrossCallType(type: LinkedKernKirParameterType): LinkedKernKirCrossCallType | undefined {
   const element = type.kind === 'list' ? type.element : undefined;
@@ -92,6 +184,7 @@ export type LinkedKernKirExpression =
       readonly op: LinkedKernKirBinaryOperator;
       readonly right: LinkedKernKirExpression;
     }
+  | { readonly kind: 'unary'; readonly argument: LinkedKernKirExpression; readonly op: LinkedKernKirUnaryOperator }
   | { readonly kind: 'literal'; readonly value: KernKirValue }
   | { readonly kind: 'list'; readonly items: readonly LinkedKernKirExpression[] }
   | {
@@ -171,7 +264,29 @@ export type LinkedKernKirStatement =
       readonly condition: LinkedKernKirExpression;
       readonly thenBranch: readonly LinkedKernKirStatement[];
       readonly elseBranch: readonly LinkedKernKirStatement[] | undefined;
+    }
+  | {
+      readonly kind: 'for';
+      readonly body: readonly LinkedKernKirStatement[];
+      readonly counter: string;
+      readonly from: LinkedKernKirExpression;
+      readonly step: LinkedKernKirExpression;
+      readonly to: LinkedKernKirExpression;
     };
+
+function forBounds(statement: Extract<LinkedKernKirStatement, { kind: 'for' }>): readonly LinkedKernKirExpression[] {
+  return [statement.from, statement.to, statement.step];
+}
+
+// Exhaustive on purpose, like `containsAsyncCall`: a permissive `default` would let a future
+// expression variant slip past the capability closure and the call-depth policy with no tsc error.
+function expressionVariantUnhandled(expression: never): never {
+  throw new KernKirFault(
+    'handler-entry-unsupported',
+    'link',
+    `unhandled variant ${String((expression as { kind?: unknown }).kind)}`,
+  );
+}
 
 type CapabilityClosure = ReadonlyMap<string, LinkedKernKirHandler> | undefined;
 
@@ -215,6 +330,8 @@ function expressionInvokesCapability(
         expressionInvokesCapability(expression.left, helpers, walk) ||
         expressionInvokesCapability(expression.right, helpers, walk)
       );
+    case 'unary':
+      return expressionInvokesCapability(expression.argument, helpers, walk);
     case 'list':
       return expression.items.some((item) => expressionInvokesCapability(item, helpers, walk));
     case 'record':
@@ -223,8 +340,11 @@ function expressionInvokesCapability(
       return expressionInvokesCapability(expression.object, helpers, walk);
     case 'json-call':
       return expressionInvokesCapability(expression.argument, helpers, walk);
-    default:
+    case 'literal':
+    case 'identifier':
       return false;
+    default:
+      return expressionVariantUnhandled(expression);
   }
 }
 
@@ -240,6 +360,12 @@ function statementsInvokeCapability(
         expressionInvokesCapability(statement.condition, helpers, walk) ||
         statementsInvokeCapability(statement.thenBranch, helpers, walk) ||
         (statement.elseBranch !== undefined && statementsInvokeCapability(statement.elseBranch, helpers, walk))
+      );
+    }
+    if (statement.kind === 'for') {
+      return (
+        forBounds(statement).some((bound) => expressionInvokesCapability(bound, helpers, walk)) ||
+        statementsInvokeCapability(statement.body, helpers, walk)
       );
     }
     return expressionInvokesCapability(statement.value, helpers, walk);
@@ -277,6 +403,8 @@ function expressionCallDepth(
         expressionCallDepth(expression.left, helpers, depths, active),
         expressionCallDepth(expression.right, helpers, depths, active),
       );
+    case 'unary':
+      return expressionCallDepth(expression.argument, helpers, depths, active);
     case 'list':
       return Math.max(0, ...expression.items.map((item) => expressionCallDepth(item, helpers, depths, active)));
     case 'record':
@@ -288,8 +416,11 @@ function expressionCallDepth(
       return expressionCallDepth(expression.object, helpers, depths, active);
     case 'json-call':
       return expressionCallDepth(expression.argument, helpers, depths, active);
-    default:
+    case 'literal':
+    case 'identifier':
       return 0;
+    default:
+      return expressionVariantUnhandled(expression);
   }
 }
 
@@ -326,6 +457,12 @@ function statementsCallDepth(
           expressionCallDepth(statement.condition, helpers, depths, active),
           statementsCallDepth(statement.thenBranch, helpers, depths, active),
           statement.elseBranch === undefined ? 0 : statementsCallDepth(statement.elseBranch, helpers, depths, active),
+        );
+      }
+      if (statement.kind === 'for') {
+        return Math.max(
+          statementsCallDepth(statement.body, helpers, depths, active),
+          ...forBounds(statement).map((bound) => expressionCallDepth(bound, helpers, depths, active)),
         );
       }
       return expressionCallDepth(statement.value, helpers, depths, active);

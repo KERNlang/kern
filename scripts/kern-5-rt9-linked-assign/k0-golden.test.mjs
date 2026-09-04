@@ -19,6 +19,7 @@ const ADMITTED = Object.freeze([
   'call-typed-literal',
   'call-typed-positive',
   'capability-to-capability',
+  'control-for',
   'helper-body-assign',
   'integer-from-identifier',
   'list-assign',
@@ -97,10 +98,10 @@ test('the RT-9 K0 golden pins linker admission, the statement union and the assi
   );
 });
 
-test('assign is a linked statement kind and the loop kinds still are not', async () => {
+test('assign and for are linked statement kinds, and the other loop kinds still are not', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
-  assert.deepEqual(golden.linkedStatementKinds, ['assign', 'capability', 'if', 'let', 'print', 'return']);
-  for (const kind of ['each', 'for', 'set', 'while']) {
+  assert.deepEqual(golden.linkedStatementKinds, ['assign', 'capability', 'for', 'if', 'let', 'print', 'return']);
+  for (const kind of ['each', 'set', 'while']) {
     assert.ok(!golden.linkedStatementKinds.includes(kind), `${kind} must stay outside RT-1 in this slice`);
   }
 });
@@ -114,9 +115,9 @@ test('every admitted assign position links on all three legs', async () => {
   assert.deepEqual(admitted, [...ADMITTED].sort());
 });
 
-test('the loop control rows did not move and set is still an excluded host', async () => {
+test('control-for moved to admitted, the other loop control rows did not move and set is still an excluded host', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
-  assert.equal(golden.admission['control-for'], 'handler-entry-unsupported');
+  assert.equal(golden.admission['control-for'], 'admitted');
   assert.equal(golden.admission['control-while'], 'handler-entry-unsupported');
   assert.equal(golden.admission['control-each'], 'handler-entry-unsupported');
   assert.equal(golden.admission['control-set'], 'not-projected');

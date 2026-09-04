@@ -25,6 +25,26 @@ const LIMIT_KEYS = [
   'maxStringBytes',
 ] as const;
 
+function bitLength(magnitude: bigint): number {
+  if (magnitude === 0n) return 0;
+  const hex = magnitude.toString(16);
+  return (hex.length - 1) * 4 + (32 - Math.clz32(Number.parseInt(hex[0], 16)));
+}
+
+// A conservative rational under log10(2): the floor is never above the true digit count.
+function decimalDigitsFloor(magnitude: bigint): number {
+  const bits = bitLength(magnitude);
+  return bits <= 1 ? 0 : Number((BigInt(bits - 1) * 30102n) / 100000n);
+}
+
+// True only when the binary size alone proves the canonical decimal text cannot fit, so the
+// quadratic conversion is skipped. `false` means inconclusive, not "fits": the exact conversion
+// and `text` still decide. Both emitted kernels carry a transliteration of this predicate.
+export function arithmeticResultExceedsLimit(value: bigint, maxStringBytes: number): boolean {
+  const sign = value < 0n ? 1 : 0;
+  return decimalDigitsFloor(sign === 1 ? -value : value) + sign >= maxStringBytes + 1;
+}
+
 export class RuntimeMeter {
   readonly limits: KernKirLimits;
   private readonly checkInterruption: () => void;
@@ -53,6 +73,17 @@ export class RuntimeMeter {
       throw new KernKirFault('runtime-limit-exceeded', 'execution', `${label} exceeds string limit`);
     }
     return value;
+  }
+
+  // The lower bound on decimal digits comes from the binary size, so a result that cannot fit is
+  // refused before the quadratic base-10 conversion runs: conversion cost is bounded by the limit
+  // rather than by the operand magnitude. The byte count includes the sign, here and in `text`.
+  integerText(value: bigint, label: string): string {
+    this.check();
+    if (arithmeticResultExceedsLimit(value, this.limits.maxStringBytes)) {
+      throw new KernKirFault('runtime-limit-exceeded', 'execution', `${label} exceeds string limit`);
+    }
+    return this.text(String(value), label);
   }
 
   collection(length: number, label: string): void {

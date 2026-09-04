@@ -164,12 +164,14 @@ test('a capability in a callee reached from a non-statement position is rejected
 });
 
 test('the closed cross-call type set is one exhaustive contract', () => {
-  assert.deepEqual(Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort(), ['boolean', 'list<boolean>', 'list<text>', 'text']);
+  const names = Object.keys(LINKED_KIR_CROSS_CALL_TYPES).sort();
+  assert.deepEqual(names, ['boolean', 'integer', 'list<boolean>', 'list<text>', 'text']);
   assert.deepEqual(LINKED_KIR_CROSS_CALL_TYPES.boolean, { element: undefined, kind: 'boolean' });
+  assert.deepEqual(LINKED_KIR_CROSS_CALL_TYPES.integer, { element: undefined, kind: 'integer' });
   assert.deepEqual(LINKED_KIR_CROSS_CALL_TYPES['list<text>'], { element: 'text', kind: 'list' });
 });
 
-test('an integer signature in call position is gated by the closed cross-call type set, not by F5', async () => {
+test('an integer signature in call position is admitted by the closed cross-call type set, not by F5', async () => {
   const uncalled = await admission(
     moduleSource([
       { body: ['return value="n"'], name: 'inc', parameters: [{ name: 'n', type: 'integer' }], returns: 'integer' },
@@ -187,7 +189,7 @@ test('an integer signature in call position is gated by the closed cross-call ty
     );
     assert.equal(called.projection, 'projected', spelling);
     for (const leg of ['rt1', 'javascript', 'python']) {
-      assert.equal(called[leg], 'handler-entry-unsupported', `${spelling} must stay outside the cross-call set on ${leg}`);
+      assert.equal(called[leg], 'admitted', `${spelling} must reach the integer cross-call row on ${leg}`);
     }
   }
 });
