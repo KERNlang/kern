@@ -20,6 +20,7 @@ const REFUSALS = Object.freeze([
   ['neg-void-return-in-body', 'KIR_VOID_HANDLER_VALUE_RETURN'],
   ['neg-async-bound-to', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-async-bound-from', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
+  ['neg-async-assign-in-body', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-break-in-body', 'statement kind break is outside RT-1'],
   ['neg-continue-in-body', 'statement kind continue is outside RT-1'],
 ]);
@@ -35,6 +36,7 @@ const ADMITTED = Object.freeze([
   ...TABLE_ROWS.map((row) => row.name),
   'for-step-zero-computed',
   'for-step-zero-dynamic-param',
+  'for-async-let-in-body',
 ]);
 
 async function assertAdmitted(position) {
@@ -135,4 +137,13 @@ test('a let and an if inside a loop body both link', async () => {
   await assertAdmitted('for-let-in-body');
   await assertAdmitted('for-if-in-body');
   await assertAdmitted('for-early-return');
+});
+
+// RT-5's position gate is unchanged by nesting: a direct call as the whole statement value is
+// admitted inside a loop body exactly as it is outside one, while the same call embedded in a
+// binary expression is still refused, because `assertAsyncCallPosition` never special-cases `for`.
+test('an async helper call is admitted as a body statement value but refused embedded in one', async () => {
+  await assertAdmitted('for-async-let-in-body');
+  const message = await assertLinkLabel(POSITIONS['neg-async-assign-in-body'](), 'KIR_ASYNC_CALL_EXPRESSION_POSITION');
+  assert.ok(message.includes('KIR_CALL_CALLEE_CAPABILITY'), 'RT-5 emits both labels together');
 });

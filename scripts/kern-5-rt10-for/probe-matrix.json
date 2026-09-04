@@ -10,6 +10,10 @@
     }
   },
   "positions": {
+    "for-async-let-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "for-big-step": {
       "diagnostics": [],
       "status": "projected"
@@ -162,6 +166,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "neg-async-assign-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "neg-async-bound-from": {
       "diagnostics": [],
       "status": "projected"
@@ -239,6 +247,10 @@
       "status": "projected"
     },
     "twin-assign-one": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-async-call": {
       "diagnostics": [],
       "status": "projected"
     },

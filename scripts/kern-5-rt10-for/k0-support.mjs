@@ -200,6 +200,17 @@ export const POSITIONS = Object.freeze({
       {},
     ),
   'for-counter-product': () => accumulate(1, 5, { term: 'i * i' }),
+  'for-async-let-in-body': () =>
+    program(
+      [
+        'let name=acc value="0"',
+        'for name=i from="0" to="3"',
+        '  let name=x value="afi()"',
+        '  assign target="acc" value="acc + x"',
+        'return value="acc"',
+      ],
+      { helpers: [ASYNC_INT_HELPER] },
+    ),
   'for-early-return': () =>
     program(['for name=i from="0" to="5"', '  if cond="i == 3"', '    return value="i"', 'return value="-1"']),
   'for-empty-negative': () => accumulate(0, 3, { step: -1, term: '1' }),
@@ -263,6 +274,16 @@ export const POSITIONS = Object.freeze({
     ]),
   'neg-assign-counter': () =>
     program(['for name=i from="0" to="3"', '  assign target="i" value="i + 1"', 'return value="1"']),
+  'neg-async-assign-in-body': () =>
+    program(
+      [
+        'let name=acc value="0"',
+        'for name=i from="0" to="3"',
+        '  assign target="acc" value="acc + afi()"',
+        'return value="acc"',
+      ],
+      { helpers: [ASYNC_INT_HELPER] },
+    ),
   'neg-async-bound-from': () => accumulate('afi()', 3, { helpers: [ASYNC_INT_HELPER], term: '1' }),
   'neg-async-bound-to': () => accumulate(0, 'afi()', { helpers: [ASYNC_INT_HELPER], term: '1' }),
   'neg-bound-bool-from': () => accumulate('flag', 3, { parameters: BOOL_FLAG, term: '1' }),
@@ -358,6 +379,8 @@ export const TWINS = Object.freeze({
     ),
   'twin-assign-one': () =>
     program(['let name=acc value="0"', 'assign target="acc" value="acc + 1"', 'return value="acc"']),
+  'twin-async-call': () =>
+    program(['let name=acc value="afi()"', 'return value="acc"'], { helpers: [ASYNC_INT_HELPER] }),
   'twin-let-binary': () => program(['let name=x value="1 + 2"', 'return value="x"']),
   'twin-let-literal': () => program(['let name=x value="3"', 'return value="x"']),
   'twin-two-lets': () => program(['let name=acc value="0"', 'let name=i value="0"', 'return value="acc"']),

@@ -141,6 +141,18 @@ test('neither emitted specialized region coerces the counter through a host numb
   }
 });
 
+// RT-5 admits an async helper called directly as a `let`/`assign` statement value; nothing in
+// `compileBlock`/`compileFor` special-cases that gate for a loop body, so the same call the body
+// vocabulary already allows outside a loop must link and run identically inside one, invoking its
+// capability once per trip.
+test('an async helper call admitted as a let value inside a for body runs once per trip on all three legs', async () => {
+  const { legs: runs } = await legs('for-async-let-in-body', 'rt10f-async-body');
+  for (const leg of ['direct', 'javascript', 'python']) {
+    assert.deepEqual(runs[leg].envelope.result, integerSlot('9'), `${leg} must sum three async calls to 9`);
+    assert.equal(runs[leg].calls.length, 3, `${leg} must invoke the capability exactly once per trip`);
+  }
+});
+
 test('a computed zero step links and then faults identically on all three legs', async () => {
   const { legs: runs } = await legs('for-step-zero-computed', 'rt10f-zero-computed');
   for (const leg of ['direct', 'javascript', 'python']) {

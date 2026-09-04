@@ -46,6 +46,13 @@ function checkpoints(region) {
   };
 }
 
+function awaits(region) {
+  return {
+    javascript: countOccurrences(region.javascript, 'await '),
+    python: countOccurrences(region.python, 'await '),
+  };
+}
+
 // A loop is the first construct on this base whose statement count is not bounded by the program
 // text, so its head must carry a checkpoint or a long loop is uninterruptible for its whole run.
 // The claim is a difference against the straight-line twin with the identical body, so it pins
@@ -102,6 +109,16 @@ test('no emitted loop introduces a suspension point into its statement region', 
       `RT10F_AWAIT_LEAK: ${name}'s Python region must carry no await either`,
     );
   }
+});
+
+// The one loop fixture whose body does admit an async call (RT-5's let-value gate, unchanged by
+// nesting): the call site is emitted once in source and executed once per trip, so the await
+// census must equal the same single call written straight-line, never scale with the trip count.
+test('a for body carrying an admitted async call adds no await point over the same call straight-line', async () => {
+  const straight = awaits(await regions(TWINS['twin-async-call']()));
+  const loop = awaits(await regions(POSITIONS['for-async-let-in-body']()));
+  assert.equal(loop.javascript, straight.javascript, 'RT10F_AWAIT_DRIFT: the JavaScript await census must not grow');
+  assert.equal(loop.python, straight.python, 'RT10F_AWAIT_DRIFT: the Python await census must not grow');
 });
 
 // The tribunal pinned the JavaScript lowering as a `for` over BigInt. A `for` whose counter is a
