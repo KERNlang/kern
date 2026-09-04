@@ -383,3 +383,90 @@ test('release still runs the complete test aggregate after version mutation', as
   const workflow = await text('.github/workflows/release-pipeline.yml');
   assert.match(workflow, /- name: Test\s+run: pnpm test/u);
 });
+
+const installingJobs = [
+  'quality',
+  'infrastructure-contracts',
+  'package-tests',
+  'semantics',
+  'frontend-foundation',
+  'frontend-properties-core',
+  'frontend-properties-extended',
+  'frontend-composition',
+  'frontend-language',
+  'frontend-tooling',
+  'product-smoke',
+  'kern-5-evidence',
+];
+
+const baseUsesByJob = new Map([
+  ['quality', ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/setup-python@v7']],
+  ['infrastructure-contracts', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['package-tests', ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/setup-python@v7']],
+  [
+    'semantics',
+    ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/setup-python@v7', 'actions/upload-artifact@v7'],
+  ],
+  ['frontend-foundation', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['frontend-properties-core', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['frontend-properties-extended', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['frontend-composition', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['frontend-language', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['frontend-tooling', ['actions/checkout@v7', 'actions/setup-node@v7']],
+  ['product-smoke', ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/setup-python@v7']],
+  ['kern-5-evidence', ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/setup-python@v7']],
+]);
+
+const pnpmCacheStepBlock = [
+  '      - name: Resolve pnpm store path',
+  '        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_ENV"',
+  '      - name: Cache pnpm store',
+  '        uses: actions/cache@v4',
+  '        with:',
+  '          path: ${{ env.STORE_PATH }}',
+  "          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}",
+  '',
+].join('\n');
+
+function jobUsesSet(job) {
+  return new Set([...job.matchAll(/uses: (\S+)/gu)].map((match) => match[1]));
+}
+
+test('every installing job caches the pnpm store between Activate pnpm and Install dependencies', async () => {
+  const workflow = await text('.github/workflows/ci.yml');
+  const installCommand = 'pnpm install --frozen-lockfile --ignore-scripts';
+  for (const id of installingJobs) {
+    const job = workflowJob(workflow, id);
+    const cacheIndex = job.indexOf(pnpmCacheStepBlock);
+    assert.ok(cacheIndex >= 0, `${id} must carry the pnpm store cache block verbatim`);
+
+    const activateIndex = job.indexOf('- name: Activate pnpm');
+    assert.ok(activateIndex >= 0, `${id} must still activate pnpm`);
+    assert.ok(activateIndex < cacheIndex, `${id} must cache the pnpm store after activating pnpm`);
+
+    const installIndex = commandIndex(job, installCommand);
+    assert.ok(installIndex >= 0, `${id} install command must stay exactly '${installCommand}'`);
+    assert.ok(cacheIndex < installIndex, `${id} must cache the pnpm store before installing dependencies`);
+  }
+});
+
+test('every installing job exposes exactly the expected uses: action set', async () => {
+  const workflow = await text('.github/workflows/ci.yml');
+  for (const id of installingJobs) {
+    const job = workflowJob(workflow, id);
+    const expected = new Set([...baseUsesByJob.get(id), 'actions/cache@v4']);
+    assert.deepEqual(
+      jobUsesSet(job),
+      expected,
+      `${id} must use exactly its expected actions plus actions/cache@v4`,
+    );
+  }
+});
+
+test('the concurrency gate is untouched by the pnpm cache change', async () => {
+  const workflow = await text('.github/workflows/ci.yml');
+  assert.match(
+    workflow,
+    /^concurrency:\n {2}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n {2}cancel-in-progress: true\n\n/mu,
+  );
+});
