@@ -12,6 +12,7 @@ import {
   envelopeBytes,
   integerSlot,
   positionArguments,
+  rawRuntimeFaultMessage,
   runtimeRequest,
   stepRequest,
   threeLegBytes,
@@ -178,6 +179,31 @@ test('a dynamic zero step through a parameter faults, and the same fixture with 
     integerSlot('3'),
     'the zero-step fault must be about the value, not about the parameter position',
   );
+});
+
+// The envelope's diagnostic never carries a message (`{category, code, phase}` only), so `code` and
+// `phase` alone cannot tell ERR_KIR_LOOP_ZERO_STEP apart from any other labelled fault sharing the
+// same code and phase. The label is observable on RT-1 only by driving the raw walk directly, and
+// on the two emitted legs only by the literal each embeds at its own zero-step raise site.
+test('the zero-step fault carries the exact label ERR_KIR_LOOP_ZERO_STEP on all three legs', async () => {
+  for (const [name, args] of [
+    ['for-step-zero-computed', {}],
+    ['for-step-zero-dynamic-param', { a: { tag: 'integer', value: '0' } }],
+  ]) {
+    const message = await rawRuntimeFaultMessage(POSITIONS[name](), args);
+    assert.equal(message, 'ERR_KIR_LOOP_ZERO_STEP', `${name}: RT-1 must raise the exact label, not a superstring`);
+    const regions = specializedRegions(await emittedArtifacts(POSITIONS[name]()));
+    assert.match(
+      regions.javascript,
+      /__Fault\('unsupported-runtime-input','execution','ERR_KIR_LOOP_ZERO_STEP'\)/u,
+      `${name}: the JavaScript leg must raise the exact label at the zero-step site`,
+    );
+    assert.match(
+      regions.python,
+      /raise _Fault\("unsupported-runtime-input", "execution", "ERR_KIR_LOOP_ZERO_STEP"\)/u,
+      `${name}: the Python leg must raise the exact label at the zero-step site`,
+    );
+  }
 });
 
 test('the zero-step fault is raised before the first head test, so no partial accumulation escapes', async () => {

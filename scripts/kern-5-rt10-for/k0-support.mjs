@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { walkStatements, ENTRY_WALK_POLICY, WALK_SEED } from '../../packages/core/dist/kir-runtime/expression.js';
+import { RuntimeMeter } from '../../packages/core/dist/kir-runtime/inspect.js';
+import {
+  linkVerifiedKernKirProgramOrThrow,
+  linkedProgramAsyncHelpers,
+  linkedProgramHelpers,
+} from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import { decodeModuleKir } from '../../packages/core/dist/kir-structural/module-canonical.js';
 // A `export *` re-export does not bring a name into this module's own scope, so everything this
 // file calls is imported by name as well as re-exported below.
@@ -116,6 +123,35 @@ export async function loopStepBudget(source, args, requestId) {
   const total = await search(runs, 'execution');
   assert.equal(await runs(total - 1), false, `${requestId}: step consumption must be monotonic in the budget`);
   return { execution: total - link, link };
+}
+
+// The envelope carries only `{category, code, phase}` for a runtime diagnostic — never a message —
+// so the label a runtime fault raises is only observable by driving the walk directly and catching
+// the raw `KernKirFault` before `executeKernKir` converts it into an envelope.
+export async function rawRuntimeFaultMessage(source, args) {
+  const verified = await project(source);
+  assert.ok(verified !== undefined, 'the fixture must project so the fault is a runtime decision');
+  const linked = linkVerifiedKernKirProgramOrThrow(verified, ENTRY, new RuntimeMeter(LIMITS));
+  const bindings = new Map(Object.entries(args));
+  const runtime = {
+    asyncHelpers: linkedProgramAsyncHelpers(linked.helpers),
+    checkAbort: () => {},
+    events: [],
+    helpers: linkedProgramHelpers(linked.helpers),
+    maxEvents: LIMITS.maxEvents,
+  };
+  const walk = walkStatements(linked.program, bindings, new RuntimeMeter(LIMITS), runtime, ENTRY_WALK_POLICY);
+  let resume = WALK_SEED;
+  for (;;) {
+    let step;
+    try {
+      step = walk.next(resume);
+    } catch (error) {
+      return error.message;
+    }
+    assert.ok(!step.done, 'the fixture must fault before draining or returning');
+    assert.fail(`unexpected suspension step ${step.value.kind}`);
+  }
 }
 
 export function f5Row(source) {
