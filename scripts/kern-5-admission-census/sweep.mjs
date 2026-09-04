@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,9 +11,67 @@ export const PROBE = fileURLToPath(new URL('./probe-file.mjs', import.meta.url))
 const CHILD_MAX_BYTES = 4_000_000;
 const STDERR_MAX_BYTES = 480;
 
+// A half-written report is indistinguishable from a truthful one, so every write lands by rename.
+export function writeAtomic(path, text) {
+  const temporary = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, text, { flag: 'wx' });
+    renameSync(temporary, path);
+  } catch (error) {
+    try {
+      unlinkSync(temporary);
+    } catch {}
+    throw error;
+  }
+}
+
+export function ratchetRefusals(results, whitelist, { allowShrink = false } = {}) {
+  const refusals = [];
+  const incomplete = results.filter((result) => result.stage === 'timeout' || result.stage === 'probe');
+  if (incomplete.length > 0) {
+    const named = incomplete.slice(0, 5).map((result) => `${result.file} (${result.code})`).join(', ');
+    refusals.push(`${incomplete.length} probe(s) did not complete cleanly: ${named}`);
+  }
+  const admitted = new Set(results.filter((result) => result.admitted).map((result) => result.file));
+  const regressed = whitelist.filter((file) => !admitted.has(file));
+  if (regressed.length > 0) refusals.push(`whitelisted file(s) no longer admit: ${regressed.join(', ')}`);
+  if (!allowShrink && admitted.size < whitelist.length) {
+    refusals.push(
+      `the ratchet may only grow: ${admitted.size} admitted against ${whitelist.length} whitelisted ` +
+        '(pass --allow-shrink to record a deliberate shrink)',
+    );
+  }
+  return refusals;
+}
+
+export function corpusInvariantFailures(results, whitelist) {
+  const incomplete = results.filter((result) => result.stage === 'timeout' || result.stage === 'probe');
+  const admitted = results.filter((result) => result.admitted).map((result) => result.file).sort();
+  const expected = [...whitelist].sort();
+  const failures = [];
+  const extra = admitted.filter((file) => !expected.includes(file));
+  const missing = expected.filter((file) => !admitted.includes(file));
+  if (incomplete.length > 0) {
+    const named = incomplete.slice(0, 5).map((result) => `${result.file} (${result.code})`).join(', ');
+    failures.push(`${incomplete.length} probe(s) did not complete cleanly: ${named}`);
+  }
+  if (extra.length > 0) failures.push(`admitted but not whitelisted: ${extra.join(', ')}`);
+  if (missing.length > 0) failures.push(`whitelisted but not admitted: ${missing.join(', ')}`);
+  return failures;
+}
+
+// Synchronous on purpose: the CLI reads this after the sweep resolves, where an accidental
+// promise would read as an empty whitelist instead of failing.
+export function whitelistFiles() {
+  const ratchet = JSON.parse(readFileSync(resolve(CENSUS_DIR, 'admitted.json'), 'utf8'));
+  if (!Array.isArray(ratchet.admitted)) throw new TypeError('admitted.json must carry an admitted array');
+  return ratchet.admitted.map((row) => row.file);
+}
+
 export function parseArguments(argv) {
   const options = {
     files: undefined,
+    allowShrink: false,
     jobs: DEFAULT_JOBS,
     out: resolve(CENSUS_DIR, 'admission.json'),
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -23,6 +81,10 @@ export function parseArguments(argv) {
     const argument = argv[index];
     if (argument === '--update') {
       options.update = true;
+      continue;
+    }
+    if (argument === '--allow-shrink') {
+      options.allowShrink = true;
       continue;
     }
     const next = argv[index + 1];
@@ -165,7 +227,7 @@ export async function sweep(options, log = (line) => process.stderr.write(line))
   const slots = new Array(files.length).fill(undefined);
   let completed = 0;
   let next = 0;
-  writeFileSync(options.out, canonicalStringify(report(files, slots, completed, options.timeoutMs)));
+  writeAtomic(options.out, canonicalStringify(report(files, slots, completed, options.timeoutMs)));
   async function worker() {
     while (next < files.length) {
       const index = next;
@@ -174,20 +236,33 @@ export async function sweep(options, log = (line) => process.stderr.write(line))
       const result = await probeOne(file, options.timeoutMs);
       slots[index] = result;
       completed += 1;
-      writeFileSync(options.out, canonicalStringify(report(files, slots, completed, options.timeoutMs)));
+      writeAtomic(options.out, canonicalStringify(report(files, slots, completed, options.timeoutMs)));
       const verdict = result.admitted ? `ADMITTED ${result.handlerName}` : `rejected ${result.stage}/${result.code}`;
       log(`[${completed}/${files.length}] ${file} ${verdict}\n`);
     }
   }
   await Promise.all(Array.from({ length: jobs }, () => worker()));
+  const final = report(files, slots, completed, options.timeoutMs);
   if (options.update) {
-    writeFileSync(resolve(CENSUS_DIR, 'admitted.json'), canonicalStringify(ratchet(slots)));
+    const refusals = ratchetRefusals(final.results, whitelistFiles(), options);
+    if (refusals.length > 0) return { ...final, refusals, updated: false };
+    writeAtomic(resolve(CENSUS_DIR, 'admitted.json'), canonicalStringify(ratchet(slots)));
+    return { ...final, refusals: [], updated: true };
   }
-  return report(files, slots, completed, options.timeoutMs);
+  return final;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const options = parseArguments(process.argv.slice(2));
   const final = await sweep(options);
   process.stderr.write(`census: ${final.admittedCount}/${final.total} admitted\n`);
+  if (options.update && !final.updated) {
+    for (const refusal of final.refusals) process.stderr.write(`census: refusing --update: ${refusal}\n`);
+    process.exitCode = 1;
+  } else if (options.files === undefined) {
+    // The corpus-wide invariant: the sweep is the only place the whole admitted set is knowable.
+    const failures = corpusInvariantFailures(final.results, whitelistFiles());
+    for (const failure of failures) process.stderr.write(`census: corpus invariant violated: ${failure}\n`);
+    if (failures.length > 0) process.exitCode = 1;
+  }
 }

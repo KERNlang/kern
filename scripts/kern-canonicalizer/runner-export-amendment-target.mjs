@@ -16,6 +16,10 @@ export const POST_RUNNER_EXPORT_AMENDMENT_COMPILED_RECONSTRUCTIONS = [
           "        return false;\n" +
           "    if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream))\n" +
           "        return false;\n" +
+          "    if (typeof node.props?.params === 'string' && node.props.params.trim() !== '')\n" +
+          "        return false;\n" +
+          "    if ((node.children ?? []).some((child) => child.type === 'param'))\n" +
+          "        return false;\n" +
           "    return (node.children ?? []).filter((child) => child.type === 'handler' && child.props?.lang === 'kern').length === 1;\n" +
           "}\n" +
           "",
