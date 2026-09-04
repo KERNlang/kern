@@ -5,19 +5,24 @@ import { fileURLToPath } from 'node:url';
 const MARKDOWN_SUFFIX = '.md';
 const EXCLUDED_PATH_PATTERNS = [
   /^\.Codex\/specs\//u,
-  /^scripts\/kern-5-[^/]*\//u,
-  /^scripts\/kern-frontend-[^/]*\//u,
+  /^examples\//u,
+  /^docs\//u,
+  /^scripts\//u,
+  /^packages\//u,
+  /^\.github\//u,
 ];
 const SAFE_REF = /^[\w.][\w.\-/]*$/u;
 
-function isDocsPath(candidate) {
+function isDocsPath(candidate, references) {
   if (typeof candidate !== 'string' || candidate.length === 0) return false;
   const basename = candidate.slice(candidate.lastIndexOf('/') + 1);
   if (!basename.endsWith(MARKDOWN_SUFFIX) || basename.length === MARKDOWN_SUFFIX.length) return false;
-  return !EXCLUDED_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
+  if (EXCLUDED_PATH_PATTERNS.some((pattern) => pattern.test(candidate))) return false;
+  if (typeof references === 'function' && references(candidate)) return false;
+  return true;
 }
 
-export function classifyChanges({ eventName, baseRef, files }) {
+export function classifyChanges({ eventName, baseRef, files, references }) {
   if (eventName !== 'pull_request') return 'FULL';
   if (typeof baseRef !== 'string' || baseRef.length === 0) return 'FULL';
   if (!Array.isArray(files) || files.length === 0) return 'FULL';
@@ -26,7 +31,7 @@ export function classifyChanges({ eventName, baseRef, files }) {
       (side) => typeof side === 'string' && side.length > 0,
     );
     if (sides.length === 0) return 'FULL';
-    if (!sides.every(isDocsPath)) return 'FULL';
+    if (!sides.every((side) => isDocsPath(side, references))) return 'FULL';
   }
   return 'DOCS_ONLY';
 }
@@ -57,15 +62,22 @@ function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: 'pipe' });
 }
 
-export function classifyFromGit({ eventName, baseRef }) {
+function referencesTrackedFile(candidate) {
+  const basename = candidate.slice(candidate.lastIndexOf('/') + 1);
+  try {
+    const hits = git('grep', '-l', '-I', '-F', '-e', candidate, '-e', basename, '--', ':!*.md');
+    return hits.trim().length > 0;
+  } catch (error) {
+    return error?.status !== 1;
+  }
+}
+
+export function classifyFromGit({ eventName, baseSha, references = referencesTrackedFile }) {
   if (eventName !== 'pull_request') return 'FULL';
-  if (typeof baseRef !== 'string' || !SAFE_REF.test(baseRef)) return 'FULL';
-  const remoteRef = `refs/remotes/origin/${baseRef}`;
-  git('fetch', '--no-tags', '--quiet', 'origin', `+refs/heads/${baseRef}:${remoteRef}`);
-  const mergeBase = git('merge-base', remoteRef, 'HEAD').trim();
-  if (mergeBase.length === 0) return 'FULL';
-  const files = parseNameStatus(git('diff', '--name-status', '-z', '-M', mergeBase, 'HEAD'));
-  return classifyChanges({ eventName, baseRef, files });
+  if (typeof baseSha !== 'string' || !SAFE_REF.test(baseSha)) return 'FULL';
+  git('fetch', '--no-tags', '--quiet', '--depth=1', 'origin', baseSha);
+  const files = parseNameStatus(git('diff', '--name-status', '-z', '-M', baseSha, 'HEAD'));
+  return classifyChanges({ eventName, baseRef: baseSha, files, references });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -73,7 +85,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     ciClass = classifyFromGit({
       eventName: process.env.GITHUB_EVENT_NAME,
-      baseRef: process.env.GITHUB_BASE_REF,
+      baseSha: process.env.GITHUB_BASE_SHA,
     });
   } catch (error) {
     process.stderr.write(`classify-ci-changes failed closed to FULL: ${error?.message ?? error}\n`);
