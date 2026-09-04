@@ -11,8 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    name: Detect change class
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ci_class: ${{ steps.classify.outputs.ci_class }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Classify the changed files
+        id: classify
+        run: node scripts/ci/classify-ci-changes.mjs
+
   quality:
     name: Quality and contract gates
+    needs: [detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -53,6 +71,8 @@ jobs:
 
   infrastructure-contracts:
     name: Infrastructure contracts
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -74,6 +94,8 @@ jobs:
 
   package-tests:
     name: Package tests (${{ matrix.name }})
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -110,6 +132,8 @@ jobs:
 
   semantics:
     name: IR semantics contracts
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -155,6 +179,8 @@ jobs:
 
   frontend-foundation:
     name: Frontend foundation
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -176,6 +202,8 @@ jobs:
 
   frontend-properties-core:
     name: Frontend generic properties core
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -197,6 +225,8 @@ jobs:
 
   frontend-properties-extended:
     name: Frontend generic properties extended (${{ matrix.name }})
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -230,6 +260,8 @@ jobs:
 
   frontend-composition:
     name: Frontend composition (${{ matrix.name }})
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -263,6 +295,8 @@ jobs:
 
   frontend-language:
     name: Frontend F1 through F4 (${{ matrix.name }})
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -302,6 +336,8 @@ jobs:
 
   frontend-tooling:
     name: Frontend tooling (${{ matrix.name }})
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -337,6 +373,8 @@ jobs:
 
   product-smoke:
     name: Native, runner, and preview gates
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -369,6 +407,8 @@ jobs:
 
   kern-5-evidence:
     name: KERN 5 evidence family
+    needs: [detect-changes]
+    if: ${{ needs.detect-changes.outputs.ci_class == 'FULL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -396,15 +436,28 @@ jobs:
   build-and-test:
     name: Build & Test
     if: ${{ always() }}
-    needs: [quality, infrastructure-contracts, package-tests, semantics, frontend-foundation, frontend-properties-core, frontend-properties-extended, frontend-composition, frontend-language, frontend-tooling, product-smoke, kern-5-evidence]
+    needs: [detect-changes, quality, infrastructure-contracts, package-tests, semantics, frontend-foundation, frontend-properties-core, frontend-properties-extended, frontend-composition, frontend-language, frontend-tooling, product-smoke, kern-5-evidence]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every CI lane to succeed
-        run: |
-          for result in "${{ needs.quality.result }}" "${{ needs.infrastructure-contracts.result }}" "${{ needs.package-tests.result }}" "${{ needs.semantics.result }}" "${{ needs.frontend-foundation.result }}" "${{ needs.frontend-properties-core.result }}" "${{ needs.frontend-properties-extended.result }}" "${{ needs.frontend-composition.result }}" "${{ needs.frontend-language.result }}" "${{ needs.frontend-tooling.result }}" "${{ needs.product-smoke.result }}" "${{ needs.kern-5-evidence.result }}"; do
-            if [ "$result" != success ]; then
-              echo "A required CI lane did not succeed: $result"
-              exit 1
-            fi
-          done
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Require every CI lane to match the detected change class
+        env:
+          CI_CLASS: ${{ needs.detect-changes.outputs.ci_class }}
+          LANE_RESULTS: >-
+            {"quality": "${{ needs.quality.result }}",
+            "infrastructure-contracts": "${{ needs.infrastructure-contracts.result }}",
+            "package-tests": "${{ needs.package-tests.result }}",
+            "semantics": "${{ needs.semantics.result }}",
+            "frontend-foundation": "${{ needs.frontend-foundation.result }}",
+            "frontend-properties-core": "${{ needs.frontend-properties-core.result }}",
+            "frontend-properties-extended": "${{ needs.frontend-properties-extended.result }}",
+            "frontend-composition": "${{ needs.frontend-composition.result }}",
+            "frontend-language": "${{ needs.frontend-language.result }}",
+            "frontend-tooling": "${{ needs.frontend-tooling.result }}",
+            "product-smoke": "${{ needs.product-smoke.result }}",
+            "kern-5-evidence": "${{ needs.kern-5-evidence.result }}"}
+        run: node scripts/ci/evaluate-ci-lanes.mjs scripts/ci/ci-lane-policy.json "$CI_CLASS" "$LANE_RESULTS"
