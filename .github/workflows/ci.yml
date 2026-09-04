@@ -16,21 +16,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      ci_class: ${{ steps.classify.outputs.ci_class }}
+      ci_class: ${{ steps.classify.outputs.ci_class || steps.default-full.outputs.ci_class }}
     steps:
       - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-node@v7
+        if: github.event_name == 'pull_request'
         with:
           node-version: '22'
       - name: Classify the changed files
+        if: github.event_name == 'pull_request'
         id: classify
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node scripts/ci/classify-ci-changes.mjs
+      - name: Default to full for non-pull-request events
+        if: github.event_name != 'pull_request'
+        id: default-full
+        run: echo "ci_class=FULL" >> "$GITHUB_OUTPUT"
 
   quality:
     name: Quality and contract gates
-    needs: [detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
