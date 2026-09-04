@@ -415,6 +415,7 @@ test('the emitted Python kernel leaves the process int/str digit limit exactly a
     atCapLockAcquisitions: 1,
     atCapRoundTrip: true,
     errors: [],
+    firstCompletedBeforeSecond: true,
     firstEnteredBeforeSecond: true,
     firstInside: [0],
     nestedInnerInside: [0],
@@ -422,12 +423,12 @@ test('the emitted Python kernel leaves the process int/str digit limit exactly a
     nestedResult: '0',
     overCapLockAcquisitions: 2,
     overCapRoundTrip: true,
-    secondAcquisitionAttempted: true,
-    secondEnteredBeforeRelease: false,
     secondInside: [0],
+    secondLimitZeroBeforeRelease: true,
     shortLockAcquisitions: 0,
     shortValues: [42, '42'],
     stableLockBound: true,
+    stableLockShared: true,
     threadsCompleted: true,
   });
 });

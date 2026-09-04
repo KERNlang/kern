@@ -12,11 +12,8 @@ class InstrumentedRLock:
     def __init__(self):
         self._lock = threading.RLock()
         self.acquisitions = 0
-        self.second_attempted = threading.Event()
 
     def __enter__(self):
-        if threading.current_thread().name == "digit-window-b":
-            self.second_attempted.set()
         self._lock.acquire()
         self.acquisitions += 1
         return self
@@ -58,6 +55,9 @@ over_cap_lock_acquisitions = instrumented_lock.acquisitions - over_cap_acquisiti
 first_entered = threading.Event()
 release_first = threading.Event()
 second_entered = threading.Event()
+second_limit_zero_observed = threading.Event()
+allow_second_after_release = threading.Event()
+first_completed = threading.Event()
 errors = []
 first_inside = []
 second_inside = []
@@ -76,23 +76,44 @@ def second_convert(argument):
     return argument
 
 
-def convert_with(target_module, convert):
+def convert_with(target_module, convert, completed=None):
     try:
         target_module._lifted_digits(convert, large_argument)
     except BaseException as error:
         errors.append(f"{type(error).__name__}: {error}")
+    finally:
+        if completed is not None:
+            completed.set()
 
 
-first = threading.Thread(target=convert_with, args=(module, first_convert), name="digit-window-a")
+original_get_int_max_str_digits = sys.get_int_max_str_digits
+
+
+def gated_get_int_max_str_digits():
+    limit = original_get_int_max_str_digits()
+    if threading.current_thread().name == "digit-window-b" and limit == 0:
+        second_limit_zero_observed.set()
+        allow_second_after_release.wait(5)
+    return limit
+
+
+sys.get_int_max_str_digits = gated_get_int_max_str_digits
+first = threading.Thread(
+    target=convert_with,
+    args=(module, first_convert, first_completed),
+    name="digit-window-a",
+)
 second = threading.Thread(target=convert_with, args=(peer_module, second_convert), name="digit-window-b")
 first.start()
 first_entered_before_second = first_entered.wait(5)
 second.start()
-second_acquisition_attempted = instrumented_lock.second_attempted.wait(5)
-second_entered_before_release = second_entered.is_set()
+second_limit_zero_before_release = second_limit_zero_observed.wait(5)
 release_first.set()
+first_completed_before_second = first_completed.wait(5)
+allow_second_after_release.set()
 first.join(5)
 second.join(5)
+sys.get_int_max_str_digits = original_get_int_max_str_digits
 nested_outer_inside = []
 nested_inner_inside = []
 
@@ -122,6 +143,7 @@ Path(output_path).write_text(
                 "atCapLockAcquisitions": at_cap_lock_acquisitions,
                 "atCapRoundTrip": at_cap_text == at_cap_argument,
                 "errors": errors,
+                "firstCompletedBeforeSecond": first_completed_before_second,
                 "firstEnteredBeforeSecond": first_entered_before_second,
                 "firstInside": first_inside,
                 "nestedInnerInside": nested_inner_inside,
@@ -129,13 +151,12 @@ Path(output_path).write_text(
                 "nestedResult": nested_result,
                 "overCapLockAcquisitions": over_cap_lock_acquisitions,
                 "overCapRoundTrip": over_cap_text == large_argument,
-                "secondAcquisitionAttempted": second_acquisition_attempted,
-                "secondEnteredBeforeRelease": second_entered_before_release,
                 "secondInside": second_inside,
+                "secondLimitZeroBeforeRelease": second_limit_zero_before_release,
                 "shortLockAcquisitions": short_lock_acquisitions,
                 "shortValues": short_values,
-                "stableLockBound": module._digit_window_lock is instrumented_lock
-                and peer_module._digit_window_lock is instrumented_lock,
+                "stableLockBound": module._digit_window_lock is instrumented_lock,
+                "stableLockShared": module._digit_window_lock is peer_module._digit_window_lock,
                 "threadsCompleted": not first.is_alive() and not second.is_alive(),
             },
         },

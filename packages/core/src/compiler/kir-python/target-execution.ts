@@ -130,17 +130,17 @@ def _lifted_digits(convert, argument):
     if not hasattr(sys, "set_int_max_str_digits"):
         return convert(argument)
     limit = sys.get_int_max_str_digits()
-    if limit == 0 and not sys.__dict__.get("_kern_digit_window_active", False):
-        return convert(argument)
     if limit != 0 and _conversion_within_digit_cap(convert, argument, limit):
         return convert(argument)
     with _digit_window_lock:
         previous = sys.get_int_max_str_digits()
+        active = sys.__dict__.get("_kern_digit_window_active", False)
+        if previous == 0 and not active:
+            return convert(argument)
         if previous == 0:
             return convert(argument)
         if _conversion_within_digit_cap(convert, argument, previous):
             return convert(argument)
-        active = sys.__dict__.get("_kern_digit_window_active", False)
         sys.__dict__["_kern_digit_window_active"] = True
         sys.set_int_max_str_digits(0)
         try:
