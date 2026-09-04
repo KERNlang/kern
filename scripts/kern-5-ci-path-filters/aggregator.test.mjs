@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { evaluateLanes } from '../ci/evaluate-ci-lanes.mjs';
+
+const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
+const EVALUATOR = resolve(ROOT, 'scripts/ci/evaluate-ci-lanes.mjs');
+const POLICY = resolve(ROOT, 'scripts/ci/ci-lane-policy.json');
 
 const LANES = [
   'frontend-composition',
@@ -28,8 +36,11 @@ const policy = {
 
 function resultsFor(ciClass, overrides = {}) {
   const successLanes = new Set(policy.classes[ciClass]);
-  const base = Object.fromEntries(LANES.map((lane) => [lane, successLanes.has(lane) ? 'success' : 'skipped']));
-  return { ...base, ...overrides };
+  const base = Object.fromEntries(
+    LANES.map((lane) => [lane, { result: successLanes.has(lane) ? 'success' : 'skipped' }]),
+  );
+  for (const [lane, result] of Object.entries(overrides)) base[lane] = { result };
+  return base;
 }
 
 test('every lane succeeding under FULL is ok', () => {
@@ -89,4 +100,18 @@ test('an unknown lane in results is not ok', () => {
   });
   assert.equal(result.ok, false);
   assert.ok(result.violations.some((line) => line.includes('not-a-real-lane')));
+});
+
+test('the CLI tolerates a toJSON(needs)-shaped payload carrying the detect-changes control key', () => {
+  const realPolicy = JSON.parse(readFileSync(POLICY, 'utf8'));
+  const needsShapedResults = Object.fromEntries(
+    realPolicy.classes.FULL.map((lane) => [lane, { result: 'success', outputs: {} }]),
+  );
+  needsShapedResults['detect-changes'] = { result: 'success', outputs: { ci_class: 'FULL' } };
+  const stdout = execFileSync(
+    process.execPath,
+    [EVALUATOR, POLICY, 'FULL', JSON.stringify(needsShapedResults)],
+    { encoding: 'utf8' },
+  );
+  assert.equal(stdout, 'CI lanes match the FULL policy\n');
 });

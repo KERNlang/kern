@@ -455,17 +455,5 @@ jobs:
       - name: Require every CI lane to match the detected change class
         env:
           CI_CLASS: ${{ needs.detect-changes.outputs.ci_class }}
-          LANE_RESULTS: >-
-            {"quality": "${{ needs.quality.result }}",
-            "infrastructure-contracts": "${{ needs.infrastructure-contracts.result }}",
-            "package-tests": "${{ needs.package-tests.result }}",
-            "semantics": "${{ needs.semantics.result }}",
-            "frontend-foundation": "${{ needs.frontend-foundation.result }}",
-            "frontend-properties-core": "${{ needs.frontend-properties-core.result }}",
-            "frontend-properties-extended": "${{ needs.frontend-properties-extended.result }}",
-            "frontend-composition": "${{ needs.frontend-composition.result }}",
-            "frontend-language": "${{ needs.frontend-language.result }}",
-            "frontend-tooling": "${{ needs.frontend-tooling.result }}",
-            "product-smoke": "${{ needs.product-smoke.result }}",
-            "kern-5-evidence": "${{ needs.kern-5-evidence.result }}"}
+          LANE_RESULTS: ${{ toJSON(needs) }}
         run: node scripts/ci/evaluate-ci-lanes.mjs scripts/ci/ci-lane-policy.json "$CI_CLASS" "$LANE_RESULTS"

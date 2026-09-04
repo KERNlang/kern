@@ -23,7 +23,7 @@ export function evaluateLanes({ policy, ciClass, results }) {
   const selectedLanes = new Set(selected);
   for (const lane of lanes) {
     const expected = selectedLanes.has(lane) ? 'success' : 'skipped';
-    const actual = reported[lane];
+    const actual = reported[lane]?.result;
     if (typeof actual !== 'string' || actual.length === 0) {
       violations.push(`${lane}: expected ${expected} but no result was reported`);
       continue;
@@ -42,17 +42,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [policyPath, ciClass, resultsJson] = process.argv.slice(2);
   if (!policyPath || !resultsJson) fail('usage: evaluate-ci-lanes.mjs <policy.json> <ci-class> <results-json>');
   let policy;
-  let results;
   try {
     policy = JSON.parse(readFileSync(policyPath, 'utf8'));
   } catch (error) {
     fail(`unreadable lane policy ${policyPath}: ${error?.message ?? error}`);
   }
+  let rawResults;
   try {
-    results = JSON.parse(resultsJson);
+    rawResults = JSON.parse(resultsJson);
   } catch (error) {
     fail(`unreadable lane results: ${error?.message ?? error}`);
   }
+  const results = Object.fromEntries(
+    Object.entries(rawResults ?? {}).filter(([job]) => policy?.lanes?.includes(job)),
+  );
   const { ok, violations } = evaluateLanes({ policy, ciClass, results });
   if (!ok) fail(`CI lanes do not match the ${ciClass} policy:\n${violations.map((line) => `  - ${line}`).join('\n')}`);
   process.stdout.write(`CI lanes match the ${ciClass} policy\n`);
