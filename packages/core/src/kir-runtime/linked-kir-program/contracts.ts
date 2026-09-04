@@ -264,7 +264,19 @@ export type LinkedKernKirStatement =
       readonly condition: LinkedKernKirExpression;
       readonly thenBranch: readonly LinkedKernKirStatement[];
       readonly elseBranch: readonly LinkedKernKirStatement[] | undefined;
+    }
+  | {
+      readonly kind: 'for';
+      readonly body: readonly LinkedKernKirStatement[];
+      readonly counter: string;
+      readonly from: LinkedKernKirExpression;
+      readonly step: LinkedKernKirExpression;
+      readonly to: LinkedKernKirExpression;
     };
+
+function forBounds(statement: Extract<LinkedKernKirStatement, { kind: 'for' }>): readonly LinkedKernKirExpression[] {
+  return [statement.from, statement.to, statement.step];
+}
 
 // Exhaustive on purpose, like `containsAsyncCall`: a permissive `default` would let a future
 // expression variant slip past the capability closure and the call-depth policy with no tsc error.
@@ -348,6 +360,12 @@ function statementsInvokeCapability(
         expressionInvokesCapability(statement.condition, helpers, walk) ||
         statementsInvokeCapability(statement.thenBranch, helpers, walk) ||
         (statement.elseBranch !== undefined && statementsInvokeCapability(statement.elseBranch, helpers, walk))
+      );
+    }
+    if (statement.kind === 'for') {
+      return (
+        forBounds(statement).some((bound) => expressionInvokesCapability(bound, helpers, walk)) ||
+        statementsInvokeCapability(statement.body, helpers, walk)
       );
     }
     return expressionInvokesCapability(statement.value, helpers, walk);
@@ -439,6 +457,12 @@ function statementsCallDepth(
           expressionCallDepth(statement.condition, helpers, depths, active),
           statementsCallDepth(statement.thenBranch, helpers, depths, active),
           statement.elseBranch === undefined ? 0 : statementsCallDepth(statement.elseBranch, helpers, depths, active),
+        );
+      }
+      if (statement.kind === 'for') {
+        return Math.max(
+          statementsCallDepth(statement.body, helpers, depths, active),
+          ...forBounds(statement).map((bound) => expressionCallDepth(bound, helpers, depths, active)),
         );
       }
       return expressionCallDepth(statement.value, helpers, depths, active);
