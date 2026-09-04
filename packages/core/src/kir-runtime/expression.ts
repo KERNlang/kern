@@ -162,6 +162,8 @@ export function* walkStatements(
     runtime.checkAbort();
     if (statement.kind === 'let') {
       bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
+    } else if (statement.kind === 'assign') {
+      bindings.set(statement.target, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'capability') {
       const input: KernKirSlot =
         statement.input === undefined
