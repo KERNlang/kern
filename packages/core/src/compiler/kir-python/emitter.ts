@@ -9,6 +9,7 @@ import type {
 } from '../../kir-runtime/linked-kir-program/index.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  LINKED_KIR_UNARY_OPERATORS,
   linkedProgramAsyncHelpers,
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
@@ -104,9 +105,14 @@ function expressionSource(
       source =
         operator.family === 'logical'
           ? `${operator.pythonHelper}(${left},lambda:${right})`
-          : `${operator.pythonHelper}(${left},${right})`;
+          : operator.family === 'arithmetic'
+            ? `${operator.pythonHelper}(${left},${right},_meter)`
+            : `${operator.pythonHelper}(${left},${right})`;
       break;
     }
+    case 'unary':
+      source = `${LINKED_KIR_UNARY_OPERATORS[expression.op].pythonHelper}(${expressionSource(expression.argument, bindings, calls)},_meter)`;
+      break;
     case 'member':
       source = `_member(${expressionSource(expression.object, bindings, calls)},${expression.optional ? 'True' : 'False'},${encodedText(expression.property)})`;
       break;

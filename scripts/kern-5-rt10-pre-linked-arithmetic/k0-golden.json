@@ -1,0 +1,165 @@
+{
+  "admission": {
+    "add-in-let": "admitted",
+    "add-in-print-tag": "admitted",
+    "add-in-return": "admitted",
+    "add-under-comparison-in-if": "admitted",
+    "add-under-comparison-in-let": "admitted",
+    "arith-return-type-mismatch": "admitted",
+    "assign-arith": "admitted",
+    "assign-arith-params": "admitted",
+    "assign-neg": "admitted",
+    "digits-beyond-cpython-cap": "admitted",
+    "helper-body-arith": "admitted",
+    "local-add": "admitted",
+    "mul-in-return": "admitted",
+    "neg-in-let": "admitted",
+    "neg-in-return": "admitted",
+    "neg-of-local": "admitted",
+    "neg-through-binding-zero": "admitted",
+    "param-add": "admitted",
+    "param-add-under-comparison-in-if": "admitted",
+    "param-neg": "admitted",
+    "param-ordering": "admitted",
+    "refuse-arith-call-argument": "handler-entry-unsupported",
+    "refuse-arith-if-cond": "handler-entry-unsupported",
+    "refuse-binary-async-operand": "handler-entry-unsupported",
+    "refuse-binary-async-operand-right": "handler-entry-unsupported",
+    "refuse-bool-operands": "handler-entry-unsupported",
+    "refuse-bool-param-left": "handler-entry-unsupported",
+    "refuse-bool-param-right": "handler-entry-unsupported",
+    "refuse-call-operand": "handler-entry-unsupported",
+    "refuse-capability-operand": "handler-entry-unsupported",
+    "refuse-chained-comparison": "handler-entry-unsupported",
+    "refuse-decimal-operand": "handler-entry-unsupported",
+    "refuse-div": "handler-entry-unsupported",
+    "refuse-int-text": "handler-entry-unsupported",
+    "refuse-integer-helper-call": "handler-entry-unsupported",
+    "refuse-integer-helper-operand": "handler-entry-unsupported",
+    "refuse-integer-param-helper-call": "handler-entry-unsupported",
+    "refuse-leading-zero": "not-projected",
+    "refuse-list-operand": "handler-entry-unsupported",
+    "refuse-mod": "handler-entry-unsupported",
+    "refuse-neg-zero-literal": "not-projected",
+    "refuse-oversized-integer-literal": "admitted",
+    "refuse-pow": "handler-entry-unsupported",
+    "refuse-shift": "handler-entry-unsupported",
+    "refuse-text-int": "handler-entry-unsupported",
+    "refuse-text-operands": "handler-entry-unsupported",
+    "refuse-text-param-operands": "handler-entry-unsupported",
+    "refuse-unary-bool-param": "handler-entry-unsupported",
+    "refuse-unary-call": "handler-entry-unsupported",
+    "refuse-unary-capability": "handler-entry-unsupported",
+    "refuse-unary-decimal": "handler-entry-unsupported",
+    "refuse-unary-list-param": "handler-entry-unsupported",
+    "refuse-unary-not": "handler-entry-unsupported",
+    "refuse-unary-over-async-call": "handler-entry-unsupported",
+    "refuse-unary-plus": "handler-entry-unsupported",
+    "refuse-unary-text-param": "handler-entry-unsupported",
+    "size-at-limit": "admitted",
+    "size-at-limit-negative": "admitted",
+    "size-fault-position": "admitted",
+    "size-negate-fitting": "admitted",
+    "size-nested-control": "admitted",
+    "size-nested-left": "admitted",
+    "size-nested-right": "admitted",
+    "size-over-limit": "admitted",
+    "size-over-limit-negative": "admitted",
+    "sub-in-return": "admitted"
+  },
+  "behaviorTableSha256": "2462fc461cf18502d937a3f071fcd16756c77d5de84a29a7e44247fe1c5e8bd8",
+  "binaryOperatorContracts": {
+    "!=": {
+      "family": "equality",
+      "javascriptHelper": "__ne",
+      "operandType": "either",
+      "pythonHelper": "_ne",
+      "resultType": "boolean"
+    },
+    "&&": {
+      "family": "logical",
+      "javascriptHelper": "__and",
+      "operandType": "boolean",
+      "pythonHelper": "_and",
+      "resultType": "boolean"
+    },
+    "*": {
+      "family": "arithmetic",
+      "javascriptHelper": "__mul",
+      "operandType": "integer",
+      "pythonHelper": "_mul",
+      "resultType": "integer"
+    },
+    "+": {
+      "family": "arithmetic",
+      "javascriptHelper": "__add",
+      "operandType": "integer",
+      "pythonHelper": "_add",
+      "resultType": "integer"
+    },
+    "-": {
+      "family": "arithmetic",
+      "javascriptHelper": "__sub",
+      "operandType": "integer",
+      "pythonHelper": "_sub",
+      "resultType": "integer"
+    },
+    "<": {
+      "family": "ordering",
+      "javascriptHelper": "__lt",
+      "operandType": "integer",
+      "pythonHelper": "_lt",
+      "resultType": "boolean"
+    },
+    "<=": {
+      "family": "ordering",
+      "javascriptHelper": "__le",
+      "operandType": "integer",
+      "pythonHelper": "_le",
+      "resultType": "boolean"
+    },
+    "==": {
+      "family": "equality",
+      "javascriptHelper": "__eq",
+      "operandType": "either",
+      "pythonHelper": "_eq",
+      "resultType": "boolean"
+    },
+    ">": {
+      "family": "ordering",
+      "javascriptHelper": "__gt",
+      "operandType": "integer",
+      "pythonHelper": "_gt",
+      "resultType": "boolean"
+    },
+    ">=": {
+      "family": "ordering",
+      "javascriptHelper": "__ge",
+      "operandType": "integer",
+      "pythonHelper": "_ge",
+      "resultType": "boolean"
+    },
+    "||": {
+      "family": "logical",
+      "javascriptHelper": "__or",
+      "operandType": "boolean",
+      "pythonHelper": "_or",
+      "resultType": "boolean"
+    }
+  },
+  "linkedExpressionKinds": [
+    "binary",
+    "identifier",
+    "json-call",
+    "list",
+    "literal",
+    "member",
+    "record",
+    "unary",
+    "user-call"
+  ],
+  "linkedUnaryOperators": [
+    "-"
+  ],
+  "precisionProbeSha256": "d60b49ec8d410e0501d99c533fc9e7cecdfb6ff698945fcd631110d71a382757"
+}

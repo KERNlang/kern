@@ -14,6 +14,7 @@ import type {
   LinkedKernKirHandler,
   LinkedKernKirParameterType,
   LinkedKernKirStatement,
+  LinkedKernKirUnaryOperator,
 } from './linked-kir-program/index.js';
 
 export interface ExpressionRuntime {
@@ -69,7 +70,9 @@ export function matchesType(value: KernKirValue, type: LinkedKernKirParameterTyp
   return value.tag === 'list' && value.value.every((item) => item.tag === type.element);
 }
 
-type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue) => KernKirValue;
+type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue, meter: RuntimeMeter) => KernKirValue;
+
+type UnaryEvaluator = (operand: KernKirValue, meter: RuntimeMeter) => KernKirValue;
 
 function operandFault(): never {
   throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_BINARY_OPERAND_TYPE');
@@ -96,6 +99,12 @@ function booleanValue(flag: boolean): KernKirValue {
   return Object.freeze({ tag: 'boolean', value: flag });
 }
 
+// Arithmetic is the only expression that mints a new integer payload, so it is the only place the
+// per-string limit is not already enforced by request inspection or the frontend's literal wall.
+function integerValue(value: bigint, meter: RuntimeMeter): KernKirValue {
+  return Object.freeze({ tag: 'integer', value: meter.integerText(value, 'arithmetic result') });
+}
+
 const BINARY_EVALUATORS = Object.freeze({
   '&&': (left, right) => (booleanOperand(left).value === false ? left : booleanOperand(right())),
   '||': (left, right) => (booleanOperand(left).value === true ? left : booleanOperand(right())),
@@ -105,7 +114,14 @@ const BINARY_EVALUATORS = Object.freeze({
   '<=': (left, right) => booleanValue(integerOperand(left) <= integerOperand(right())),
   '>': (left, right) => booleanValue(integerOperand(left) > integerOperand(right())),
   '>=': (left, right) => booleanValue(integerOperand(left) >= integerOperand(right())),
+  '+': (left, right, meter) => integerValue(integerOperand(left) + integerOperand(right()), meter),
+  '-': (left, right, meter) => integerValue(integerOperand(left) - integerOperand(right()), meter),
+  '*': (left, right, meter) => integerValue(integerOperand(left) * integerOperand(right()), meter),
 }) satisfies Record<LinkedKernKirBinaryOperator, BinaryEvaluator>;
+
+const UNARY_EVALUATORS = Object.freeze({
+  '-': (operand, meter) => integerValue(-integerOperand(operand), meter),
+}) satisfies Record<LinkedKernKirUnaryOperator, UnaryEvaluator>;
 
 export function calleeBindings(
   handler: LinkedKernKirHandler,
@@ -234,9 +250,13 @@ export function evaluateExpression(
     case 'literal':
       return expression.value;
     case 'binary':
-      return BINARY_EVALUATORS[expression.op](evaluateExpression(expression.left, bindings, meter, runtime), () =>
-        evaluateExpression(expression.right, bindings, meter, runtime),
+      return BINARY_EVALUATORS[expression.op](
+        evaluateExpression(expression.left, bindings, meter, runtime),
+        () => evaluateExpression(expression.right, bindings, meter, runtime),
+        meter,
       );
+    case 'unary':
+      return UNARY_EVALUATORS[expression.op](evaluateExpression(expression.argument, bindings, meter, runtime), meter);
     case 'user-call': {
       if (runtime.asyncHelpers.has(expression.handlerName)) {
         throw new KernKirFault('handler-link-error', 'execution', 'KIR_ASYNC_CALL_EXPRESSION_POSITION');

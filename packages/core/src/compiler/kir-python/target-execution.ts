@@ -104,10 +104,69 @@ def _bool_operand(operand):
     return operand
 
 
+# CPython >= 3.11 caps int<->str conversion at 4300 digits. The mutation is confined to the one
+# conversion it guards and restored in a finally, so an embedder sharing this interpreter observes
+# the lifted cap only inside that window.
+_digit_window_lock = sys.__dict__.setdefault("_kern_digit_window_lock", threading.RLock())
+sys.__dict__.setdefault("_kern_digit_window_active", False)
+
+
+def _decimal_digits_upper(value):
+    if value == 0:
+        return 1
+    bits = abs(value).bit_length()
+    return (bits * 30103 + 99999) // 100000
+
+
+def _conversion_within_digit_cap(convert, argument, limit):
+    if convert is int and type(argument) is str and re.fullmatch(_INTEGER, argument):
+        return len(argument) - (1 if argument.startswith("-") else 0) <= limit
+    if convert is str and type(argument) is int:
+        return _decimal_digits_upper(argument) <= limit
+    return False
+
+
+def _lifted_digits(convert, argument):
+    if not hasattr(sys, "set_int_max_str_digits"):
+        return convert(argument)
+    limit = sys.get_int_max_str_digits()
+    if limit != 0 and _conversion_within_digit_cap(convert, argument, limit):
+        return convert(argument)
+    with _digit_window_lock:
+        previous = sys.get_int_max_str_digits()
+        active = sys.__dict__.get("_kern_digit_window_active", False)
+        if previous == 0 and not active:
+            return convert(argument)
+        if previous == 0:
+            return convert(argument)
+        if _conversion_within_digit_cap(convert, argument, previous):
+            return convert(argument)
+        sys.__dict__["_kern_digit_window_active"] = True
+        sys.set_int_max_str_digits(0)
+        try:
+            return convert(argument)
+        finally:
+            sys.set_int_max_str_digits(previous)
+            sys.__dict__["_kern_digit_window_active"] = active
+
+
+# A conservative rational under log10(2): the floor it yields is never above the true digit count,
+# so the pre-check can only refuse a value that genuinely cannot fit.
+_LOG10_2_NUMERATOR = 30102
+_LOG10_2_DENOMINATOR = 100000
+
+
+def _decimal_digits_floor(value):
+    bits = value.bit_length()
+    if bits <= 1:
+        return 0
+    return ((bits - 1) * _LOG10_2_NUMERATOR) // _LOG10_2_DENOMINATOR
+
+
 def _int_operand(operand):
     if operand["tag"] != "integer":
         _operand_fault()
-    return int(operand["value"])
+    return _lifted_digits(int, operand["value"])
 
 
 def _bool_value(flag):
@@ -132,7 +191,7 @@ def _same_operands(left, right):
     if left["tag"] == "boolean":
         return left["value"] is right["value"]
     if left["tag"] == "integer":
-        return int(left["value"]) == int(right["value"])
+        return _lifted_digits(int, left["value"]) == _lifted_digits(int, right["value"])
     _operand_fault()
 
 
@@ -158,6 +217,30 @@ def _gt(left, right):
 
 def _ge(left, right):
     return _bool_value(_int_operand(left) >= _int_operand(right))
+
+
+def _int_value(value, meter):
+    meter.check()
+    sign = 1 if value < 0 else 0
+    if _decimal_digits_floor(value) + sign >= meter.limits["maxStringBytes"] + 1:
+        raise _Fault("runtime-limit-exceeded", "execution")
+    return {"tag": "integer", "value": meter.text(_lifted_digits(str, value))}
+
+
+def _add(left, right, meter):
+    return _int_value(_int_operand(left) + _int_operand(right), meter)
+
+
+def _sub(left, right, meter):
+    return _int_value(_int_operand(left) - _int_operand(right), meter)
+
+
+def _mul(left, right, meter):
+    return _int_value(_int_operand(left) * _int_operand(right), meter)
+
+
+def _neg(operand, meter):
+    return _int_value(-_int_operand(operand), meter)
 
 
 def _expression(meter, thunk):

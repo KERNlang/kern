@@ -3,12 +3,14 @@ import { KernKirFault, type KernKirValue } from '../contracts.js';
 import { canonicalRecord, denseArray, exact, plainRecord, type RuntimeMeter } from '../inspect.js';
 import {
   LINKED_KIR_BINARY_OPERATORS,
+  LINKED_KIR_UNARY_OPERATORS,
   type LinkedKernKirCrossCallType,
   type LinkedKernKirExpression,
   type LinkedKernKirStaticType,
   type LinkedKernKirTypeScope,
   linkedKirBinaryOperator,
   linkedKirCrossCallType,
+  linkedKirUnaryOperator,
 } from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
@@ -69,7 +71,8 @@ export function staticExpressionType(
   expression: LinkedKernKirExpression,
   scope: LinkedKernKirTypeScope,
 ): LinkedKernKirStaticType | undefined {
-  if (expression.kind === 'binary') return 'boolean';
+  if (expression.kind === 'binary') return LINKED_KIR_BINARY_OPERATORS[expression.op].resultType;
+  if (expression.kind === 'unary') return LINKED_KIR_UNARY_OPERATORS[expression.op].resultType;
   if (expression.kind === 'identifier') return scope.types.get(expression.name);
   if (expression.kind === 'user-call') {
     return scope.calls?.linked.get(expression.handlerName)?.returnType.kind === 'boolean' ? 'boolean' : undefined;
@@ -84,7 +87,10 @@ export function crossCallExpressionType(
   expression: LinkedKernKirExpression,
   scope: LinkedKernKirTypeScope,
 ): LinkedKernKirCrossCallType | undefined {
-  if (expression.kind === 'binary') return 'boolean';
+  if (expression.kind === 'binary') {
+    return LINKED_KIR_BINARY_OPERATORS[expression.op].resultType === 'boolean' ? 'boolean' : undefined;
+  }
+  if (expression.kind === 'unary') return undefined;
   if (expression.kind === 'identifier') return scope.crossCallTypes.get(expression.name);
   if (expression.kind === 'user-call') {
     const callee = scope.calls?.linked.get(expression.handlerName);
@@ -121,6 +127,8 @@ export function containsAsyncCall(expression: LinkedKernKirExpression, scope: Li
       );
     case 'binary':
       return containsAsyncCall(expression.left, scope) || containsAsyncCall(expression.right, scope);
+    case 'unary':
+      return containsAsyncCall(expression.argument, scope);
     case 'list':
       return expression.items.some((item) => containsAsyncCall(item, scope));
     case 'record':
@@ -296,6 +304,18 @@ export function compileLinkedExpression(
       unsupported(`${label}: KIR_BINARY_OPERAND_TYPE`);
     }
     return Object.freeze({ kind: 'binary', left, op, right });
+  }
+  if (kind === 'unary') {
+    const values = canonicalRecord(fields, ['argument', 'op'], `${label}.fields`);
+    const op = linkedKirUnaryOperator(canonicalText(values.get('op'), `${label}.fields.op`, meter));
+    if (op === undefined) unsupported(`${label}: KIR_UNARY_OP_UNSUPPORTED`);
+    const argumentValue = values.get('argument');
+    if (argumentValue === undefined) unsupported(`${label}.fields: missing operand`);
+    const argument = compileLinkedExpression(argumentValue, scope, meter, `${label}.argument`, depth + 1);
+    if (staticExpressionType(argument, scope) !== LINKED_KIR_UNARY_OPERATORS[op].operandType) {
+      unsupported(`${label}: KIR_UNARY_OPERAND_TYPE`);
+    }
+    return Object.freeze({ kind: 'unary', argument, op });
   }
   if (kind === 'call') {
     const values = canonicalRecord(fields, ['args', 'callee', 'optional'], `${label}.fields`);

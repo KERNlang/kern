@@ -45,6 +45,7 @@ const VARIANTS = Object.freeze({
   literal: { carries: false, wrap: () => ({ kind: 'literal', value: { tag: 'boolean', value: true } }) },
   member: { carries: true, wrap: (inner) => ({ kind: 'member', object: inner, optional: false, property: 'p' }) },
   record: { carries: true, wrap: (inner) => ({ entries: [{ key: 'k', value: inner }], kind: 'record' }) },
+  unary: { carries: true, wrap: (inner) => ({ argument: inner, kind: 'unary', op: '-' }) },
   'user-call': { carries: true, wrap: (inner) => ({ arguments: [inner], handlerName: 'syncOne', kind: 'user-call' }) },
 });
 
