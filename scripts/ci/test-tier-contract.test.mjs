@@ -61,6 +61,10 @@ const kern5EvidenceCommands = [
   'pnpm test:kern-5-rt8-integer-signatures',
   'pnpm test:kern-5-runtime-envelope-max-steps',
   'pnpm test:kern-5-f5-profile-budget',
+  'pnpm test:kern-5-rt9-linked-assign',
+  'pnpm test:kern-5-rt10-pre-linked-arithmetic',
+  'pnpm test:kern-5-rt10-cross-call-integer',
+  'pnpm test:kern-5-rt10-for',
 ];
 
 const shardedFrontendJobs = new Map([
@@ -132,12 +136,18 @@ test('pull-request CI is bounded and covers the KIR Review Preview', async () =>
 });
 
 test('pull-request CI requires the complete KERN 5 evidence family', async () => {
-  const packageJson = JSON.parse(await text('package.json'));
+  const packageSource = await text('package.json');
+  const packageJson = JSON.parse(packageSource);
   assert.equal(typeof packageJson.scripts['test:kern-5-c-py-1-contract'], 'string');
   assert.equal(typeof packageJson.scripts['test:kern-5-cli-compiler-runtime-shadow'], 'string');
   assert.equal(
     packageJson.scripts['census:sweep'],
     'pnpm --filter @kernlang/core build && node scripts/ci/kern-5-census-sweep.mjs',
+  );
+  assert.equal(
+    [...packageSource.matchAll(/^\s+"census:sweep":/gmu)].length,
+    1,
+    'census:sweep must have one canonical package command',
   );
   assert.deepEqual(
     segments(packageJson.scripts['test:kern-5-script-family']),

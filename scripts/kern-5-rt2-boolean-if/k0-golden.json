@@ -1,8 +1,9 @@
 {
   "admission": {
-    "assign": "projection-rejected",
+    "assign": "admitted",
     "capability": "admitted",
     "else": "handler-entry-unsupported",
+    "for": "admitted",
     "if": "admitted",
     "if-else": "admitted",
     "let": "admitted",
@@ -11,7 +12,9 @@
     "while": "projection-rejected"
   },
   "linkedStatementKinds": [
+    "assign",
     "capability",
+    "for",
     "if",
     "let",
     "print",

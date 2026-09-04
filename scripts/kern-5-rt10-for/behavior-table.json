@@ -1,0 +1,160 @@
+{
+  "rows": [
+    {
+      "expected": "0",
+      "name": "for-empty-range",
+      "program": "for i from 3 to 3 { acc = acc + 1 }",
+      "trips": 0
+    },
+    {
+      "expected": "3",
+      "name": "for-sum-0-3",
+      "program": "for i from 0 to 3 { acc = acc + i }",
+      "trips": 3
+    },
+    {
+      "expected": "10",
+      "name": "for-sum-1-5",
+      "program": "for i from 1 to 5 { acc = acc + i }",
+      "trips": 4
+    },
+    {
+      "expected": "6",
+      "name": "for-step-2",
+      "program": "for i from 0 to 6 step 2 { acc = acc + i }",
+      "trips": 3
+    },
+    {
+      "expected": "6",
+      "name": "for-negative-step",
+      "program": "for i from 3 to 0 step -1 { acc = acc + i }",
+      "trips": 3
+    },
+    {
+      "expected": "12",
+      "name": "for-negative-step-2",
+      "program": "for i from 6 to 0 step -2 { acc = acc + i }",
+      "trips": 3
+    },
+    {
+      "expected": "1",
+      "name": "for-single-iteration",
+      "program": "for i from 0 to 1 { acc = acc + 1 }",
+      "trips": 1
+    },
+    {
+      "expected": "0",
+      "name": "for-reversed-positive-step",
+      "program": "for i from 3 to 0 { acc = acc + 1 }",
+      "trips": 0
+    },
+    {
+      "expected": "0",
+      "name": "for-empty-negative",
+      "program": "for i from 0 to 3 step -1 { acc = acc + 1 }",
+      "trips": 0
+    },
+    {
+      "expected": "18",
+      "name": "for-nested-acc",
+      "program": "for o from 0 to 3 { for n from 0 to 4 { acc = acc + o * n } }",
+      "trips": 12
+    },
+    {
+      "expected": "8",
+      "name": "for-triple-nested",
+      "program": "for a from 0 to 2 { for b from 0 to 2 { for c from 0 to 2 { acc = acc + 1 } } }",
+      "trips": 8
+    },
+    {
+      "expected": "30",
+      "name": "for-counter-product",
+      "program": "for i from 1 to 5 { acc = acc + i * i }",
+      "trips": 4
+    },
+    {
+      "expected": "6",
+      "name": "for-helper-in-body",
+      "program": "for i from 0 to 4 { acc = acc + idp(i) }",
+      "trips": 4
+    },
+    {
+      "expected": "7",
+      "name": "for-if-in-body",
+      "program": "for i from 0 to 5 { if i > 2 { acc = acc + i } }",
+      "trips": 5
+    },
+    {
+      "expected": "3",
+      "name": "for-early-return",
+      "program": "for i from 0 to 5 { if i == 3 { return i } } / return -1",
+      "trips": 4
+    },
+    {
+      "expected": "3",
+      "name": "for-bounds-once",
+      "program": "let n = 3 / for i from 0 to n { n = 0 / acc = acc + 1 }",
+      "trips": 3
+    },
+    {
+      "expected": "0",
+      "name": "for-big-step",
+      "program": "for i from 0 to 10 step 100 { acc = acc + i }",
+      "trips": 1
+    },
+    {
+      "expected": "2",
+      "name": "for-i64-near-limit",
+      "program": "for i from 9223372036854775805 to 9223372036854775807 { acc = acc + 1 }",
+      "trips": 2
+    },
+    {
+      "expected": "-6",
+      "name": "for-negative-counter",
+      "program": "for i from -3 to 0 { acc = acc + i }",
+      "trips": 3
+    },
+    {
+      "expected": "-3",
+      "name": "for-step-larger-negative",
+      "program": "for i from 0 to -6 step -3 { acc = acc + i }",
+      "trips": 2
+    },
+    {
+      "expected": "6",
+      "name": "for-in-helper-body",
+      "program": "fn sumto param a integer returns=integer { for i from 0 to a } / return sumto(4)",
+      "trips": 4
+    },
+    {
+      "expected": "6",
+      "name": "for-let-in-body",
+      "program": "for i from 0 to 3 { let d = i + 1 / acc = acc + d }",
+      "trips": 3
+    },
+    {
+      "expected": "6",
+      "name": "for-repeated-counter-name",
+      "program": "for i from 0 to 3 { acc = acc + i } / for i from 0 to 3 { acc = acc + i }",
+      "trips": 6
+    },
+    {
+      "expected": "3",
+      "name": "for-step-nonzero-computed",
+      "program": "for i from 0 to 3 step 0 + 1 { acc = acc + 1 }",
+      "trips": 3
+    },
+    {
+      "expected": "3",
+      "name": "for-in-if-then",
+      "program": "if true { for i from 0 to 3 { acc = acc + i } }",
+      "trips": 3
+    },
+    {
+      "expected": "10",
+      "name": "for-in-if-else",
+      "program": "if false { for i from 0 to 3 { acc = acc + i } } else { for i from 0 to 5 { acc = acc + i } }",
+      "trips": 5
+    }
+  ]
+}

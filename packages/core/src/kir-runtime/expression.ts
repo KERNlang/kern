@@ -14,6 +14,7 @@ import type {
   LinkedKernKirHandler,
   LinkedKernKirParameterType,
   LinkedKernKirStatement,
+  LinkedKernKirUnaryOperator,
 } from './linked-kir-program/index.js';
 
 export interface ExpressionRuntime {
@@ -69,7 +70,9 @@ export function matchesType(value: KernKirValue, type: LinkedKernKirParameterTyp
   return value.tag === 'list' && value.value.every((item) => item.tag === type.element);
 }
 
-type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue) => KernKirValue;
+type BinaryEvaluator = (left: KernKirValue, right: () => KernKirValue, meter: RuntimeMeter) => KernKirValue;
+
+type UnaryEvaluator = (operand: KernKirValue, meter: RuntimeMeter) => KernKirValue;
 
 function operandFault(): never {
   throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_BINARY_OPERAND_TYPE');
@@ -96,6 +99,12 @@ function booleanValue(flag: boolean): KernKirValue {
   return Object.freeze({ tag: 'boolean', value: flag });
 }
 
+// Arithmetic is the only expression that mints a new integer payload, so it is the only place the
+// per-string limit is not already enforced by request inspection or the frontend's literal wall.
+function integerValue(value: bigint, meter: RuntimeMeter): KernKirValue {
+  return Object.freeze({ tag: 'integer', value: meter.integerText(value, 'arithmetic result') });
+}
+
 const BINARY_EVALUATORS = Object.freeze({
   '&&': (left, right) => (booleanOperand(left).value === false ? left : booleanOperand(right())),
   '||': (left, right) => (booleanOperand(left).value === true ? left : booleanOperand(right())),
@@ -105,7 +114,14 @@ const BINARY_EVALUATORS = Object.freeze({
   '<=': (left, right) => booleanValue(integerOperand(left) <= integerOperand(right())),
   '>': (left, right) => booleanValue(integerOperand(left) > integerOperand(right())),
   '>=': (left, right) => booleanValue(integerOperand(left) >= integerOperand(right())),
+  '+': (left, right, meter) => integerValue(integerOperand(left) + integerOperand(right()), meter),
+  '-': (left, right, meter) => integerValue(integerOperand(left) - integerOperand(right()), meter),
+  '*': (left, right, meter) => integerValue(integerOperand(left) * integerOperand(right()), meter),
 }) satisfies Record<LinkedKernKirBinaryOperator, BinaryEvaluator>;
+
+const UNARY_EVALUATORS = Object.freeze({
+  '-': (operand, meter) => integerValue(-integerOperand(operand), meter),
+}) satisfies Record<LinkedKernKirUnaryOperator, UnaryEvaluator>;
 
 export function calleeBindings(
   handler: LinkedKernKirHandler,
@@ -140,6 +156,23 @@ function* statementValue(
   return yield Object.freeze({ arguments: Object.freeze(args), handler, kind: 'call' as const });
 }
 
+interface LoopState {
+  readonly counter: string;
+  readonly step: bigint;
+  readonly to: bigint;
+  current: bigint;
+}
+
+interface WalkFrame {
+  readonly loop: LoopState | undefined;
+  readonly statements: readonly LinkedKernKirStatement[];
+  index: number;
+}
+
+function loopContinues(loop: LoopState): boolean {
+  return loop.step > 0n ? loop.current < loop.to : loop.current > loop.to;
+}
+
 export function* walkStatements(
   handler: LinkedKernKirEntryHandler,
   bindings: Map<string, KernKirValue>,
@@ -147,12 +180,25 @@ export function* walkStatements(
   runtime: ExpressionRuntime,
   policy: StatementWalkPolicy,
 ): Generator<StatementStep, StatementWalkResult, KernKirValue> {
-  const frames: { readonly statements: readonly LinkedKernKirStatement[]; index: number }[] = [
-    { statements: handler.statements, index: 0 },
-  ];
+  const frames: WalkFrame[] = [{ index: 0, loop: undefined, statements: handler.statements }];
+  const enterTrip = (loop: LoopState): void => {
+    meter.step();
+    runtime.checkAbort();
+    bindings.set(loop.counter, integerValue(loop.current, meter));
+  };
   while (frames.length > 0) {
     const frame = frames[frames.length - 1];
     if (frame.index >= frame.statements.length) {
+      const { loop } = frame;
+      if (loop !== undefined) {
+        loop.current += loop.step;
+        if (loopContinues(loop)) {
+          frame.index = 0;
+          enterTrip(loop);
+          continue;
+        }
+        meter.step();
+      }
       frames.pop();
       continue;
     }
@@ -162,6 +208,8 @@ export function* walkStatements(
     runtime.checkAbort();
     if (statement.kind === 'let') {
       bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
+    } else if (statement.kind === 'assign') {
+      bindings.set(statement.target, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'capability') {
       const input: KernKirSlot =
         statement.input === undefined
@@ -187,7 +235,19 @@ export function* walkStatements(
         throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
       }
       const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
-      if (branch !== undefined) frames.push({ statements: branch, index: 0 });
+      if (branch !== undefined) frames.push({ index: 0, loop: undefined, statements: branch });
+    } else if (statement.kind === 'for') {
+      const from = integerOperand(evaluateExpression(statement.from, bindings, meter, runtime));
+      const to = integerOperand(evaluateExpression(statement.to, bindings, meter, runtime));
+      const step = integerOperand(evaluateExpression(statement.step, bindings, meter, runtime));
+      if (step === 0n) throw new KernKirFault('unsupported-runtime-input', 'execution', 'ERR_KIR_LOOP_ZERO_STEP');
+      const loop: LoopState = { counter: statement.counter, current: from, step, to };
+      if (loopContinues(loop)) {
+        enterTrip(loop);
+        frames.push({ index: 0, loop, statements: statement.body });
+      } else {
+        meter.step();
+      }
     } else {
       const { returnType } = handler;
       if (returnType.kind === 'void') {
@@ -232,9 +292,13 @@ export function evaluateExpression(
     case 'literal':
       return expression.value;
     case 'binary':
-      return BINARY_EVALUATORS[expression.op](evaluateExpression(expression.left, bindings, meter, runtime), () =>
-        evaluateExpression(expression.right, bindings, meter, runtime),
+      return BINARY_EVALUATORS[expression.op](
+        evaluateExpression(expression.left, bindings, meter, runtime),
+        () => evaluateExpression(expression.right, bindings, meter, runtime),
+        meter,
       );
+    case 'unary':
+      return UNARY_EVALUATORS[expression.op](evaluateExpression(expression.argument, bindings, meter, runtime), meter);
     case 'user-call': {
       if (runtime.asyncHelpers.has(expression.handlerName)) {
         throw new KernKirFault('handler-link-error', 'execution', 'KIR_ASYNC_CALL_EXPRESSION_POSITION');

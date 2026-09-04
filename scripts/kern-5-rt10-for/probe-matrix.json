@@ -1,0 +1,627 @@
+{
+  "fences": {
+    "fence-capability-in-body": {
+      "diagnostics": [],
+      "status": "rejected"
+    },
+    "fence-print-in-body": {
+      "diagnostics": [],
+      "status": "rejected"
+    }
+  },
+  "positions": {
+    "for-async-let-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-big-step": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-bounds-once": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-budget-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-counter-product": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-early-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-empty-negative": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-empty-range": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-helper-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-i64-near-limit": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-if-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-in-helper-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-in-if-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-in-if-then": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-let-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-negative-counter": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-negative-step": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-negative-step-2": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-nested-acc": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-repeated-counter-name": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-reversed-positive-step": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-single-iteration": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-step-2": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-step-larger-negative": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-step-nonzero-computed": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-step-zero-computed": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-step-zero-dynamic-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-sum-0-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-sum-1-5": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-triple-nested": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-binary-bound-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-explicit-step-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-helper-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-helper-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-literal-bound-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-3x2": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-3x4": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-assign-counter": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-async-assign-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-async-bound-from": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-async-bound-to": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-bound-bool-from": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-bound-decimal-to": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-bound-text-to": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-counter-after-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-each": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-empty-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-shadow-let": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-shadow-nested-counter": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-shadow-parameter": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-step-bool": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-step-zero-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-void-return-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-assign-counter": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-assign-helper": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-assign-one": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-async-call": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-let-binary": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-let-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets": {
+      "diagnostics": [],
+      "status": "projected"
+    }
+  },
+  "shapes": {
+    "for-nested-acc": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "o",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "for",
+            "properties": {
+              "from": {
+                "kind": "integer",
+                "value": "0"
+              },
+              "name": "n",
+              "to": {
+                "kind": "integer",
+                "value": "4"
+              }
+            },
+            "children": [
+              {
+                "kind": "assign",
+                "properties": {
+                  "target": {
+                    "kind": "identifier",
+                    "name": "acc"
+                  },
+                  "value": {
+                    "kind": "binary",
+                    "left": {
+                      "kind": "identifier",
+                      "name": "acc"
+                    },
+                    "op": "+",
+                    "right": {
+                      "kind": "binary",
+                      "left": {
+                        "kind": "identifier",
+                        "name": "o"
+                      },
+                      "op": "*",
+                      "right": {
+                        "kind": "identifier",
+                        "name": "n"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "for-step-2": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "step": {
+            "kind": "integer",
+            "value": "2"
+          },
+          "to": {
+            "kind": "integer",
+            "value": "6"
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "acc"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "acc"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "identifier",
+                  "name": "i"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "for-sum-0-3": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "acc"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "acc"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "identifier",
+                  "name": "i"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "neg-assign-counter": [
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "i"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "i"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      }
+    ],
+    "neg-empty-body": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "neg-step-zero-literal": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "step": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "acc"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "acc"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -57,7 +57,8 @@
     "literal",
     "member",
     "record",
+    "unary",
     "user-call"
   ],
-  "rt2GoldenSha256": "aa7f116d1b5ad758f7b58f358c026f34c08232bd5311dee4d5ad1211e90afaa0"
+  "rt2GoldenSha256": "6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2"
 }

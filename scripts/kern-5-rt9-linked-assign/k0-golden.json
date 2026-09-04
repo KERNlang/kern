@@ -1,0 +1,93 @@
+{
+  "admission": {
+    "after-async-suspension": "admitted",
+    "async-value": "admitted",
+    "binary-value": "admitted",
+    "branch-else": "admitted",
+    "branch-return": "admitted",
+    "branch-then": "admitted",
+    "call-typed-list": "admitted",
+    "call-typed-literal": "admitted",
+    "call-typed-positive": "admitted",
+    "capability-to-capability": "admitted",
+    "control-each": "handler-entry-unsupported",
+    "control-for": "admitted",
+    "control-set": "not-projected",
+    "control-while": "handler-entry-unsupported",
+    "helper-body-assign": "admitted",
+    "integer-from-identifier": "admitted",
+    "list-assign": "admitted",
+    "neg-assign-before-let": "handler-entry-unsupported",
+    "neg-bool-into-integer": "handler-entry-unsupported",
+    "neg-call-typed-into-integer": "handler-entry-unsupported",
+    "neg-call-typed-list-into-text": "handler-entry-unsupported",
+    "neg-integer-into-call-typed": "handler-entry-unsupported",
+    "neg-integer-into-text": "handler-entry-unsupported",
+    "neg-integer-list-into-integer": "handler-entry-unsupported",
+    "neg-list-into-text": "handler-entry-unsupported",
+    "neg-op-compound": "handler-entry-unsupported",
+    "neg-op-equals": "handler-entry-unsupported",
+    "neg-param-target": "handler-entry-unsupported",
+    "neg-postfix-op": "not-projected",
+    "neg-shadow-branch-let": "handler-entry-unsupported",
+    "neg-sibling-branch": "handler-entry-unsupported",
+    "neg-target-index": "handler-entry-unsupported",
+    "neg-target-member": "handler-entry-unsupported",
+    "neg-text-into-call-typed-list": "handler-entry-unsupported",
+    "neg-text-into-capability": "handler-entry-unsupported",
+    "neg-text-into-integer": "handler-entry-unsupported",
+    "neg-undeclared": "handler-entry-unsupported",
+    "neg-unquoted-target": "not-projected",
+    "ordering-print": "admitted",
+    "self-referential-and": "admitted",
+    "self-referential-or": "admitted",
+    "self-referential-or-held": "admitted",
+    "simple-reassign": "admitted",
+    "trailing-comment": "admitted",
+    "two-assigns": "admitted",
+    "void-with-assign": "admitted"
+  },
+  "linkedStatementKinds": [
+    "assign",
+    "capability",
+    "for",
+    "if",
+    "let",
+    "print",
+    "return"
+  ],
+  "structuralSchema": {
+    "assign": {
+      "allowedChildren": null,
+      "disposition": "structural-candidate",
+      "kind": "assign",
+      "properties": {
+        "op": {
+          "disposition": "included-value",
+          "required": false,
+          "schemaKind": "string",
+          "values": null
+        },
+        "target": {
+          "disposition": "lowered-expression",
+          "required": true,
+          "schemaKind": "expression",
+          "values": null
+        },
+        "trailingComment": {
+          "disposition": "included-value",
+          "required": false,
+          "schemaKind": "string",
+          "values": null
+        },
+        "value": {
+          "disposition": "lowered-expression",
+          "required": true,
+          "schemaKind": "expression",
+          "values": null
+        }
+      },
+      "schemaStatus": "bound"
+    }
+  }
+}
