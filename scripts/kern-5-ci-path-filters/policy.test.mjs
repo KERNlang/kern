@@ -12,7 +12,10 @@ async function policy() {
 
 async function workflowJobIds() {
   const text = await readFile(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
-  return [...text.matchAll(/^ {2}([a-z][\w-]*):\n/gmu)].map((match) => match[1]);
+  const jobsIndex = text.indexOf('\njobs:\n');
+  assert.notEqual(jobsIndex, -1, 'ci.yml must define a jobs: section');
+  const jobsSection = text.slice(jobsIndex);
+  return [...jobsSection.matchAll(/^ {2}([a-z][\w-]*):\n/gmu)].map((match) => match[1]);
 }
 
 const EXPECTED_FULL_LANES = [
