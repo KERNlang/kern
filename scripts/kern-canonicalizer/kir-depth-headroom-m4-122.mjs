@@ -11,7 +11,10 @@ import {
 import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
-import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  reconstructHistoricalSource,
+  reconstructRuntimeEnvelopeMaxIterationsSource,
+} from './historical-source.mjs';
 import {
   loadPreM4129CanonicalizerComposition,
 } from './historical-composition.mjs';
@@ -271,7 +274,11 @@ function exactInputs() {
   });
 
   for (const [name, url] of Object.entries(INPUT_URLS)) {
-    if (digest(readFileSync(url)) !== INPUT_IDENTITIES[name]) {
+    let source = readFileSync(url);
+    if (name === 'runtimeHandlerSha256') {
+      source = reconstructRuntimeEnvelopeMaxIterationsSource(source);
+    }
+    if (digest(source) !== INPUT_IDENTITIES[name]) {
       fail(`${name} source identity must remain exact`);
     }
   }

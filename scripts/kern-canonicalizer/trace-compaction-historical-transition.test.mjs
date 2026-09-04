@@ -10,6 +10,7 @@ import {
   historicalTransitionStage,
   indexHistoricalTransitionStages,
   reconstructHistoricalTransitionChain,
+  reconstructRuntimeEnvelopeMaxIterationsTransition,
 } from './historical-transition-chain.mjs';
 import {
   POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
@@ -173,7 +174,7 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     if (legacy !== undefined) predecessorStages.push(stage(legacy));
-    const traceSuccessor = predecessorStages.length === 0
+    const traceSuccessor = reconstructRuntimeEnvelopeMaxIterationsTransition(predecessorStages.length === 0
       ? current
       : reconstructHistoricalTransitionChain({
           currentSource: current,
@@ -181,7 +182,7 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
           milestone: `trace source endpoint ${reconstruction.path}`,
           path: reconstruction.path,
           stages: predecessorStages,
-        });
+        }));
     const successor = execFileSync('git', ['show', `${successorCommit}:${reconstruction.path}`]);
     const predecessor = execFileSync('git', ['show', `${predecessorCommit}:${reconstruction.path}`]);
     assert.equal(digest(traceSuccessor), reconstruction.currentDigest, reconstruction.path);
@@ -256,7 +257,7 @@ test('clean current build and every reconstructed compiled endpoint match exact 
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     if (legacy !== undefined) predecessorStages.push(stage(legacy));
-    const traceSuccessor = predecessorStages.length === 0
+    const traceSuccessor = reconstructRuntimeEnvelopeMaxIterationsTransition(predecessorStages.length === 0
       ? current
       : reconstructHistoricalTransitionChain({
           currentSource: current,
@@ -264,7 +265,7 @@ test('clean current build and every reconstructed compiled endpoint match exact 
           milestone: `trace compiled endpoint ${reconstruction.path}`,
           path: reconstruction.path,
           stages: predecessorStages,
-        });
+        }));
     assert.equal(digest(traceSuccessor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: traceSuccessor,

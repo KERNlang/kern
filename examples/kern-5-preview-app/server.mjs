@@ -12,6 +12,7 @@ import {
   executeKernRuntimeHandlerAsync,
   KERN_RUNTIME_HANDLER_ABI,
 } from '../../packages/core/dist/runtime-handler.js';
+import { INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS } from '../../packages/core/dist/runtime-envelope/types.js';
 import {
   createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,
@@ -22,14 +23,7 @@ const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const APP_MANIFEST_PATH = resolve(APP_DIR, 'app.kern');
 const RUNTIME_HANDLER_CONFIG_PATH = resolve(APP_DIR, 'runtime-handler-config.json');
 const RUNTIME_HANDLER_CONFIG_FORMAT = 'kern.preview.runtime-handler.config.v1';
-const RUNTIME_HANDLER_LIMIT_KEYS = Object.freeze([
-  'maxBytes',
-  'maxCollectionLength',
-  'maxDepth',
-  'maxDiagnostics',
-  'maxEvents',
-  'maxStringBytes',
-]);
+const RUNTIME_HANDLER_LIMIT_KEYS = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 const HOST_SYNC_CAPABILITIES = Object.freeze(['rag.promptContext', 'rag.checkAnswer']);

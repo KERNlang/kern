@@ -30,7 +30,7 @@ const EXPECTED = Object.freeze({
     'unsupported-runtime-input',
   ],
   eventOperations: ['stdout', 'stderr', 'capability'],
-  limits: ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+  limits: ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
   outcomes: ['success', 'failure'],
   thrownErrorCodes: ['disabled', 'invalid-abi', 'invalid-limits', 'invalid-options', 'invalid-request'],
   valueTags: ['null', 'boolean', 'text', 'integer', 'decimal', 'list', 'record'],

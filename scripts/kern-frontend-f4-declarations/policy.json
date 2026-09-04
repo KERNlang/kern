@@ -55,19 +55,19 @@
   ],
   "f1Policy": {
     "path": "scripts/kern-frontend-f1-scan/policy.json",
-    "sha256": "71caa968ffa537c46e4474edda28469428ac44bea096d20d1eabe0a82aa42c4a"
+    "sha256": "18738eef1aa5a0b4e11970bcd2e974285824d66d1561900378aa24ce6378775b"
   },
   "f2Policy": {
     "path": "scripts/kern-frontend-f2-expression/policy.json",
-    "sha256": "eff693596860818152cbdbd51d4ce96f98da92816f5c5a96be0ef13534bd5122"
+    "sha256": "247ad5820d9c0f5d9ccf06506a2fea53c0d5203c046b7725ce891e96f5835df4"
   },
   "f2bPolicy": {
     "path": "scripts/kern-frontend-f2-batch/policy.json",
-    "sha256": "083c8e7bb493711aca030a36230380edb05b84972d5747ad4af4ad3b647ca86a"
+    "sha256": "21e231ab985daf95e37d84806f8bf223b4d24685741a6df317f3374c8402b555"
   },
   "f3Policy": {
     "path": "scripts/kern-frontend-f3-line-tree/policy.json",
-    "sha256": "89ffef0f9c81e6b259fd9a65971c8047e58d4928239268dd849e1cae88e2f8d1"
+    "sha256": "0de731d4faeb1fd8cfe64976b95abc956f9fef9f02e33f36ec424b8132f4b529"
   },
   "composition": [
     {
@@ -268,6 +268,7 @@
     "maxDepth": 256,
     "maxDiagnostics": 262144,
     "maxEvents": 16777216,
+    "maxIterations": 1048576,
     "maxStringBytes": 67108864
   },
   "scheduler": {

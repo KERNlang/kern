@@ -245,7 +245,7 @@ assertRuntimeImportClosureExcludes(
 );
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
 for (const witness of [
-  'accepted.limits.maxCollectionLength',
+  'accepted.limits.maxIterations',
   'runInternalRuntimeEngineSync',
   'runInternalRuntimeEngineAsync',
 ]) {

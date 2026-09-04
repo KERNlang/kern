@@ -6,10 +6,11 @@ import {
 import { inspectInternalRuntimeSchedulerControl } from './runtime-envelope/internal-scheduler.js';
 import { internalRuntimeFailure, internalRuntimeLinkFailure } from './runtime-envelope/normalize.js';
 import { resolveInternalRuntimeSourceHandler } from './runtime-envelope/source-handler.js';
-import type {
-  InternalRuntimeEnvelope,
-  InternalRuntimeEnvelopeLimits,
-  InternalRuntimeValue,
+import {
+  INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS,
+  type InternalRuntimeEnvelope,
+  type InternalRuntimeEnvelopeLimits,
+  type InternalRuntimeValue,
 } from './runtime-envelope/types.js';
 import { normalizeInternalRuntimeValues, validateInternalRuntimeLimits } from './runtime-envelope/value.js';
 import { admitKernRuntimeHandlerSignature, type KernRuntimeHandlerAdmittedType } from './runtime-handler-contract.js';
@@ -59,6 +60,7 @@ export interface KernRuntimeHandlerLimits {
   readonly maxDepth: number;
   readonly maxDiagnostics: number;
   readonly maxEvents: number;
+  readonly maxIterations?: number;
   readonly maxStringBytes: number;
 }
 
@@ -161,14 +163,7 @@ export class KernRuntimeHandlerError extends TypeError {
 
 const SYNC_OPTION_KEYS = ['capabilities', 'capabilityContext', 'enabled', 'limits', 'scheduler'] as const;
 const ASYNC_OPTION_KEYS = [...SYNC_OPTION_KEYS, 'asyncCapabilities', 'capabilityTimeoutMs'] as const;
-const LIMIT_KEYS = [
-  'maxBytes',
-  'maxCollectionLength',
-  'maxDepth',
-  'maxDiagnostics',
-  'maxEvents',
-  'maxStringBytes',
-] as const;
+const LIMIT_KEYS = INTERNAL_RUNTIME_ENVELOPE_LIMIT_KEYS;
 
 function inspectedRecord(
   value: unknown,
@@ -248,17 +243,24 @@ function inspectedRequest(request: KernRuntimeHandlerRequest): KernRuntimeHandle
   return value as unknown as KernRuntimeHandlerRequest;
 }
 
-function acceptedOptions(options: KernRuntimeHandlerOptions, async: false): KernRuntimeHandlerOptions;
-function acceptedOptions(options: KernRuntimeHandlerAsyncOptions, async: true): KernRuntimeHandlerAsyncOptions;
+type AcceptedLimits = { readonly limits: InternalRuntimeEnvelopeLimits };
+type AcceptedOptions = Omit<KernRuntimeHandlerOptions, 'limits'> & AcceptedLimits;
+type AcceptedAsyncOptions = Omit<KernRuntimeHandlerAsyncOptions, 'limits'> & AcceptedLimits;
+
+function acceptedOptions(options: KernRuntimeHandlerOptions, async: false): AcceptedOptions;
+function acceptedOptions(options: KernRuntimeHandlerAsyncOptions, async: true): AcceptedAsyncOptions;
 function acceptedOptions(
   options: KernRuntimeHandlerOptions | KernRuntimeHandlerAsyncOptions,
   async: boolean,
-): KernRuntimeHandlerOptions | KernRuntimeHandlerAsyncOptions {
+): AcceptedOptions | AcceptedAsyncOptions {
   const value = inspectedRecord(options, 'options', async ? ASYNC_OPTION_KEYS : SYNC_OPTION_KEYS);
   if (value.enabled !== true) throw new KernRuntimeHandlerError('disabled', 'runtime handler is default-off');
   let limits: Record<string, unknown>;
   try {
-    limits = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
+    const requested = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
+    limits = Object.hasOwn(requested, 'maxIterations')
+      ? requested
+      : { ...requested, maxIterations: requested.maxCollectionLength };
     validateInternalRuntimeLimits(limits as unknown as InternalRuntimeEnvelopeLimits);
   } catch {
     throw new KernRuntimeHandlerError('invalid-limits', 'runtime handler limits are invalid');
@@ -290,12 +292,13 @@ function acceptedOptions(
   const asyncCapabilities = async
     ? acceptedOperationMaps<KernRuntimeHandlerAsyncCapabilities>(value.asyncCapabilities, 'asyncCapabilities')
     : undefined;
-  const acceptedLimits: KernRuntimeHandlerLimits = Object.freeze({
+  const acceptedLimits: InternalRuntimeEnvelopeLimits = Object.freeze({
     maxBytes: limits.maxBytes as number,
     maxCollectionLength: limits.maxCollectionLength as number,
     maxDepth: limits.maxDepth as number,
     maxDiagnostics: limits.maxDiagnostics as number,
     maxEvents: limits.maxEvents as number,
+    maxIterations: limits.maxIterations as number,
     maxStringBytes: limits.maxStringBytes as number,
   });
   const acceptedContext: KernRuntimeHandlerCapabilityContext | undefined =
@@ -305,7 +308,7 @@ function acceptedOptions(
           ...(capabilityContext.runId === undefined ? {} : { runId: capabilityContext.runId as string }),
           ...(capabilityContext.sourceName === undefined ? {} : { sourceName: capabilityContext.sourceName as string }),
         });
-  const accepted: KernRuntimeHandlerOptions = {
+  const accepted: AcceptedOptions = {
     capabilities,
     capabilityContext: acceptedContext,
     enabled: true,
@@ -383,7 +386,7 @@ function publicEnvelope(envelope: InternalRuntimeEnvelope): KernRuntimeHandlerEn
 
 function linkedRequest(
   request: KernRuntimeHandlerRequest,
-  options: KernRuntimeHandlerOptions,
+  options: AcceptedOptions,
 ):
   | {
       readonly entry: Exclude<ReturnType<typeof resolveInternalRuntimeSourceHandler>, InternalRuntimeEnvelope>;

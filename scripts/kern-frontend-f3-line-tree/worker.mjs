@@ -69,7 +69,7 @@ export function validatePolicy(policy) {
     }
   }
   positiveLimits(policy.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
     'runtime limits');
   positiveLimits(policy.scheduler, ['timeoutMs'], 'scheduler');
   if (policy.profileLimits.maxParentEdges > policy.profileLimits.maxLogicalLines ||

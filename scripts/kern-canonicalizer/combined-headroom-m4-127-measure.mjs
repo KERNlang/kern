@@ -186,7 +186,7 @@ export function measureCanonicalizerCombinedHeadroomWitnessM4127(
   const input = exactInput();
   const limits = {
     ...input.policy.runtimeLimits,
-    maxCollectionLength: iterationBudget,
+    maxIterations: iterationBudget,
   };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,

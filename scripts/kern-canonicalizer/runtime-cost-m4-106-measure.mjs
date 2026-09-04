@@ -123,7 +123,7 @@ export function measureCanonicalizerRuntimeCostM4106(iterationBudget) {
   }
   const composition = loadPreM4129CanonicalizerComposition();
   const { bytes, policy, tables } = exactWitnessM4106();
-  const limits = { ...policy.runtimeLimits, maxCollectionLength: iterationBudget };
+  const limits = { ...policy.runtimeLimits, maxIterations: iterationBudget };
   const linked = resolveInternalRuntimeSourceHandler(
     composition.source,
     { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },

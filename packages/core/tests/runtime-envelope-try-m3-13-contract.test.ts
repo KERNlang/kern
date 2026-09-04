@@ -52,6 +52,7 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 

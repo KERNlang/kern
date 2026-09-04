@@ -91,9 +91,10 @@
         "maxDepth": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
         "maxDiagnostics": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
         "maxEvents": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
+        "maxIterations": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"},
         "maxStringBytes": {"maximum": 9007199254740991, "minimum": 1, "portableInteger": true, "type": "integer"}
       },
-      "required": ["maxBytes", "maxCollectionLength", "maxDepth", "maxDiagnostics", "maxEvents", "maxStringBytes"],
+      "required": ["maxBytes", "maxCollectionLength", "maxDepth", "maxDiagnostics", "maxEvents", "maxIterations", "maxStringBytes"],
       "type": "object"
     },
     "requestId": {"minLength": 1, "type": "string"}

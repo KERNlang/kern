@@ -37,7 +37,7 @@ export function validateKernFormatterPolicy(value) {
   );
   exactKeys(
     value.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
     'runtimeLimits',
   );
   for (const [key, limit] of Object.entries(value.profileLimits)) positiveSafe(limit, `profileLimits.${key}`);

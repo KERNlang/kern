@@ -61,8 +61,7 @@ export function loadHistoricalCanonicalizerPolicy({
     ...structuredClone(runtimeLimitOverrides),
   };
   validateCanonicalizerPolicy(policy);
-  const reconstructedBytes = Buffer.from(`${JSON.stringify(policy, null, 2)}\n`);
-  if (digest(reconstructedBytes) !== expectedDigest) {
+  if (historicalCanonicalizerPolicyDigest(policy) !== expectedDigest) {
     throw new TypeError(
       `${milestone} historical policy rejection: unreconstructed policy fields must remain exact`,
     );
@@ -88,4 +87,14 @@ export function loadPreM4146CanonicalizerPolicy() {
     profileLimits: PRE_M4146_PROFILE_LIMITS,
     runtimeLimitOverrides: PRE_M4146_RUNTIME_BYTE_LIMITS,
   });
+}
+
+export function historicalCanonicalizerPolicyBytes(policy) {
+  const historical = structuredClone(policy);
+  delete historical.runtimeLimits.maxIterations;
+  return Buffer.from(`${JSON.stringify(historical, null, 2)}\n`);
+}
+
+export function historicalCanonicalizerPolicyDigest(policy) {
+  return digest(historicalCanonicalizerPolicyBytes(policy));
 }

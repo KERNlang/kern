@@ -33,6 +33,7 @@
     "maxDepth",
     "maxDiagnostics",
     "maxEvents",
+    "maxIterations",
     "maxStringBytes"
   ],
   "capability": {
