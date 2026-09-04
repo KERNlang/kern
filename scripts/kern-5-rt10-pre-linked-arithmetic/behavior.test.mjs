@@ -410,6 +410,16 @@ test('the emitted Python kernel leaves the process int/str digit limit exactly a
     CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
     'RT10PRE_DIGIT_WINDOW_LEAK: the conversion window must be restored in its finally',
   );
+  assert.deepEqual(observed.window, {
+    afterWindows: CPYTHON_DEFAULT_INT_MAX_STR_DIGITS,
+    errors: [],
+    firstInside: [0],
+    nestedInnerInside: [0],
+    nestedOuterInside: [0],
+    nestedResult: '0',
+    secondEnteredBeforeRelease: false,
+    secondInside: [0],
+  });
 });
 
 // The pre-check is the cost bound: a result the binary size alone proves cannot fit is refused

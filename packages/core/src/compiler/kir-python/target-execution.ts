@@ -107,15 +107,19 @@ def _bool_operand(operand):
 # CPython >= 3.11 caps int<->str conversion at 4300 digits. The mutation is confined to the one
 # conversion it guards and restored in a finally, so an embedder sharing this interpreter observes
 # the lifted cap only inside that window.
+_digit_window_lock = sys.__dict__.setdefault("_kern_digit_window_lock_v1", threading.RLock())
+
+
 def _lifted_digits(convert, argument):
     if not hasattr(sys, "set_int_max_str_digits"):
         return convert(argument)
-    previous = sys.get_int_max_str_digits()
-    sys.set_int_max_str_digits(0)
-    try:
-        return convert(argument)
-    finally:
-        sys.set_int_max_str_digits(previous)
+    with _digit_window_lock:
+        previous = sys.get_int_max_str_digits()
+        sys.set_int_max_str_digits(0)
+        try:
+            return convert(argument)
+        finally:
+            sys.set_int_max_str_digits(previous)
 
 
 # A conservative rational under log10(2): the floor it yields is never above the true digit count,

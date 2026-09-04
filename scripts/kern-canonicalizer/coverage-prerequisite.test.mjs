@@ -94,7 +94,7 @@ test('M4.151 publishes the exact current complete frontier', () => {
     baseId: 'kern.kir-canonicalizer.profile.m4.141',
     canonicalizerDigest: 'f5c6a15806a1ffc031a171b234b13c205ce1d43134bf6fe89cc7e5fda1bc7cc4',
     canonicalizerPolicyDigest: 'ec4124d1770e806131918e4a11cc9e8d265ecc43b077ce460726bb6fbfe2b92a',
-    compiledCoreDigest: '0eebea6ff82005ca5fb7c7359face6daadf1a2e7e5d990ed7e99b308f2b71dfd',
+    compiledCoreDigest: 'fa52178f1e610d702e342d9f6db1facf6ea89c48c5e5fe24f574bdb51337ff84',
     corpusDigest: '365842b501ba4f4c343f970eb05a93569a9cd62e88c9550a3c0923dee1f663c7',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '605f091d7fee18ad4cfd4ab130ae7ae89632d7da75c973d04dd6f9b7d5ab833a',
