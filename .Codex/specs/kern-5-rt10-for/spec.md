@@ -55,6 +55,14 @@ the contract needs, and **no `.kern`, no constitution, no census, no closure led
 
 ### `for`'s `allowedChildren` excludes `print` and `capability` — the brief's two hardest fixtures are unprojectable
 
+> **[RT10F-C3 SUPERSEDED — 2026-09-04, see the correction immediately below this block.]** The
+> catalog enumeration and the direct-child fences in this block are still accurate as far as they
+> go, but the conclusion drawn from them — "a capability call inside a `for` body cannot be built"
+> — is false. `if` is itself in `for`'s `allowedChildren` list quoted below, and `if`'s own
+> `allowedChildren` is `null` (unrestricted, as this very block already states), so a capability
+> nested one level under an `if` inside a `for` body projects, links and runs. The original text is
+> kept verbatim; do not re-derive conclusions from it without reading the correction.
+
 **[RT10F-C3 VERIFIED]** `STRUCTURAL_KIR_NODE_CATALOG.get('for').allowedChildren` is a closed
 28-entry list — `comment, fn, let, expression-v1, assign, destructure, do, fmt, clamp, firstTruthy,
 coalesce, firstDefined, objectMerge, objectOmit, objectPick, return, if, else, while, for, each,
@@ -77,6 +85,83 @@ Two consequences, both load-bearing:
 
 The loop body's projectable statement set for this slice is therefore exactly `let`, `assign`,
 `if`/`else`, `return`, and a nested `for`. That is the full body vocabulary the oracle covers.
+
+### RT10F-C3 SUPERSEDED — a capability nested under an `if` inside a `for` body projects, links and runs on all three legs
+
+**[RT10F-C3 CORRECTED — 2026-09-04]** A targeted review caught that consequence 1 above does not
+follow from its own evidence: the same paragraph already states `if` is on `for`'s `allowedChildren`
+list and that `if`'s own `allowedChildren` is `null` (unrestricted) — which means `capability` is
+admissible as a child of `if`, and `if` is admissible as a child of `for`. Nesting composes. The
+2026-09-03 Corrections Log entry for this claim (below) even recorded the fact directly — *"the same
+`capability` inside an `if` body projects"* — one line away from noticing that an `if` body is itself
+admissible **inside** a `for` body. The projection chain, with citations:
+
+1. `packages/core/src/kir-structural/catalog.generated.ts:3155-3216` — `for`'s catalog entry.
+   `allowedChildren` is the 28-entry list quoted above, and it contains `"if"` at line 3175,
+   the entry immediately following `"return"`.
+2. `packages/core/src/kir-structural/catalog.generated.ts:3089-3096` — `if`'s own catalog entry:
+   `"allowedChildren": null` at line 3093.
+3. `packages/core/src/kir-structural/node.ts:213` — the gate every structural child check runs
+   through: `return contract.allowedChildren === null || contract.allowedChildren.includes(childKind);`.
+   `null` is read as **unrestricted**, not as "no children", so a `capability` under an `if` passes
+   this check regardless of what encloses the `if`.
+4. Measured 2026-09-04 through `scripts/kern-frontend-f5-projection/worker.mjs` directly: the fixture
+   ```
+   let name=acc value="0"
+   for name=i from="0" to="3"
+     if cond="i > 1"
+       capability namespace=fixture operation=resolve name=reply
+     assign target="acc" value="acc + i"
+   return value="acc"
+   ```
+   projects (`receipt.status === 'projected'`, zero diagnostics).
+5. `packages/core/src/kir-runtime/linked-kir-program/link.ts:457-487` (`compileFor`) routes the
+   loop body through `compileBranch` (line 480), which is the same `compileBranch` → `compileBlock`
+   (`link.ts:389-398`, `489-515`) pipeline `if`'s own branches use. `compileBlock` dispatches an
+   `if` child to `compileIf` (`link.ts:400-425`), which itself calls `compileBranch` for its
+   `thenBranch`/`elseBranch` (line 417, 422) — the identical function `compileFor` called for its
+   own body. A `capability` statement inside that nested branch reaches `compileStatement`
+   (`link.ts:308-387`) and is compiled by the `kind === 'capability'` arm (`link.ts:334-350`) with
+   **no special-casing keyed on how many `if`/`for` frames enclose it**. Measured: the fixture above
+   links (`outcome === 'success'`) and the linked program carries a `for` statement whose `body`
+   contains an `if` whose `thenBranch` contains a `kind: 'capability'` statement, exactly as the
+   catalog predicts.
+6. `packages/core/src/kir-runtime/expression.ts:159-264` (`walkStatements`) confirms the same
+   composability at the RT-1 execution leg: a `for` statement pushes a `WalkFrame` (line 247) whose
+   `statements` is the loop body; an `if` statement inside that frame pushes a **second** frame for
+   its taken branch (line 238) with `loop: undefined`; a `capability` statement inside that second
+   frame `yield`s a suspension step (line 224) regardless of which frame it is nested in. The
+   per-statement `runtime.checkAbort()` at line 208 — not only the loop-head `checkAbort()` this
+   slice added at line 186 — already covers this yield, so a capability nested under an `if` inside
+   a `for` is already an interruption checkpoint at base, with no change needed.
+7. Both emitters lower the nested capability the same way they lower any other capability: measured
+   2026-09-04 by emitting the fixture above and inspecting the specialized region — the JavaScript
+   `for(...)` loop head is plain BigInt arithmetic with no `await`, and the single
+   `await __invokeCapability(...)` call site sits inside the `if` block inside the loop body; the
+   Python `while` loop head is the same sign-selected comparator with no coercion, and the single
+   `await _invoke_capability(...)` call site sits inside the `if` block inside the `while` body.
+8. Full three-leg execution, 2026-09-04: the fixture above returns `3` (accumulator sum with `to`
+   exclusive) with **byte-identical envelopes** on RT-1, emitted JavaScript and emitted CPython,
+   including one `capability` event per taken trip, using the *unmodified* base implementation — no
+   production file changed. See *Corrections Log* and `scripts/kern-5-rt10-for/capability-in-loop.test.mjs`.
+
+**What is still true from the original claim:** `for`'s `allowedChildren` genuinely excludes
+`capability` and `print` **as direct children** — `fence-capability-in-body` and
+`fence-print-in-body` in `probe-matrix.json` correctly stay `rejected`, because those two fixtures
+place the statement directly under `for` with no intervening `if`. What is false is the inference
+that this closes off capability calls, event ordering, suspension and cancellation from the loop
+body altogether: they are reachable one `if` away, which is a body shape this slice's own contract
+already admits (`if`/`else` is in the projectable statement set the paragraph above names). The
+tribunal's instruction quoted in consequence 1 — *"the body admits a capability call — it doesn't"*
+— is corrected the same way: it doesn't as a **direct** child, but it does one level down, and a
+cancel-mid-loop fixture is buildable and is now in the oracle.
+
+**Print is not verified by this pass.** `if`'s unrestricted `allowedChildren` implies a `print`
+nested under an `if` inside a `for` body likely projects by the identical mechanism, which would
+falsify consequence 2's "no stdout event ordering inside a loop" the same way. This pass was scoped
+to capability calls, suspension, event ordering and cancellation only (per the coordinating
+instruction); the `print` corollary is flagged here as an **open, unverified observation** rather
+than assumed — Out of Scope's `print`-in-body row is left as printed, pending its own check.
 
 ### The base refusal is `statement must be a leaf`, not `statement kind for is outside RT-1`
 
@@ -355,8 +440,8 @@ Design estimate: **≤ 130 lines** across the six sites, no file added or remove
 | `packages/core/src/kir-runtime/expression.ts` | edit | the RT-1 loop frame |
 | `packages/core/src/compiler/kir-js-esm/emitter.ts` | edit | one `blockSource` arm |
 | `packages/core/src/compiler/kir-python/emitter.ts` | edit | one `blockSource` arm |
-| `scripts/kern-5-rt10-for/**` | add | this slice's oracle: 7 test files, 2 JSON fixtures, 1 support module |
-| `package.json` | edit | `test:kern-5-rt10-for`; appended to `test:kern-5-script-family` |
+| `scripts/kern-5-rt10-for/**` | add | this slice's oracle: 7 test files, 2 JSON fixtures, 1 support module. **Plus, 2026-09-04:** `capability-in-loop.test.mjs`, an 8th test file added by the RT10F-C3 correction pass (7 tests) |
+| `package.json` | edit | `test:kern-5-rt10-for`; appended to `test:kern-5-script-family`. **Plus, 2026-09-04:** `test:kern-5-rt10-for` gains one more `node --test` invocation for `capability-in-loop.test.mjs` |
 | `scripts/ci/test-tier-contract.test.mjs` | edit | `kern5EvidenceCommands` gains one entry; the aggregate must match exactly and in dependency order |
 | `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once; a new leaf needs no workflow change |
 | `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` | edit | `compiledCoreDigest` re-pin, five source files moved |
@@ -423,6 +508,19 @@ claim.
       straight-line, on both legs, and the Python count stays exactly JavaScript + 1.
 - [ ] `linkedStatementsCallDepth` and `linkedStatementsInvokeCapability` answer correctly for a
       hand-built `for` statement (both throw `TypeError` at base).
+- [ ] **Added 2026-09-04 (RT10F-C3 correction).** A capability nested under an `if` inside a `for`
+      body projects, links and executes with a byte-identical envelope and an identical, correctly
+      ordered event list on RT-1, emitted JavaScript and emitted Python: once per taken trip, guarded
+      by a condition true on every trip and by a condition true on exactly one trip. An async helper
+      `let` and a capability under `if` in the same body interleave per trip (helper event, then
+      direct event, repeated per trip) identically on all three legs. A provider that aborts on the
+      second capability invocation cancels the run with `execution-cancelled`/`execution` and commits
+      only the events before the aborted call, identically on all three legs; the same fixture
+      uninterrupted succeeds. The dynamic await census (provider invocations) equals trips times
+      per-trip awaits, the loop head itself carries no `await`, and the static await site count in
+      the emitted specialized region does not grow with the trip count. All in
+      `scripts/kern-5-rt10-for/capability-in-loop.test.mjs`, all green against the unmodified base
+      implementation — no production file changed.
 - [ ] The Python specialized region contains an explicit `while`, contains no `range(`, no `int(`,
       and no chained comparison; the JavaScript region loops over `BigInt` literals (`n`-suffixed).
 - [ ] Both kernel digests are unchanged and no emitted-artifact digest literal in the repository is
@@ -488,11 +586,21 @@ helper `k0-support.mjs` calls is now imported by name as well as re-exported. Se
 - `while`, `each`, `set`, `break`, `continue`. All four project at base and must **stay refused**;
   `while`/`each` keep `statement must be a leaf` and `break`/`continue` in a `for` body become
   `statement kind … is outside RT-1`.
-- **A capability call inside a `for` body**, and therefore any cancel-mid-loop fixture, any
-  capability event-ordering-in-loop fixture, and any loop-body suspension point. Unprojectable
-  (RT10F-C3), fenced.
+- ~~A capability call inside a `for` body, and therefore any cancel-mid-loop fixture, any capability
+  event-ordering-in-loop fixture, and any loop-body suspension point. Unprojectable (RT10F-C3),
+  fenced.~~ **SUPERSEDED 2026-09-04 (RT10F-C3 corrected):** this was false. A capability nested
+  under an `if` inside a `for` body projects, links and runs, and is now covered by
+  `scripts/kern-5-rt10-for/capability-in-loop.test.mjs` — event ordering, interleaving with an async
+  helper `let`, and mid-loop cancellation are all in this slice's oracle now, on the unmodified base
+  implementation. What remains genuinely out of scope, unchanged, is a `capability` as a **direct**
+  child of `for` with no intervening `if` — `for`'s `allowedChildren` really does exclude it, and
+  `fence-capability-in-body` in `probe-matrix.json` still pins that specific refusal.
 - **A `print` inside a `for` body**, and therefore any stdout-ordering-in-loop fixture and any
-  void-entry loop that emits an event. Unprojectable (RT10F-C3), fenced.
+  void-entry loop that emits an event. Unprojectable (RT10F-C3), fenced. **Not re-verified by this
+  pass** (2026-09-04): the same `if`-nesting mechanism that admits a capability likely admits a
+  `print` the same way, since `if`'s `allowedChildren` is unrestricted; this was out of the scope
+  handed to this pass (capability/suspension/cancellation only) and is flagged, not fixed. A future
+  pass should check it before relying on "no stdout ordering inside a loop" as a fact.
 - `list<integer>` in either direction — still RT-10-X's two fences.
 - Any new `KernKirLimits` field, including `maxIterations` (RT10F-C7).
 - Any new `KernKirDiagnosticCode` member.
@@ -524,9 +632,14 @@ Nesting is **admitted**, deliberately, against the general "one thing per slice"
   `unsupported-runtime-input`/`execution` family, not a new `KernKirDiagnosticCode`. The envelope
   carries no message, so a new code would change a closed contract for zero observability.
 - **[RT10F-O3 DECIDED — 2026-09-03]** Nested `for` is in. See above.
-- **[RT10F-O4 DECIDED — 2026-09-03]** Capability-in-body and print-in-body are out because the
-  structural catalog does not admit them (RT10F-C3), not because the slice declined them. Both are
-  fenced so a schema widening surfaces as a failing fence rather than as new behavior.
+- **[RT10F-O4 PARTIALLY SUPERSEDED — 2026-09-04]** Originally decided 2026-09-03: "Capability-in-body
+  and print-in-body are out because the structural catalog does not admit them (RT10F-C3), not
+  because the slice declined them. Both are fenced so a schema widening surfaces as a failing fence
+  rather than as new behavior." The capability half is corrected: the catalog does not admit
+  `capability` as a **direct** child of `for` (that fence stays valid, RT10F-C3), but it does admit
+  `capability` one level down, under an `if` inside a `for` body — which this pass verified projects,
+  links and runs, and added to the oracle. The print half is unchanged and unverified either way by
+  this pass.
 - **[RT10F-O5 DECIDED — 2026-09-03]** The standing "zero new `checkAbort()`" answer is superseded
   for this slice only: exactly one new checkpoint site per leg (the loop head) is licensed, and zero
   new await points remain the rule. RT10F-C9.
@@ -615,14 +728,22 @@ walker `TypeError`. The union member is the single admission edge, and steps 1�
 ## Standing Review Question
 
 **Every new dispatch path must add zero await points, and every kernel-free slice must move zero
-artifact digests.** Answered in RT10F-C8 and RT10F-C9: this slice adds a statement kind but no
-suspension point — because `for`'s `allowedChildren` admits no `capability`, a loop body cannot
-contain one — and it touches no kernel file. The reviewer should check `git diff` for any occurrence
-of `await`, `setImmediate`, `queueMicrotask` or `Promise` under
-`packages/core/src/kir-runtime/` and `packages/core/src/compiler/` and expect **zero**; for
-`checkAbort()` / `__checkAbort()` / `_check_abort()` and expect **exactly one new occurrence each**,
-at the loop head; and for any edited digest literal outside the licensed RT-2 chain and
-`compiledCoreDigest`, and expect **zero**.
+artifact digests.** Answered in RT10F-C8 and RT10F-C9: this slice's own new code — the loop head,
+the counter increment, the bound reads — adds a statement kind but no suspension point of its own,
+and it touches no kernel file. **Corrected 2026-09-04:** the reason is not, as this section
+originally read, that "a loop body cannot contain [a capability]" — a capability nested under an
+`if` inside a `for` body does project, link and run (RT10F-C3, corrected above). The accurate reason
+is narrower: the `for` lowering this slice adds is synchronous machinery around a body that was
+already compiled through the pre-existing, unmodified `compileBranch`/`blockSource` recursion, so
+any suspension point the body reaches (via a nested `if`) uses code this slice did not touch and did
+not add. The reviewer should check `git diff` for any occurrence of `await`, `setImmediate`,
+`queueMicrotask` or `Promise` under `packages/core/src/kir-runtime/` and
+`packages/core/src/compiler/` and expect **zero**; for `checkAbort()` / `__checkAbort()` /
+`_check_abort()` and expect **exactly one new occurrence each**, at the loop head; and for any edited
+digest literal outside the licensed RT-2 chain and `compiledCoreDigest`, and expect **zero**. None of
+this changes: it was always about *this slice's diff*, not about whether a loop body can ever
+suspend — and it can, one `if` away, as `scripts/kern-5-rt10-for/capability-in-loop.test.mjs` now
+proves without any production change.
 
 ## Measured Implementation
 
@@ -755,4 +876,5 @@ before and after every mutation) and rebuilt clean afterward.
 | 2026-09-04 | **Fixed: no fixture covered a `for` nested in an `if`'s then-branch or else-branch (the inverse nesting, `if` inside `for`, was already `for-if-in-body`).** Added two frozen rows to `behavior-table.json` — `for-in-if-then` (`if true { for i from 0 to 3 { acc = acc + i } }` → `3`) and `for-in-if-else` (the same `for` in a taken-false then-branch, an executed else-branch running `for i from 0 to 5`, → `10`) — both values computed by summing in `node` and cross-checked with `python3 -c "print(sum(range(0,3)), sum(range(0,5)))"` (`3 10`, matching). Both rows flow through the existing `TABLE_ROWS` loop in `behavior.test.mjs` (three-leg byte-identity) and the existing `ADMITTED` spread in `type-gate.test.mjs`; one additional named type-gate test asserts both link. `probe-matrix.json` was regenerated from the live `recompute()` and diffed against the prior file before committing: exactly the five new fixture names this pass added (`for-in-if-then`, `for-in-if-else`, `for-async-let-in-body`, `neg-async-assign-in-body`, `twin-async-call`) appear as new `projected` entries, nothing else moved. |
 | 2026-09-04 | **Fixed (hardening) and reported: `loopBound` defaulted a missing property of *any* key to `LOOP_STEP_ONE`, not only a missing `step`, but the gap is unreachable through every path the public API exposes.** `compileFor` calls `propertySet(properties, ['from', 'name', 'to'], ['step'], label)` before any `loopBound` call, which already refuses a missing `from`/`to` with `unsupported property set` — so `loopBound` never actually sees `raw === undefined` for `key !== 'step'` under its only caller. Restricted the default to `step` anyway (`if (key !== 'step') fault(...)` reusing the existing `missing property` wording `propertyText` already uses, rather than inventing a label) as defense-in-depth against a future caller that invokes `loopBound` without `propertySet`'s guard. **No type-gate row was added**, and the reason is recorded rather than papered over: F5 itself refuses to project a `for` missing `from` at the schema level (measured — `for name=i to="3"` with no `from` comes back `{"status":"rejected","diagnostics":["UNEXPECTED_TOKEN"]}`), and even a hand-built `VerifiedKernProjection` bypassing F5 would fail `authenticateLinkedKernKirProjectionOrThrow` before reaching `compileFor` — `link.ts` exports only `linkVerifiedKernKirProgramOrThrow`/`linkVerifiedKernKirProgram`, both of which authenticate first. Exporting `compileFor` or `loopBound` as a test-only hook would widen the linker's API surface, which is not this pass's license. Confidence 0.6, as flagged in the finding: the fix is sound hardening: with no reachable oracle row, it is unverified by this slice's own test suite and rests on the argument above. |
 | 2026-09-04 | **Recorded, not fixed: `contracts.ts`'s three statement-tree traversals (`statementsInvokeCapability`, `statementsCallDepth`, and the closure-walk's own recursion) each re-walk `body`/`thenBranch`/`elseBranch` independently rather than sharing one generic fold.** A post-implementation review flagged the duplication. Consolidating them into one shared walker is queued behind the `contracts.ts` split (the file is already over the house 500-line ceiling per the prior Corrections Log entry), which is itself blocked by *Builder must NOT* rule 14 — the compiled-core inventory is attested at `count: 354` and no sibling module can host a shared walker without either growing that count or creating an import cycle back into `contracts.ts`. No code changed for this entry; it is queued, not deferred silently. |
+| 2026-09-04 | **BLOCKER, corrected: RT10F-C3's central conclusion — "a capability call inside a `for` body cannot be built" — does not follow from its own evidence, and it is false.** A targeted review caught that the same paragraph already states `if` is on `for`'s `allowedChildren` list and that `if`'s own `allowedChildren` is `null` (unrestricted); nesting composes, so a `capability` under an `if` inside a `for` is admissible. Verified from first principles, not just re-argued: (1) `packages/core/src/kir-structural/catalog.generated.ts:3155-3216` confirms `for`'s `allowedChildren` contains `"if"` (line 3175); (2) `catalog.generated.ts:3089-3096` confirms `if`'s `allowedChildren` is `null`; (3) `packages/core/src/kir-structural/node.ts:213` confirms `null` means unrestricted, not "no children"; (4) a hand-built fixture with `for { if { capability } }` projects through `scripts/kern-frontend-f5-projection/worker.mjs` (measured directly, zero diagnostics); (5) `packages/core/src/kir-runtime/linked-kir-program/link.ts`'s `compileFor` (457-487) routes its body through the same `compileBranch`/`compileBlock`/`compileIf`/`compileStatement` pipeline (389-425, 489-515, 308-387) every other nesting uses, with the `capability` arm (334-350) carrying no special case keyed on enclosing `for`/`if` depth — the fixture links; (6) `packages/core/src/kir-runtime/expression.ts`'s `walkStatements` (159-264) confirms the RT-1 execution leg composes the same way: an `if`'s taken branch is a second `WalkFrame` pushed inside the `for`'s own frame, and the per-statement `runtime.checkAbort()` at line 208 (not only the new loop-head checkpoint at line 186) already covers a capability yielded from inside it; (7) both emitters lower the nested capability with their existing, unmodified capability-lowering code, confirmed by inspecting the emitted specialized regions directly. Full three-leg execution (2026-09-04) of five new fixtures — a capability firing every trip, one firing on exactly one trip, an async helper `let` interleaved with a capability under `if` per trip, a provider that aborts on the second capability invocation (mid-loop cancellation), and the same fixture uninterrupted — all succeed with byte-identical envelopes and correctly ordered/counted events on RT-1, emitted JavaScript and emitted CPython, using the **unmodified base implementation**: `packages/core/src/kir-runtime/expression.ts`, `link.ts`, `packages/core/src/compiler/kir-js-esm/emitter.ts` and `packages/core/src/compiler/kir-python/emitter.ts` were read but not edited, because the existing `compileBranch`/`blockSource` recursion already composes correctly across `for`→`if`→`capability` — the only thing that was ever wrong was the spec's own inference from its own evidence, not the code. Added `scripts/kern-5-rt10-for/capability-in-loop.test.mjs` (7 tests, all green on first run): event-ordering-in-loop (every-trip and single-trip guard), helper/direct-capability interleaving, mid-loop cancellation (`execution-cancelled`/`execution`, first trip's event committed, second trip's not, `calls.length === 2` on every leg matching RT-5's own "abort during the Nth invocation" semantics reused via `threeLegAbort`/`assertLegParity`/`abortingProvider` imported directly from `scripts/kern-5-rt5-async-user-fn-call/k0-support.mjs`), the uninterrupted control run, and a tick-discipline row proving the dynamic await census (provider invocations) equals trips × per-trip awaits (3 trips × 2 per-trip awaits = 6, on all three legs) while the static await-site count in the emitted specialized region does not grow with trip count and the loop head itself carries no `await`. `package.json`'s `test:kern-5-rt10-for` gained one `node --test` invocation for the new file; no other oracle file, golden, digest or production source changed. What remains true and unchanged: `capability`/`print` as a **direct** child of `for` (no intervening `if`) is still refused by F5 (`fence-capability-in-body`/`fence-print-in-body` still `rejected`), and a `print` nested under an `if` inside a `for` was flagged as a likely-but-unverified analogous gap, explicitly out of this pass's scope, and left open rather than assumed either way. Corrected: the "for's `allowedChildren` excludes `print` and `capability`" section, the Out of Scope capability row, `RT10F-O4`, and the Standing Review Question, each marked superseded/corrected in place with the original text kept, not deleted. |
 
