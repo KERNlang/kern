@@ -245,9 +245,10 @@ ${value.prelude}        _printed = ${value.source}
   throw new Error('return statements are emitted by the specialized handler');
 }
 
-// `(bound - cursor) * stride > 0` is the sign selection written as one two-sided comparison: it
-// continues while cursor is below bound for a positive stride and above it for a negative one,
-// without a chained comparison, without `range`, and without coercing the host integer.
+// The comparator is selected once, right after the step is read: a positive stride picks `<`, a
+// negative one picks `>`. Each selection line carries only one comparison operator, never two,
+// because the multiplication this replaced (`(bound - cursor) * stride > 0`) was unmetered
+// arbitrary-precision work at every head test, not the pinned integer comparison.
 function forSource(
   statement: Extract<LinkedKernKirStatement, { kind: 'for' }>,
   scope: Map<string, string>,
@@ -259,6 +260,7 @@ function forSource(
   const bound = nextLocal();
   const stride = nextLocal();
   const counter = nextLocal();
+  const comparator = nextLocal();
   const from = expressionSource(statement.from, scope, calls);
   const to = expressionSource(statement.to, scope, calls);
   const step = expressionSource(statement.step, scope, calls);
@@ -275,7 +277,11 @@ ${blockSource(statement.body, body, calls, nextLocal, returnSource)}        ${cu
         ${stride} = _int_operand(${step})
         if ${stride} == 0:
             raise _Fault("unsupported-runtime-input", "execution", "ERR_KIR_LOOP_ZERO_STEP")
-        while (${bound} - ${cursor}) * ${stride} > 0:
+        if ${stride} > 0:
+            ${comparator} = lambda a, b: a < b
+        else:
+            ${comparator} = lambda a, b: a > b
+        while ${comparator}(${cursor}, ${bound}):
 ${indented(trip)}        _meter.step()
 `;
 }
