@@ -1,0 +1,131 @@
+{
+  "base": "1a88c705",
+  "cases": {
+    "handler-loop-sync": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "10"
+        }
+      }
+    },
+    "handler-loop-async": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "10"
+        }
+      }
+    },
+    "handler-list": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "list",
+          "value": [
+            {
+              "tag": "integer",
+              "value": "0"
+            },
+            {
+              "tag": "integer",
+              "value": "1"
+            },
+            {
+              "tag": "integer",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    "envelope-loop-sync": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.internal.r0",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "100"
+        }
+      }
+    },
+    "envelope-loop-async": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.internal.r0",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "100"
+        }
+      }
+    },
+    "compat-loop-sync": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.internal.r0",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "100"
+        }
+      }
+    },
+    "compat-loop-async": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.internal.r0",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "integer",
+          "value": "100"
+        }
+      }
+    }
+  },
+  "format": "kern.5.runtime-envelope-max-steps.byte-identity.1"
+}

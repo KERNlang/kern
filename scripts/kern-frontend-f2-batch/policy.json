@@ -27,6 +27,7 @@
     "maxDepth": 64,
     "maxDiagnostics": 8,
     "maxEvents": 1,
+    "maxIterations": 1000000,
     "maxStringBytes": 16777216
   },
   "scheduler": {

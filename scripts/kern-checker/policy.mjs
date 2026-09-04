@@ -52,7 +52,7 @@ export function validateKernCheckerPolicy(value) {
   for (const key of Object.keys(value.profileLimits)) positiveSafe(value.profileLimits[key], `profileLimits.${key}`);
   exactKeys(
     value.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
     'runtimeLimits',
   );
   for (const [key, limit] of Object.entries(value.runtimeLimits)) {

@@ -39,6 +39,7 @@
     "maxDepth": 64,
     "maxDiagnostics": 8,
     "maxEvents": 8,
+    "maxIterations": 262144,
     "maxStringBytes": 131072
   }
 }

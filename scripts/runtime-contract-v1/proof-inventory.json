@@ -183,6 +183,13 @@
       ]
     },
     {
+      "id": "maxIterations",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
       "id": "maxStringBytes",
       "boundaries": [
         "minimum-valid",

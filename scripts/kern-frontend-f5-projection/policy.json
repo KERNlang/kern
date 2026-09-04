@@ -5,7 +5,7 @@
   "moduleSetFormat": "kern.frontend.f4-module-set.4",
   "f4Policy": {
     "path": "scripts/kern-frontend-f4-declarations/policy.json",
-    "sha256": "211bb1d98a06968083777ae97d5ae95494139f4da8706b2075bcfc2a6119e06f"
+    "sha256": "3a1878cb214ec37f6964bb6443f0c005347b702d9587069cb61bb3a11b5e0e1a"
   },
   "mappingAuthorities": [
     { "path": "packages/core/src/kir-structural/expression.ts", "sha256": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957" },
@@ -33,7 +33,7 @@
   "profileLimits": {
     "maxModules": 256,
     "maxInstructionScalars": 16777216,
-    "maxWorkSteps": 33554432,
+    "maxWorkSteps": 100663296,
     "maxNodes": 1048576,
     "maxDepth": 256,
     "maxCollectionLength": 262144,
@@ -57,6 +57,7 @@
     "maxDepth": 512,
     "maxDiagnostics": 8,
     "maxEvents": 1,
+    "maxIterations": 100663296,
     "maxStringBytes": 33554432
   },
   "scheduler": { "timeoutMs": 120000 }

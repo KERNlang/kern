@@ -17,11 +17,17 @@ import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
   loadPreM4129CanonicalizerComposition,
 } from './historical-composition.mjs';
-import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
+import {
+  historicalCanonicalizerPolicyBytes,
+  loadPreM4130CanonicalizerPolicy,
+} from './historical-policy.mjs';
 import {
   reconstructLegacyParameterSource,
 } from './historical-parameter-sources.mjs';
-import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  reconstructHistoricalSource,
+  reconstructRuntimeEnvelopeMaxIterationsSource,
+} from './historical-source.mjs';
 import {
   PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
 } from './validate-parameter-migration-target.mjs';
@@ -200,13 +206,15 @@ function exactInputs() {
         milestone: 'M4.128 validate witness',
         name: 'validate',
       });
+    } else if (name === 'runtimeHandlerSha256') {
+      source = reconstructRuntimeEnvelopeMaxIterationsSource(source);
     }
     if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
   }
   const historicalPolicy = loadPreM4130CanonicalizerPolicy();
-  if (digest(canonicalBytes(historicalPolicy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
+  if (digest(historicalCanonicalizerPolicyBytes(historicalPolicy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
     fail('historical runtime policy identity must remain exact');
   }
   if (

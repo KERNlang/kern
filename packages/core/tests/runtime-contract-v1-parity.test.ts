@@ -24,7 +24,13 @@ type Equal<Left, Right> =
 
 type Assert<Condition extends true> = Condition;
 
-type _LimitsParity = Assert<Equal<KernRuntimeHandlerLimits, InternalRuntimeEnvelopeLimits>>;
+type OptionalKeys<Value> = {
+  [Key in keyof Value]-?: Record<never, never> extends Pick<Value, Key> ? Key : never;
+}[keyof Value];
+
+type _LimitsParity = Assert<Equal<Required<KernRuntimeHandlerLimits>, InternalRuntimeEnvelopeLimits>>;
+type _LimitsOptionality = Assert<Equal<OptionalKeys<KernRuntimeHandlerLimits>, 'maxIterations'>>;
+type _InternalLimitsAreTotal = Assert<Equal<OptionalKeys<InternalRuntimeEnvelopeLimits>, never>>;
 type _ValueParity = Assert<Equal<KernRuntimeHandlerValue, InternalRuntimeValue>>;
 type _SlotParity = Assert<Equal<KernRuntimeHandlerSlot, InternalRuntimeSlot>>;
 type _EventParity = Assert<Equal<KernRuntimeHandlerEvent, InternalRuntimeEvent>>;
