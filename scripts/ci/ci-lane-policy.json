@@ -1,0 +1,33 @@
+{
+  "lanes": [
+    "frontend-composition",
+    "frontend-foundation",
+    "frontend-language",
+    "frontend-properties-core",
+    "frontend-properties-extended",
+    "frontend-tooling",
+    "infrastructure-contracts",
+    "kern-5-evidence",
+    "package-tests",
+    "product-smoke",
+    "quality",
+    "semantics"
+  ],
+  "classes": {
+    "DOCS_ONLY": ["quality"],
+    "FULL": [
+      "frontend-composition",
+      "frontend-foundation",
+      "frontend-language",
+      "frontend-properties-core",
+      "frontend-properties-extended",
+      "frontend-tooling",
+      "infrastructure-contracts",
+      "kern-5-evidence",
+      "package-tests",
+      "product-smoke",
+      "quality",
+      "semantics"
+    ]
+  }
+}
