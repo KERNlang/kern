@@ -430,6 +430,9 @@ const LOOP_STEP_ONE: LinkedKernKirExpression = Object.freeze({
   value: Object.freeze({ tag: 'integer' as const, value: '1' }),
 });
 
+// `propertySet` in `compileFor` already requires `from` and `to` before this runs; `step` is its
+// only optional key, so a missing `from`/`to` here would mean that caller gate broke, not that a
+// bound was omitted.
 function loopBound(
   properties: ReadonlyMap<string, CanonicalValue>,
   key: string,
@@ -438,7 +441,10 @@ function loopBound(
   label: string,
 ): LinkedKernKirExpression {
   const raw = properties.get(key);
-  if (raw === undefined) return LOOP_STEP_ONE;
+  if (raw === undefined) {
+    if (key !== 'step') fault('handler-entry-unsupported', `${label}.${key}: missing property`);
+    return LOOP_STEP_ONE;
+  }
   const boundLabel = `${label}.${key}`;
   const compiled = compileLinkedExpression(raw, scope, meter, boundLabel);
   assertAsyncCallPosition(compiled, scope, boundLabel, false);
