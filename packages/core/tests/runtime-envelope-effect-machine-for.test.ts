@@ -21,6 +21,7 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
@@ -56,10 +57,10 @@ describe('private effect-machine counted for frames', () => {
           },
         },
       }),
-      { iterationBudget: limits.maxCollectionLength },
+      { iterationBudget: limits.maxIterations },
     );
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
       asyncCapabilities: {
         llm: {
           complete: async ({ input }) => {
@@ -91,7 +92,7 @@ describe('private effect-machine counted for frames', () => {
         children: [{ type: 'assign', props: { op: '=', target: 'limit', value: '0' } }],
       },
     ];
-    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength });
+    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations });
     expect(trace.events.filter((event) => event.op === 'iter-next')).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
@@ -105,7 +106,7 @@ describe('private effect-machine counted for frames', () => {
     [{ from: '0', name: 'i', step: '-1', to: '3' }, []],
   ])('preserves half-open range semantics for %o', (props, values) => {
     const trace = runInternalEffectMachineSync([{ type: 'for', props, children: [] }], makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
     });
     expect(trace.events.filter((event) => event.op === 'iter-next').map((event) => event.value)).toEqual(values);
   });
@@ -122,7 +123,7 @@ describe('private effect-machine counted for frames', () => {
       },
     ];
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).events.filter(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).events.filter(
         (event) => event.op === 'iter-next',
       ),
     ).toEqual([
@@ -144,7 +145,7 @@ describe('private effect-machine counted for frames', () => {
         ],
       },
     ];
-    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength });
+    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations });
     expect(trace.events.filter((event) => event.op === 'iter-next').map((event) => event.value)).toEqual([0, 1, 2, 3]);
     expect(trace.events.filter((event) => event.op === 'stdout')).toEqual([
       { op: 'stdout', text: '0' },
@@ -159,7 +160,7 @@ describe('private effect-machine counted for frames', () => {
   ])('propagates %s completion out of the loop', (abrupt, completion) => {
     const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '1' }, children: [abrupt] }];
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).completion,
     ).toEqual(completion);
   });
 
@@ -171,9 +172,7 @@ describe('private effect-machine counted for frames', () => {
         children: [{ type: 'for', props: { from: '0', name: 'i', to: '2' }, children: [] }],
       },
     ];
-    expect(
-      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).events,
-    ).toEqual([
+    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxIterations }).events).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
     ]);
@@ -213,7 +212,7 @@ describe('private effect-machine counted for frames', () => {
   });
 
   test('enforces the caller-configured iteration budget before raw trace growth', () => {
-    const bounded = { ...enabled, limits: { ...limits, maxCollectionLength: 2 } } as const;
+    const bounded = { ...enabled, limits: { ...limits, maxIterations: 2 } } as const;
     const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '3' }, children: [] }];
     expect(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), bounded)).toMatchObject({
       events: [],
@@ -222,7 +221,7 @@ describe('private effect-machine counted for frames', () => {
   });
 
   test('enforces the same caller-configured iteration budget in the async envelope', async () => {
-    const bounded = { ...enabled, limits: { ...limits, maxCollectionLength: 2 } } as const;
+    const bounded = { ...enabled, limits: { ...limits, maxIterations: 2 } } as const;
     const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '3' }, children: [] }];
     const result = await executeInternalRuntimeEnvelopeAsync(nodes, makeEnv(), bounded);
     expect(result).toMatchObject({
@@ -237,7 +236,7 @@ describe('private effect-machine counted for frames', () => {
   });
 
   test('shares one iteration budget across nested loop frames', () => {
-    const bounded = { ...enabled, limits: { ...limits, maxCollectionLength: 4 } } as const;
+    const bounded = { ...enabled, limits: { ...limits, maxIterations: 4 } } as const;
     const nodes: IRNode[] = [
       {
         type: 'for',

@@ -30,6 +30,7 @@ import {
 import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
+  reconstructRuntimeEnvelopeMaxIterationsTransition,
 } from './historical-transition-chain.mjs';
 import {
   atEnvironmentQuarantineCompiledPredecessor,
@@ -136,7 +137,7 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
     const predecessorStages = [];
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
-    const legacySuccessor = predecessorStages.length === 0
+    let legacySuccessor = predecessorStages.length === 0
       ? current
       : reconstructHistoricalTransitionChain({
           currentSource: current,
@@ -145,6 +146,7 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
           path: reconstruction.path,
           stages: predecessorStages,
         });
+    legacySuccessor = reconstructRuntimeEnvelopeMaxIterationsTransition(legacySuccessor);
     assert.equal(digest(legacySuccessor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: legacySuccessor,
@@ -223,7 +225,7 @@ test('every changed compiled endpoint reconstructs the exact 45dd predecessor', 
     const predecessorStages = [];
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
-    const legacySuccessor = predecessorStages.length === 0
+    let legacySuccessor = predecessorStages.length === 0
       ? current
       : reconstructHistoricalTransitionChain({
           currentSource: current,
@@ -232,6 +234,7 @@ test('every changed compiled endpoint reconstructs the exact 45dd predecessor', 
           path: reconstruction.path,
           stages: predecessorStages,
         });
+    legacySuccessor = reconstructRuntimeEnvelopeMaxIterationsTransition(legacySuccessor);
     assert.equal(digest(legacySuccessor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: legacySuccessor,

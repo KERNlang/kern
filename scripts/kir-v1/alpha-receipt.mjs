@@ -15,14 +15,26 @@ const SAFE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const SAFE_PATH = /^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
 const SHA = /^[0-9a-f]{40}$/u;
 
-// scripts/runtime-contract-v1 is a closed authority: every direct entry is in scope.
+// scripts/runtime-contract-v1 is a closed authority: every regular file in its tree is in scope.
 export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CONTRACT_DIRECTORY) {
-  const entries = readdirSync(directory, { withFileTypes: true });
-  if (entries.length === 0) throw new Error('runtime contract directory must be non-empty');
-  for (const entry of entries) {
-    if (!entry.isFile()) throw new Error(`runtime contract directory entry must be a regular file: ${entry.name}`);
+  const names = [];
+  function walk(current, relative = '') {
+    const entries = readdirSync(current, { withFileTypes: true });
+    if (entries.length === 0) {
+      const name = relative || 'runtime-contract-v1';
+      throw new Error(`runtime contract directory entry must be a regular file: ${name}`);
+    }
+    for (const entry of entries) {
+      const name = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isFile()) names.push(name);
+      else if (entry.isDirectory()) {
+        const currentPath = typeof current === 'string' ? current : fileURLToPath(current);
+        walk(path.join(currentPath, entry.name), name);
+      }
+      else throw new Error(`runtime contract directory entry must be a regular file: ${name}`);
+    }
   }
-  const names = entries.map(({ name }) => name);
+  walk(directory);
   const foldedNames = names.map((name) => name.toLowerCase());
   if (new Set(foldedNames).size !== foldedNames.length) {
     throw new Error('runtime contract directory contains case-folded duplicate names');

@@ -59,6 +59,8 @@ const kern5EvidenceCommands = [
   'pnpm census:sweep',
   'pnpm test:kern-5-admission-census',
   'pnpm test:kern-5-rt8-integer-signatures',
+  'pnpm test:kern-5-runtime-envelope-max-steps',
+  'pnpm test:kern-5-f5-profile-budget',
   'pnpm test:kern-5-rt9-linked-assign',
   'pnpm test:kern-5-rt10-pre-linked-arithmetic',
 ];

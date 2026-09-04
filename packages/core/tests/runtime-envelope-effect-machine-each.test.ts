@@ -20,10 +20,11 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 64,
+  maxIterations: 64,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
-const machineOptions = { iterationBudget: limits.maxCollectionLength } as const;
+const machineOptions = { iterationBudget: limits.maxIterations } as const;
 
 function arrayEnv(name: string, values: unknown[]) {
   return makeEnv({ bindings: new Map([[name, values]]) });
@@ -327,7 +328,7 @@ describe('private effect-machine each frames', () => {
           },
         },
       },
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
     });
 
     expect(syncInputs).toEqual([2, 3]);
@@ -429,7 +430,7 @@ describe('private effect-machine each frames', () => {
   });
 
   test('shares one budget across nested for and each frames', () => {
-    const bounded = { ...enabled, limits: { ...limits, maxCollectionLength: 5 } } as const;
+    const bounded = { ...enabled, limits: { ...limits, maxIterations: 5 } } as const;
     const nodes: IRNode[] = [
       {
         type: 'for',

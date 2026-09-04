@@ -41,7 +41,7 @@ export function executeInternalRuntimeEnvelopeSync(
     const trace = runInternalRuntimeEngineSync(
       nodes,
       env,
-      accepted.limits.maxCollectionLength,
+      accepted.limits.maxIterations,
       accepted.observer,
       accepted.limits.maxStringBytes,
       'observable-only',
@@ -70,7 +70,7 @@ export async function executeInternalRuntimeEnvelopeAsync(
     const trace = await waitForInternalRuntimeScheduler(env, () =>
       runInternalRuntimeEngineAsync(nodes, env, {
         ...asyncOptions,
-        iterationBudget: accepted.limits.maxCollectionLength,
+        iterationBudget: accepted.limits.maxIterations,
         observer: accepted.observer,
         textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,
         traceRetention: 'observable-only',

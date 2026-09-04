@@ -46,6 +46,7 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxDepth: 16,
   maxDiagnostics: 8,
   maxEvents: 8,
+  maxIterations: 100_000,
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
@@ -160,10 +161,10 @@ describe('runtime-envelope trace compaction', () => {
 
   test('direct effect-machine defaults retain the exact full sync and async trace', async () => {
     const sync = runInternalEffectMachineSync(assignmentLoop, makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
     });
     const asyncTrace = await runInternalEffectMachineAsync(assignmentLoop, makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
     });
     expect(sync).toEqual(asyncTrace);
     expect(sync.completion).toEqual({ kind: 'return', value: ITERATIONS });
@@ -186,7 +187,7 @@ describe('runtime-envelope trace compaction', () => {
       'observable-only',
     );
     const asyncTrace = await runInternalRuntimeEngineAsync(assignmentLoop, makeEnv(), {
-      iterationBudget: limits.maxCollectionLength,
+      iterationBudget: limits.maxIterations,
       textCodePointCacheMaxStringBytes: limits.maxStringBytes,
       traceRetention: 'observable-only',
     });

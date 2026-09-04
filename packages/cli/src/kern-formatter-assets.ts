@@ -3,6 +3,8 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { KERN_RUNTIME_HANDLER_LIMIT_KEYS } from './kern-runtime-limit-keys.js';
+
 export const KERN_FORMATTER_ASSET_FORMAT = 'kern.cli.formatter.assets.1';
 export const KERN_FORMATTER_ASSET_NAMES = Object.freeze([
   'assets.json',
@@ -13,7 +15,7 @@ export const KERN_FORMATTER_ASSET_NAMES = Object.freeze([
 
 export const KERN_FORMATTER_TRUST = Object.freeze({
   composition: { bytes: 836, sha256: '791574a8b526359baf8613f4964e056c510428ad4399d8b9a92099661d69be1f' },
-  policy: { bytes: 462, sha256: 'dba84fae4a476ae4c5c8fc6d06a5eed9b29d376a617fcf145432b671b587a063' },
+  policy: { bytes: 492, sha256: '072f60514ea8b4939995674a0d9eae69d94da94d5ee027c2ea89ece0e660e1cc' },
   source: { bytes: 24_203, sha256: '461487b0bc0a7f2b5e9d3db77853575e696b83351cfb2aca09dd60a00d6832b0' },
 });
 
@@ -34,6 +36,7 @@ export interface KernFormatterPolicy {
     readonly maxDepth: number;
     readonly maxDiagnostics: number;
     readonly maxEvents: number;
+    readonly maxIterations: number;
     readonly maxStringBytes: number;
   };
 }
@@ -85,11 +88,7 @@ function validatePolicy(value: unknown): KernFormatterPolicy {
     ],
     'policy.profileLimits',
   );
-  exactKeys(
-    value.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
-    'policy.runtimeLimits',
-  );
+  exactKeys(value.runtimeLimits, KERN_RUNTIME_HANDLER_LIMIT_KEYS, 'policy.runtimeLimits');
   for (const [key, limit] of Object.entries(value.profileLimits)) positiveSafe(limit, `policy.profileLimits.${key}`);
   for (const [key, limit] of Object.entries(value.runtimeLimits)) positiveSafe(limit, `policy.runtimeLimits.${key}`);
   const policy = value as unknown as KernFormatterPolicy;
