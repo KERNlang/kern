@@ -15,7 +15,7 @@ const STDERR_MAX_BYTES = 480;
 export function writeAtomic(path, text) {
   const temporary = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(temporary, text);
+    writeFileSync(temporary, text, { flag: 'wx' });
     renameSync(temporary, path);
   } catch (error) {
     try {
@@ -45,11 +45,16 @@ export function ratchetRefusals(results, whitelist, { allowShrink = false } = {}
 }
 
 export function corpusInvariantFailures(results, whitelist) {
+  const incomplete = results.filter((result) => result.stage === 'timeout' || result.stage === 'probe');
   const admitted = results.filter((result) => result.admitted).map((result) => result.file).sort();
   const expected = [...whitelist].sort();
   const failures = [];
   const extra = admitted.filter((file) => !expected.includes(file));
   const missing = expected.filter((file) => !admitted.includes(file));
+  if (incomplete.length > 0) {
+    const named = incomplete.slice(0, 5).map((result) => `${result.file} (${result.code})`).join(', ');
+    failures.push(`${incomplete.length} probe(s) did not complete cleanly: ${named}`);
+  }
   if (extra.length > 0) failures.push(`admitted but not whitelisted: ${extra.join(', ')}`);
   if (missing.length > 0) failures.push(`whitelisted but not admitted: ${missing.join(', ')}`);
   return failures;

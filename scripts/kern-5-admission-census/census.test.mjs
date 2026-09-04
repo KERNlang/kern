@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -227,6 +227,22 @@ test('a failed report write leaves the previous report intact', async () => {
   }
 });
 
+test('an atomic report write refuses an occupied symlink temporary path', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kern-5-census-'));
+  try {
+    const out = join(directory, 'admission.json');
+    const target = join(directory, 'target.json');
+    writeAtomic(out, 'first\n');
+    writeFileSync(target, 'protected\n');
+    symlinkSync(target, `${out}.${process.pid}.tmp`);
+    assert.throws(() => writeAtomic(out, 'second\n'));
+    assert.equal(readFileSync(out, 'utf8'), 'first\n');
+    assert.equal(readFileSync(target, 'utf8'), 'protected\n');
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
 // The corpus-invariant CLI consumes this after the sweep resolves; a promise here would read as
 // an empty whitelist and silently pass the invariant instead of failing.
 test('the whitelist reader returns file names synchronously', () => {
@@ -249,6 +265,16 @@ test('the corpus-wide invariant admits exactly the whitelist', () => {
     corpusInvariantFailures([], [RT7_BIRTH]).some((line) => line.includes('whitelisted but not admitted')),
     'a lost whitelist entry violates the corpus invariant',
   );
+  for (const incomplete of [
+    { admitted: false, code: 'probe-timeout', file: 'timeout.kern', stage: 'timeout' },
+    { admitted: false, code: 'probe-exit', file: 'probe.kern', stage: 'probe' },
+  ]) {
+    assert.ok(
+      corpusInvariantFailures([{ admitted: true, file: RT7_BIRTH }, incomplete], [RT7_BIRTH])
+        .some((line) => line.includes('did not complete cleanly')),
+      `${incomplete.code} invalidates the corpus invariant`,
+    );
+  }
 });
 
 test('--update rewrites the ratchet only from a complete tracked sweep', () => {
