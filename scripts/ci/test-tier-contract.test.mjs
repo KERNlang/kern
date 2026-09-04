@@ -196,7 +196,11 @@ test('pull-request CI has a required-compatible aggregator and preserves setup c
   assert.match(aggregator, /if: \$\{\{ always\(\) \}\}/u);
   assert.match(aggregator, /timeout-minutes: 5/u);
   const needs = aggregator.match(/needs: \[([^\]]+)\]/u)?.[1].split(',').map((lane) => lane.trim());
-  assert.deepEqual(needs, lanes, 'Build & Test needs must exactly match the required CI lanes');
+  assert.deepEqual(
+    needs,
+    ['detect-changes', ...lanes],
+    'Build & Test needs must exactly match the change detector plus the required CI lanes',
+  );
   for (const lane of lanes) {
     assert.match(aggregator, new RegExp(`needs\\.${lane}\\.result`, 'u'));
     assert.match(aggregator, new RegExp(`\\b${lane}\\b`, 'u'));
