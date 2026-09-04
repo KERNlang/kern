@@ -155,6 +155,7 @@ export const LINKED_KIR_VOID_RETURN_TYPE = Object.freeze({
 }) satisfies LinkedKernKirReturnType;
 
 export type LinkedKernKirStatement =
+  | { readonly kind: 'assign'; readonly target: string; readonly value: LinkedKernKirExpression }
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
       readonly kind: 'capability';
