@@ -2,6 +2,7 @@ export const TARGET_BASE_SOURCE = String.raw`import asyncio
 import hashlib
 import re
 import sys
+import threading
 import time
 
 format = "kern.runtime.kir.v1"

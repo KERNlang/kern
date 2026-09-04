@@ -15,7 +15,10 @@ import {
   reconstructLegacyParameterSource,
 } from './historical-parameter-sources.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
-import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
+import {
+  historicalCanonicalizerPolicyBytes,
+  loadPreM4130CanonicalizerPolicy,
+} from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-emission-target.mjs';
 import {
@@ -201,7 +204,7 @@ function exactInputs() {
       SOURCE_DIGESTS.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');
   const policy = loadPreM4130CanonicalizerPolicy();
-  if (digest(canonicalBytes(policy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
+  if (digest(historicalCanonicalizerPolicyBytes(policy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
     fail('historical runtime policy identity must remain exact');
   }
   if (

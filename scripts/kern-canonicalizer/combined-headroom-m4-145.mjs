@@ -14,8 +14,14 @@ import {
 import { digestM4145CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { assertExactPlainData } from './coverage-prerequisite-shape.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
-import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  historicalCanonicalizerPolicyBytes,
+  loadPreM4146CanonicalizerPolicy,
+} from './historical-policy.mjs';
+import {
+  reconstructHistoricalSource,
+  reconstructRuntimeEnvelopeMaxIterationsSource,
+} from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4144,
@@ -133,6 +139,8 @@ function exactInputs() {
         milestone: 'M4.145 measurement',
         replacements: PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS,
       });
+    } else if (name === 'runtimeHandlerSha256') {
+      source = reconstructRuntimeEnvelopeMaxIterationsSource(source);
     }
     if (source !== undefined && digest(source) !== expected) {
       fail(`${name} source identity must remain exact`);
@@ -170,7 +178,7 @@ function exactInputs() {
     })
   ) fail('promoted KIR, profile, runtime, and expansion policy must remain exact');
   const policy = loadPreM4146CanonicalizerPolicy();
-  if (digest(canonicalBytes(policy)) !== INPUT_IDENTITIES.policySha256) {
+  if (digest(historicalCanonicalizerPolicyBytes(policy)) !== INPUT_IDENTITIES.policySha256) {
     fail('historical policy identity must remain exact');
   }
   if (

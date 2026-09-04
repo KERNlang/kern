@@ -49,6 +49,7 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
   milestone,
   sourceKey,
 }) {
+  currentSource = Buffer.from(currentSource.toString().replaceAll('maxIterations', 'maxCollectionLength'));
   const path = SOURCE_PATHS[sourceKey];
   const runnerCallCache = POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,

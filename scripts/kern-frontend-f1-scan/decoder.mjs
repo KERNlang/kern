@@ -302,7 +302,7 @@ export function loadPolicy() {
   }
   exactKeys(
     policy.runtimeLimits,
-    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxStringBytes'],
+    ['maxBytes', 'maxCollectionLength', 'maxDepth', 'maxDiagnostics', 'maxEvents', 'maxIterations', 'maxStringBytes'],
     'runtime limits',
   );
   for (const [key, value] of Object.entries(policy.runtimeLimits)) positiveSafe(value, `runtime limit ${key}`);

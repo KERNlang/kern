@@ -9,20 +9,20 @@
   "targets": [
     {
       "artifactPath": "4fce13fc700b6e61fe602edc359238ecbc96e5b3161a2a578c8f561e4997a798/javascript-esm/main.mjs",
-      "artifactSha256": "992f3f97c853986d05023c5466686d367ae25ddccd33767974d3a347df74f78c",
+      "artifactSha256": "a6e1bb0a61cab767ed5be2da9de3b1903565064f08330a69f40cb7d8ea858cfb",
       "capabilities": [{ "namespace": "r0fixture", "operation": "resolve" }],
       "compilerRequestSha256": "4fce13fc700b6e61fe602edc359238ecbc96e5b3161a2a578c8f561e4997a798",
       "manifestPath": "4fce13fc700b6e61fe602edc359238ecbc96e5b3161a2a578c8f561e4997a798/javascript-esm/manifest.json",
-      "manifestSha256": "1b66b3a97825624885d33288b4f6099685e02a0e474e33ffb95560198f768a59",
+      "manifestSha256": "f4bde5677ab213141064ec85967ed1fad4ce5cef5b05ed1ee35e38d965b5bf04",
       "target": "javascript-esm"
     },
     {
       "artifactPath": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a/python/main.py",
-      "artifactSha256": "fade0cb73d541874918554245303b03961cc67503cf8442acd26861d093b513f",
+      "artifactSha256": "c534cffc9cc533e6557cca4a4dbd19fa86fc3ab06f5ac19e50c5a51ca891d6a9",
       "capabilities": [{ "namespace": "r0fixture", "operation": "resolve" }],
       "compilerRequestSha256": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a",
       "manifestPath": "01eaef36b76ae39ee1b7dc7a8b803660d1e2dd82edd9e921f8a46f08e6289f3a/python/manifest.json",
-      "manifestSha256": "7926e4c6386c4c1119e3acf79e03a607cb2ca4c22467995bdbfc42e598568102",
+      "manifestSha256": "fdd92e65f84476281638d0560a051f3f56cd00e55a3fab0816bc09d8deb53491",
       "target": "python"
     }
   ]

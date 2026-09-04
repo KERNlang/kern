@@ -16,7 +16,7 @@ const F5_POLICY_URL = new URL('../kern-frontend-f5-projection/policy.json', impo
 const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
 
 // The frontend is frozen in this slice: no composition, policy or amendment moves.
-const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4223df80519';
+const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877bad90dbd942';
 
 // The one licensed prior-slice golden move: `linkedExpressionKinds` gains "unary".
 const RT3_GOLDEN_PRE_SLICE_SHA256 = 'c8a94cc48ebc1e0a7c5364ab6b218a9471b30df02ef60e6fe8ab2d72d677d3f3';

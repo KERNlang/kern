@@ -41,7 +41,7 @@ function exactTables() {
   return tables;
 }
 
-function executeTablesOk(tables, maxCollectionLength) {
+function executeTablesOk(tables, maxIterations) {
   return executeKernRuntimeHandlerSync({
     abi: KERN_RUNTIME_HANDLER_ABI,
     arguments: tableArguments(tables),
@@ -49,7 +49,7 @@ function executeTablesOk(tables, maxCollectionLength) {
     source: COMPOSITION.source,
   }, {
     enabled: true,
-    limits: { ...POLICY.runtimeLimits, maxCollectionLength },
+    limits: { ...POLICY.runtimeLimits, maxIterations },
   });
 }
 
