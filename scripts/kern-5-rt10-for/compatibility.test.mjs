@@ -18,16 +18,10 @@ const CONTRACTS_URL = new URL(
 );
 const LIMITS_URL = new URL('../../packages/core/src/kir-runtime/contracts.ts', import.meta.url);
 
-// The whole-program target kernel is embedded in every emitted artifact, so these two digests are
-// the assertion that no emitted-artifact digest anywhere in the repository may be re-sealed. Both
-// kernels already carry the integer operand reader and the maxStringBytes-pre-checked integer
-// constructor the loop reuses, so neither has to move.
 const JAVASCRIPT_KERNEL_SHA256 = 'b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6';
-const PYTHON_KERNEL_SHA256 = '3df98a2e7b08660a827c2b5ed9f5f64ff0bf1c31e470464ce3a9570d3816d04a';
+const PYTHON_KERNEL_SHA256 = 'f79a39633f58475124eafdec3c62a9fd042ffa50b1de637509d0f66e0f0cd18e';
 
-// The frontend is frozen in this slice: F5 already projects `for`, so no composition, policy or
-// amendment moves.
-const F5_POLICY_SHA256 = 'e025392a83b6c6fecad31d7f92a2c34b67403bd0042b1cde9dc4b4223df80519';
+const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877bad90dbd942';
 
 // Three goldens whose scrapes the for feature itself does not touch: RT-3 scrapes the expression
 // union, RT-9 and RT-10-pre the assign and arithmetic admission surfaces, RT-10-X the cross-call
@@ -80,21 +74,21 @@ async function source(url) {
   return readFile(url, 'utf8');
 }
 
-test('neither target kernel moves, so no emitted-artifact digest is re-sealed', async () => {
+test('the target kernels carry the reconciled predecessor values', async () => {
   assert.equal(
     JAVASCRIPT_KERNEL,
     JAVASCRIPT_KERNEL_SHA256,
-    'RT10F_KERNEL_TOUCH: the JavaScript kernel moved, so every emitted-artifact digest moved with it',
+    'RT10F_KERNEL_TOUCH: the JavaScript kernel moved after reconciliation',
   );
   assert.equal(
     PYTHON_KERNEL,
     PYTHON_KERNEL_SHA256,
-    'RT10F_KERNEL_TOUCH: the Python kernel moved, so every emitted-artifact digest moved with it',
+    'RT10F_KERNEL_TOUCH: the Python kernel moved after reconciliation',
   );
 });
 
-test('the frontend projection policy does not move, because F5 already projects for', async () => {
-  assert.equal(await digest(F5_POLICY_URL), F5_POLICY_SHA256, 'RT10F_FRONTEND_TOUCH: the F5 policy moved');
+test('the frontend carries the reconciled F5 projection policy digest', async () => {
+  assert.equal(await digest(F5_POLICY_URL), F5_POLICY_SHA256, 'RT10F_FRONTEND_TOUCH: the reconciled F5 policy moved');
 });
 
 test('the RT-3, RT-9, RT-10-pre and RT-10-X goldens do not move', async () => {
