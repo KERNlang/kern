@@ -486,7 +486,7 @@ The oracle asserts walker **behaviour**, never walker shape, so either option pa
 | File | Action | Reason |
 | --- | --- | --- |
 | `.Codex/specs/kern-5-rt11-linked-while/spec.md` | add | this document |
-| `scripts/kern-5-rt11-linked-while/**` | add | 7 test files, 2 JSON fixtures, 1 support module |
+| `scripts/kern-5-rt11-linked-while/**` | add | 8 test files, 2 JSON fixtures, 1 harness module, 1 fixture-catalogue module (the catalogue is split out so neither hand-written module passes 500 lines) |
 | `package.json` | edit | `test:kern-5-rt11-linked-while`; appended to `test:kern-5-script-family` |
 | `scripts/ci/test-tier-contract.test.mjs` | edit | `kern5EvidenceCommands` gains one entry; the `deepEqual` is exact and order-sensitive |
 | `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once |
