@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { KERN_KIR_PYTHON_COMPILER_FORMAT } from '../../packages/core/dist/compiler/kir-python/contracts.js';
 import { RuntimeMeter } from '../../packages/core/dist/kir-runtime/inspect.js';
@@ -39,19 +39,13 @@ export const DEFERRAL_LABEL = 'KIR_PYTHON_LEG_DEFERRED';
 export const LEDGER_SHA256 = '2b372e6ee575231ebf6cf1e845353197a4c55aafc49bf4db7e0a0b40f0cb35fa';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
-export const ROW_KEYS = Object.freeze([
-  'blockedBy',
-  'jsLoweringBlameDigest',
-  'label',
-  'nodeKind',
-  'since',
-  'surface',
-]);
+export const ROW_KEYS = Object.freeze(['blockedBy', 'label', 'nodeKind', 'since', 'spec', 'surface']);
 export const SURFACES = Object.freeze(['expression', 'statement']);
 
-const HEX64 = /^[0-9a-f]{64}$/u;
 const SLICE_ID = /^kern-5-[a-z0-9]+(-[a-z0-9]+)*$/u;
+const SPEC_PATH = /^\.Codex\/specs\/kern-5-[a-z0-9]+(-[a-z0-9]+)*\/spec\.md$/u;
 const KIND = /^[a-z]+(-[a-z]+)*$/u;
+const REPO_ROOT = new URL('../../', import.meta.url);
 
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
 const REQUEST_SOURCE_URL = new URL('../../packages/core/src/compiler/kir-python/request.ts', import.meta.url);
@@ -110,10 +104,9 @@ export function validateLedger(document) {
     if (typeof row.nodeKind !== 'string' || !KIND.test(row.nodeKind)) fail('a row nodeKind must be a linked node kind');
     if (!SURFACES.includes(row.surface)) fail(`a row surface must be one of ${SURFACES.join(', ')}`);
     if (row.label !== document.label) fail('a row label must equal the ledger label');
-    if (typeof row.jsLoweringBlameDigest !== 'string' || !HEX64.test(row.jsLoweringBlameDigest)) {
-      fail('a row jsLoweringBlameDigest must be lowercase sha256 hex');
-    }
     if (typeof row.since !== 'string' || !SLICE_ID.test(row.since)) fail('a row since must be a kern-5 slice id');
+    if (typeof row.spec !== 'string' || !SPEC_PATH.test(row.spec)) fail('a row spec must be a kern-5 slice spec path');
+    if (!existsSync(new URL(row.spec, REPO_ROOT))) fail(`a row spec must exist: ${row.spec}`);
     if (!Array.isArray(row.blockedBy)) fail('a row blockedBy must be an array');
     kinds.push(row.nodeKind);
   }

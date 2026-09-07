@@ -18,10 +18,10 @@ import {
 
 const ROW = Object.freeze({
   blockedBy: [],
-  jsLoweringBlameDigest: 'f8b5835d7a4bf6d4bc7d915161dd3c09e0e333764b845c6a05173784e125927c',
   label: DEFERRAL_LABEL,
   nodeKind: 'while',
-  since: 'kern-5-rt11-while',
+  since: 'kern-5-parity-ledger',
+  spec: '.Codex/specs/kern-5-parity-ledger/spec.md',
   surface: 'statement',
 });
 
@@ -59,10 +59,7 @@ test('a well-formed row set validates, in any admitted surface', () => {
   for (const surface of SURFACES) {
     assert.deepEqual(validateLedger(document([{ ...ROW, surface }])).rows.length, 1);
   }
-  const ordered = [
-    { ...ROW, nodeKind: 'each', since: 'kern-5-rt12-each' },
-    { ...ROW, blockedBy: ['each'] },
-  ];
+  const ordered = [{ ...ROW, nodeKind: 'each' }, { ...ROW, blockedBy: ['each'] }];
   assert.equal(validateLedger(document(ordered)).rows.length, 2);
 });
 
@@ -75,11 +72,13 @@ test('the row schema rejects every drift the catch-up procedure could introduce'
     ['rows not an array', () => ({ ...document([]), rows: {} })],
     ['unknown row key', () => document([{ ...ROW, ttl: 3 }])],
     ['missing row key', () => document([{ ...ROW, since: undefined }])],
+    ['a blame digest resurrected as provenance', () => document([{ ...ROW, jsLoweringBlameDigest: 'a'.repeat(64) }])],
     ['row label disagreeing with the ledger', () => document([{ ...ROW, label: 'KIR_PYTHON_TODO' }])],
     ['unknown surface', () => document([{ ...ROW, surface: 'kernel' }])],
-    ['uppercase blame digest', () => document([{ ...ROW, jsLoweringBlameDigest: ROW.jsLoweringBlameDigest.toUpperCase() }])],
-    ['truncated blame digest', () => document([{ ...ROW, jsLoweringBlameDigest: 'abc' }])],
     ['free-text since', () => document([{ ...ROW, since: 'later' }])],
+    ['free-text spec', () => document([{ ...ROW, spec: 'see the while slice' }])],
+    ['spec outside the slice spec tree', () => document([{ ...ROW, spec: '.Codex/specs/ci-pnpm-cache/spec.md' }])],
+    ['spec naming a slice with no spec on disk', () => document([{ ...ROW, spec: '.Codex/specs/kern-5-rt99-nope/spec.md' }])],
     ['node kind that is not a kind', () => document([{ ...ROW, nodeKind: 'While' }])],
     ['duplicate node kind', () => document([ROW, { ...ROW }])],
     ['unsorted rows', () => document([{ ...ROW }, { ...ROW, nodeKind: 'each' }])],
