@@ -1,0 +1,23 @@
+{
+  "format": "kern.compiler.kir-python.parity-ledger.emission-golden.v1",
+  "artifacts": {
+    "assign-value": "36334e3b8b480bdf4b6b8b184b3fa729acfa7be8d51de0b55106c31d4aa9e052",
+    "call-argument": "6bfcce59a76868bcb73e93f525e2ceb3502e0f2fedbd9bc4d765319ad6dbfa33",
+    "for-body": "86454f74990e24ede39ce8c69e9041f45b1672d0c47e0df37ac23d81eadce4b5",
+    "for-from": "eb63bd949461778ae2995329b9f684fee2a3c5e8489b295f08731a059801eb93",
+    "for-step": "f0af0137c54860a140d99c01466908052fac9f0d45c3204a3d5fb4dee68804e7",
+    "for-to": "9d9891bc65fa2b075b9b107f4c88f74c74df0d70daddeea8cd5ea25ab4812bc2",
+    "handler-top-level": "822882e0a96aabef748ebc8237e311e0f0fadfc9ba82f1b0a379f4fcaef2305d",
+    "helper-body": "475a2801e168411db1b1a7bde75b182e50e3fe003d6962b3d6b3310f73547f24",
+    "if-condition": "40b7f082dfb49dc7c9b42e6e85041ff406402cf1c0433a691c3b6ebaaca08b36",
+    "if-else": "d6762921f1d33bc10db2ba9855fb0bc697f201db6829d6b4ffabd6fc438ce87f",
+    "if-then": "5b0bd0c08286993c19de4e1296173c69bea53be1d360449e3225783252950afc",
+    "json-call-argument": "6ee8bd1c44d1b7fe2c35bb4453a80256624d2836a239dae9061302c45413273c",
+    "let-value": "65e34fe9d2d216955da2fa6078b15d6681861b52c2246be64411d31d526c6500",
+    "list-item": "fefb28b6b83107a1a44693eeece3e55716d92073c0efc0efaef81b42266ebe32",
+    "member-source-record": "df94391117d03396e962c2aac5b5971235db3755be1206b306efeb6ae8dfb5ad",
+    "print-value": "9863ecc2a7b5586836c432bb8f0b5bf071082ffac4b3a1bc3a4722db86afdb5e",
+    "record-value": "01e935c9a79147e2c007b5625007f13368f0f05446270ec274e27ca27ecf9f00",
+    "return-value": "99ac8939534009cc34905974aa7084338d27c5634bae63f952c55dcc380e64d6"
+  }
+}
