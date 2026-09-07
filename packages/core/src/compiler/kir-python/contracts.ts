@@ -18,7 +18,7 @@ export type KernKirPythonCompileFailureCode =
   | KernKirLinkCode
   | 'invalid-compiler-request'
   | 'artifact-emission-failure'
-  | 'KIR_PYTHON_LEG_DEFERRED';
+  | typeof KIR_PYTHON_LEG_DEFERRED_CODE;
 
 interface OutputFile {
   readonly path: 'entry.py' | 'manifest.json';

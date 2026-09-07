@@ -65,29 +65,69 @@ function expressionDeferral(
     case 'unary':
     case 'json-call':
       return expressionDeferral(expression.argument, lowering);
-    case 'list':
+    case 'list': {
       for (const item of expression.items) {
         const deferred = expressionDeferral(item, lowering);
         if (deferred !== undefined) return deferred;
       }
       return undefined;
-    case 'record':
+    }
+    case 'record': {
       for (const entry of expression.entries) {
         const deferred = expressionDeferral(entry.value, lowering);
         if (deferred !== undefined) return deferred;
       }
       return undefined;
+    }
     case 'member':
       return expressionDeferral(expression.object, lowering);
-    case 'user-call':
+    case 'user-call': {
       for (const argument of expression.arguments) {
         const deferred = expressionDeferral(argument, lowering);
         if (deferred !== undefined) return deferred;
       }
       return undefined;
+    }
     case 'identifier':
     case 'literal':
       return undefined;
+    default: {
+      const exhaustive: never = expression;
+      throw new TypeError(`unhandled kir-python expression kind: ${(exhaustive as { kind: string }).kind}`);
+    }
+  }
+}
+
+function statementDeferral(
+  statement: LinkedKernKirStatement,
+  lowering: KirPythonLowering,
+): LinkedKernKirStatement['kind'] | LinkedKernKirExpression['kind'] | undefined {
+  if (lowering.statement[statement.kind] === 'deferred') return statement.kind;
+  switch (statement.kind) {
+    case 'if':
+      return (
+        expressionDeferral(statement.condition, lowering) ??
+        statementsDeferral(statement.thenBranch, lowering) ??
+        statementsDeferral(statement.elseBranch ?? [], lowering)
+      );
+    case 'for':
+      return (
+        expressionDeferral(statement.from, lowering) ??
+        expressionDeferral(statement.to, lowering) ??
+        expressionDeferral(statement.step, lowering) ??
+        statementsDeferral(statement.body, lowering)
+      );
+    case 'capability':
+      return statement.input === undefined ? undefined : expressionDeferral(statement.input, lowering);
+    case 'assign':
+    case 'let':
+    case 'print':
+    case 'return':
+      return expressionDeferral(statement.value, lowering);
+    default: {
+      const exhaustive: never = statement;
+      throw new TypeError(`unhandled kir-python statement kind: ${(exhaustive as { kind: string }).kind}`);
+    }
   }
 }
 
@@ -96,30 +136,7 @@ function statementsDeferral(
   lowering: KirPythonLowering,
 ): LinkedKernKirStatement['kind'] | LinkedKernKirExpression['kind'] | undefined {
   for (const statement of statements) {
-    if (lowering.statement[statement.kind] === 'deferred') return statement.kind;
-    if (statement.kind === 'if') {
-      const deferred =
-        expressionDeferral(statement.condition, lowering) ??
-        statementsDeferral(statement.thenBranch, lowering) ??
-        statementsDeferral(statement.elseBranch ?? [], lowering);
-      if (deferred !== undefined) return deferred;
-      continue;
-    }
-    if (statement.kind === 'for') {
-      const deferred =
-        expressionDeferral(statement.from, lowering) ??
-        expressionDeferral(statement.to, lowering) ??
-        expressionDeferral(statement.step, lowering) ??
-        statementsDeferral(statement.body, lowering);
-      if (deferred !== undefined) return deferred;
-      continue;
-    }
-    const deferred =
-      statement.kind === 'capability'
-        ? statement.input === undefined
-          ? undefined
-          : expressionDeferral(statement.input, lowering)
-        : expressionDeferral(statement.value, lowering);
+    const deferred = statementDeferral(statement, lowering);
     if (deferred !== undefined) return deferred;
   }
   return undefined;
