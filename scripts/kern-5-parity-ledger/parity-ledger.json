@@ -3,6 +3,22 @@
   "label": "KIR_PYTHON_LEG_DEFERRED",
   "rows": [
     {
+      "blockedBy": ["while"],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "break",
+      "since": "kern-5-rt12-linked-jumps",
+      "spec": ".Codex/specs/kern-5-rt12-linked-jumps/spec.md",
+      "surface": "statement"
+    },
+    {
+      "blockedBy": ["while"],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "continue",
+      "since": "kern-5-rt12-linked-jumps",
+      "spec": ".Codex/specs/kern-5-rt12-linked-jumps/spec.md",
+      "surface": "statement"
+    },
+    {
       "blockedBy": [],
       "label": "KIR_PYTHON_LEG_DEFERRED",
       "nodeKind": "while",

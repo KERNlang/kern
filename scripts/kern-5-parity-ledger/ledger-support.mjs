@@ -37,7 +37,7 @@ export {
 export const LEDGER_URL = new URL('./parity-ledger.json', import.meta.url);
 export const LEDGER_FORMAT = PARITY_LEDGER_FORMAT;
 export const DEFERRAL_LABEL = KIR_PYTHON_LEG_DEFERRED;
-export const LEDGER_SHA256 = 'cd879a5ea67585fcf4df9603d2f264a31808bed36794a66b23960590c813722b';
+export const LEDGER_SHA256 = '76e61c71032bd74601c75651cb15528b46bcd22dddd20133352de2a05989e0ec';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
 export const ROW_KEYS = Object.freeze(['blockedBy', 'label', 'nodeKind', 'since', 'spec', 'surface']);
@@ -280,6 +280,37 @@ export const WHILE_ROW_POSITIONS = Object.freeze({
       RETURN_ACC,
     ]),
   'if-then': () => entryProgram([ACC, 'if cond="true"', ...WHILE_LOOP.map((line) => `  ${line}`), RETURN_ACC]),
+});
+
+function jumpRowPositions(kind) {
+  const loop = Object.freeze(['for name=i from="0" to="3"', `  ${kind}`]);
+  const helper = Object.freeze({
+    body: Object.freeze([ACC, ...loop, RETURN_ACC]),
+    name: `${kind}sum`,
+    parameters: Object.freeze([]),
+    returns: 'integer',
+  });
+  return Object.freeze({
+    'for-body': () =>
+      entryProgram([ACC, 'for name=o from="0" to="2"', ...loop.map((line) => `  ${line}`), RETURN_ACC]),
+    'handler-top-level': () => entryProgram([ACC, ...loop, RETURN_ACC]),
+    'helper-body': () => entryProgram([`return value="${kind}sum()"`], { helpers: [helper] }),
+    'if-else': () =>
+      entryProgram([
+        ACC,
+        'if cond="false"',
+        '  assign target="acc" value="1"',
+        'else',
+        ...loop.map((line) => `  ${line}`),
+        RETURN_ACC,
+      ]),
+    'if-then': () => entryProgram([ACC, 'if cond="true"', ...loop.map((line) => `  ${line}`), RETURN_ACC]),
+  });
+}
+
+export const JUMP_ROW_POSITIONS = Object.freeze({
+  break: jumpRowPositions('break'),
+  continue: jumpRowPositions('continue'),
 });
 
 const BOUND_BODY = Object.freeze(['  assign target="acc" value="acc + i"']);

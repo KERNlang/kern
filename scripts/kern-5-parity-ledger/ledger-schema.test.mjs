@@ -51,8 +51,24 @@ test('the parity ledger lives outside the compiled core', () => {
   assert.equal(path.includes('/packages/core/'), false, 'PARITY_LEDGER_PLACEMENT: the ledger must not enter the core');
 });
 
-test('the parity ledger carries the first deferred node kind', () => {
+test('the parity ledger carries every deferred node kind', () => {
   assert.deepEqual(ledgerRows(), [
+    {
+      blockedBy: ['while'],
+      label: DEFERRAL_LABEL,
+      nodeKind: 'break',
+      since: 'kern-5-rt12-linked-jumps',
+      spec: '.Codex/specs/kern-5-rt12-linked-jumps/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: ['while'],
+      label: DEFERRAL_LABEL,
+      nodeKind: 'continue',
+      since: 'kern-5-rt12-linked-jumps',
+      spec: '.Codex/specs/kern-5-rt12-linked-jumps/spec.md',
+      surface: 'statement',
+    },
     {
       blockedBy: [],
       label: DEFERRAL_LABEL,

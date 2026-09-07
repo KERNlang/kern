@@ -61,8 +61,24 @@ function syntheticLedger(surface, nodeKind) {
 // kern-5-rt11-linked-while landed the ledger's first row (RT11W-TD5, Corrections Log): the checked-
 // in ledger defers exactly `while`, and every `for`-shaped position these shared harnesses build
 // stays inert, because none of them contains a `while`.
-test('the checked-in ledger defers exactly the while row, so every other statement position stays inert', async () => {
+test('the checked-in ledger defers exactly the linked statement rows awaiting Python lowering', async () => {
   assert.deepEqual(loadParityLedger().rows, [
+    {
+      blockedBy: ['while'],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'break',
+      since: 'kern-5-rt12-linked-jumps',
+      spec: '.Codex/specs/kern-5-rt12-linked-jumps/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: ['while'],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'continue',
+      since: 'kern-5-rt12-linked-jumps',
+      spec: '.Codex/specs/kern-5-rt12-linked-jumps/spec.md',
+      surface: 'statement',
+    },
     {
       blockedBy: [],
       label: KIR_PYTHON_LEG_DEFERRED,
@@ -73,7 +89,7 @@ test('the checked-in ledger defers exactly the while row, so every other stateme
     },
   ]);
   const kinds = deferredNodeKinds();
-  assert.deepEqual([...kinds.statement], ['while']);
+  assert.deepEqual([...kinds.statement], ['break', 'continue', 'while']);
   assert.deepEqual([...kinds.expression], []);
   for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
     assert.equal(pythonDeferral(await linked(build())), undefined, `${name} must not be deferred today`);

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   DEFERRAL_LABEL,
   EXPRESSION_POSITIONS,
+  JUMP_ROW_POSITIONS,
   STATEMENT_POSITIONS,
   WHILE_ROW_POSITIONS,
   assertNoPythonArtifact,
@@ -75,12 +76,9 @@ test('every ledger row refuses with the exact label and no Python artifact', asy
   const table = await loweringTable();
   for (const row of ledgerRows()) {
     assert.equal(table[row.surface][row.nodeKind], 'deferred', `${row.nodeKind}: the row must be deferred`);
+    const statementPositions = { while: WHILE_ROW_POSITIONS, ...JUMP_ROW_POSITIONS };
     const positions =
-      row.nodeKind === 'while'
-        ? WHILE_ROW_POSITIONS
-        : row.surface === 'statement'
-          ? STATEMENT_POSITIONS
-          : EXPRESSION_POSITIONS;
+      row.surface === 'statement' ? (statementPositions[row.nodeKind] ?? STATEMENT_POSITIONS) : EXPRESSION_POSITIONS;
     for (const [name, fixture] of Object.entries(positions)) {
       const result = compile(await verified(fixture()), compilerRequest(), table);
       assert.equal(assertNoPythonArtifact(result, `${row.nodeKind} at ${name}`), row.label);

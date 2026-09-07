@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   DEFERRAL_LABEL,
   EXPRESSION_POSITIONS,
+  JUMP_ROW_POSITIONS,
   POSITION_FENCES,
   STATEMENT_POSITIONS,
   WHILE_ROW_POSITIONS,
@@ -67,12 +68,9 @@ test('each ledger row refuses in every position of its surface', async () => {
   const compile = await compileWithLowering();
   const table = await loweringTable();
   for (const row of ledgerRows()) {
+    const statementPositions = { while: WHILE_ROW_POSITIONS, ...JUMP_ROW_POSITIONS };
     const positions =
-      row.nodeKind === 'while'
-        ? WHILE_ROW_POSITIONS
-        : row.surface === 'statement'
-          ? STATEMENT_POSITIONS
-          : EXPRESSION_POSITIONS;
+      row.surface === 'statement' ? (statementPositions[row.nodeKind] ?? STATEMENT_POSITIONS) : EXPRESSION_POSITIONS;
     for (const [name, build] of Object.entries(positions)) {
       const result = compile(await verified(build()), compilerRequest(), table);
       assert.equal(assertNoPythonArtifact(result, `${row.nodeKind} at ${name}`), row.label);

@@ -3,7 +3,18 @@ import test from 'node:test';
 
 import { expressionLowering, linkedKinds, requestSource, statementLowering } from './ledger-support.mjs';
 
-const STATEMENT_KINDS = Object.freeze(['assign', 'capability', 'for', 'if', 'let', 'print', 'return', 'while']);
+const STATEMENT_KINDS = Object.freeze([
+  'assign',
+  'break',
+  'capability',
+  'continue',
+  'for',
+  'if',
+  'let',
+  'print',
+  'return',
+  'while',
+]);
 const EXPRESSION_KINDS = Object.freeze([
   'binary',
   'identifier',
@@ -76,5 +87,9 @@ test('the deferred node kinds are exactly the ones the parity ledger carries', a
     ...Object.entries(statements).filter(([, state]) => state === 'deferred'),
     ...Object.entries(expressions).filter(([, state]) => state === 'deferred'),
   ].map(([kind]) => kind);
-  assert.deepEqual(deferred, ['while'], 'PARITY_LEDGER_MAPPING_DRIFT: the deferred set and the ledger disagree');
+  assert.deepEqual(
+    deferred,
+    ['break', 'continue', 'while'],
+    'PARITY_LEDGER_MAPPING_DRIFT: the deferred set and the ledger disagree',
+  );
 });
