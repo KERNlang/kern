@@ -51,8 +51,17 @@ test('the parity ledger lives outside the compiled core', () => {
   assert.equal(path.includes('/packages/core/'), false, 'PARITY_LEDGER_PLACEMENT: the ledger must not enter the core');
 });
 
-test('the mechanism slice ships an empty ledger', () => {
-  assert.deepEqual(ledgerRows(), [], 'the first deferred row belongs to the slice that freezes a node kind');
+test('the parity ledger carries the first deferred node kind', () => {
+  assert.deepEqual(ledgerRows(), [
+    {
+      blockedBy: [],
+      label: DEFERRAL_LABEL,
+      nodeKind: 'while',
+      since: 'kern-5-rt11-linked-while',
+      spec: '.Codex/specs/kern-5-rt11-linked-while/spec.md',
+      surface: 'statement',
+    },
+  ]);
 });
 
 test('a well-formed row set validates, in any admitted surface', () => {

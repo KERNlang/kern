@@ -30,6 +30,7 @@ export const KIR_PYTHON_STATEMENT_LOWERING = Object.freeze({
   let: 'lowered',
   print: 'lowered',
   return: 'lowered',
+  while: 'deferred',
 }) satisfies Record<LinkedKernKirStatement['kind'], KirPythonLoweringState>;
 
 export const KIR_PYTHON_EXPRESSION_LOWERING = Object.freeze({
@@ -124,6 +125,8 @@ function statementDeferral(
     case 'print':
     case 'return':
       return expressionDeferral(statement.value, lowering);
+    case 'while':
+      return expressionDeferral(statement.condition, lowering) ?? statementsDeferral(statement.body, lowering);
     default: {
       const exhaustive: never = statement;
       throw new TypeError(`unhandled kir-python statement kind: ${(exhaustive as { kind: string }).kind}`);

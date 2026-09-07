@@ -1,5 +1,14 @@
 {
   "format": "kern.compiler.kir-python.parity-ledger.v1",
   "label": "KIR_PYTHON_LEG_DEFERRED",
-  "rows": []
+  "rows": [
+    {
+      "blockedBy": [],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "while",
+      "since": "kern-5-rt11-linked-while",
+      "spec": ".Codex/specs/kern-5-rt11-linked-while/spec.md",
+      "surface": "statement"
+    }
+  ]
 }
