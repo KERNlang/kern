@@ -272,10 +272,26 @@ export type LinkedKernKirStatement =
       readonly from: LinkedKernKirExpression;
       readonly step: LinkedKernKirExpression;
       readonly to: LinkedKernKirExpression;
+    }
+  | {
+      readonly kind: 'while';
+      readonly body: readonly LinkedKernKirStatement[];
+      readonly condition: LinkedKernKirExpression;
     };
 
-function forBounds(statement: Extract<LinkedKernKirStatement, { kind: 'for' }>): readonly LinkedKernKirExpression[] {
-  return [statement.from, statement.to, statement.step];
+function statementSubBlocks(statement: LinkedKernKirStatement): readonly (readonly LinkedKernKirStatement[])[] {
+  if (statement.kind === 'if') {
+    return statement.elseBranch === undefined ? [statement.thenBranch] : [statement.thenBranch, statement.elseBranch];
+  }
+  if (statement.kind === 'for' || statement.kind === 'while') return [statement.body];
+  return [];
+}
+
+function statementSubExpressions(statement: LinkedKernKirStatement): readonly LinkedKernKirExpression[] {
+  if (statement.kind === 'capability') return statement.input === undefined ? [] : [statement.input];
+  if (statement.kind === 'if' || statement.kind === 'while') return [statement.condition];
+  if (statement.kind === 'for') return [statement.from, statement.to, statement.step];
+  return [statement.value];
 }
 
 // Exhaustive on purpose, like `containsAsyncCall`: a permissive `default` would let a future
@@ -355,20 +371,10 @@ function statementsInvokeCapability(
 ): boolean {
   return statements.some((statement) => {
     if (statement.kind === 'capability') return true;
-    if (statement.kind === 'if') {
-      return (
-        expressionInvokesCapability(statement.condition, helpers, walk) ||
-        statementsInvokeCapability(statement.thenBranch, helpers, walk) ||
-        (statement.elseBranch !== undefined && statementsInvokeCapability(statement.elseBranch, helpers, walk))
-      );
-    }
-    if (statement.kind === 'for') {
-      return (
-        forBounds(statement).some((bound) => expressionInvokesCapability(bound, helpers, walk)) ||
-        statementsInvokeCapability(statement.body, helpers, walk)
-      );
-    }
-    return expressionInvokesCapability(statement.value, helpers, walk);
+    return (
+      statementSubExpressions(statement).some((expression) => expressionInvokesCapability(expression, helpers, walk)) ||
+      statementSubBlocks(statement).some((block) => statementsInvokeCapability(block, helpers, walk))
+    );
   });
 }
 
@@ -449,23 +455,13 @@ function statementsCallDepth(
   return Math.max(
     0,
     ...statements.map((statement) => {
-      if (statement.kind === 'capability') {
-        return statement.input === undefined ? 0 : expressionCallDepth(statement.input, helpers, depths, active);
-      }
-      if (statement.kind === 'if') {
-        return Math.max(
-          expressionCallDepth(statement.condition, helpers, depths, active),
-          statementsCallDepth(statement.thenBranch, helpers, depths, active),
-          statement.elseBranch === undefined ? 0 : statementsCallDepth(statement.elseBranch, helpers, depths, active),
-        );
-      }
-      if (statement.kind === 'for') {
-        return Math.max(
-          statementsCallDepth(statement.body, helpers, depths, active),
-          ...forBounds(statement).map((bound) => expressionCallDepth(bound, helpers, depths, active)),
-        );
-      }
-      return expressionCallDepth(statement.value, helpers, depths, active);
+      return Math.max(
+        0,
+        ...statementSubExpressions(statement).map((expression) =>
+          expressionCallDepth(expression, helpers, depths, active),
+        ),
+        ...statementSubBlocks(statement).map((block) => statementsCallDepth(block, helpers, depths, active)),
+      );
     }),
   );
 }

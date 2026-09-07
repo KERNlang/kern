@@ -156,12 +156,20 @@ function* statementValue(
   return yield Object.freeze({ arguments: Object.freeze(args), handler, kind: 'call' as const });
 }
 
-interface LoopState {
+interface ForLoopState {
   readonly counter: string;
+  readonly kind: 'for';
   readonly step: bigint;
   readonly to: bigint;
   current: bigint;
 }
+
+interface WhileLoopState {
+  readonly condition: LinkedKernKirExpression;
+  readonly kind: 'while';
+}
+
+type LoopState = ForLoopState | WhileLoopState;
 
 interface WalkFrame {
   readonly loop: LoopState | undefined;
@@ -169,7 +177,7 @@ interface WalkFrame {
   index: number;
 }
 
-function loopContinues(loop: LoopState): boolean {
+function loopContinues(loop: ForLoopState): boolean {
   return loop.step > 0n ? loop.current < loop.to : loop.current > loop.to;
 }
 
@@ -184,15 +192,25 @@ export function* walkStatements(
   const enterTrip = (loop: LoopState): void => {
     meter.step();
     runtime.checkAbort();
-    bindings.set(loop.counter, integerValue(loop.current, meter));
+    if (loop.kind === 'for') bindings.set(loop.counter, integerValue(loop.current, meter));
   };
   while (frames.length > 0) {
     const frame = frames[frames.length - 1];
     if (frame.index >= frame.statements.length) {
       const { loop } = frame;
       if (loop !== undefined) {
-        loop.current += loop.step;
-        if (loopContinues(loop)) {
+        let continues: boolean;
+        if (loop.kind === 'for') {
+          loop.current += loop.step;
+          continues = loopContinues(loop);
+        } else {
+          const condition = evaluateExpression(loop.condition, bindings, meter, runtime);
+          if (condition.tag !== 'boolean') {
+            throw new KernKirFault('unsupported-runtime-input', 'execution', 'while condition expects boolean');
+          }
+          continues = condition.value === true;
+        }
+        if (continues) {
           frame.index = 0;
           enterTrip(loop);
           continue;
@@ -241,8 +259,20 @@ export function* walkStatements(
       const to = integerOperand(evaluateExpression(statement.to, bindings, meter, runtime));
       const step = integerOperand(evaluateExpression(statement.step, bindings, meter, runtime));
       if (step === 0n) throw new KernKirFault('unsupported-runtime-input', 'execution', 'ERR_KIR_LOOP_ZERO_STEP');
-      const loop: LoopState = { counter: statement.counter, current: from, step, to };
+      const loop: ForLoopState = { counter: statement.counter, current: from, kind: 'for', step, to };
       if (loopContinues(loop)) {
+        enterTrip(loop);
+        frames.push({ index: 0, loop, statements: statement.body });
+      } else {
+        meter.step();
+      }
+    } else if (statement.kind === 'while') {
+      const condition = evaluateExpression(statement.condition, bindings, meter, runtime);
+      if (condition.tag !== 'boolean') {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'while condition expects boolean');
+      }
+      if (condition.value === true) {
+        const loop: WhileLoopState = { condition: statement.condition, kind: 'while' };
         enterTrip(loop);
         frames.push({ index: 0, loop, statements: statement.body });
       } else {

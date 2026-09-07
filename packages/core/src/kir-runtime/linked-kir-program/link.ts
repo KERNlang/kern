@@ -154,6 +154,7 @@ function containsReturn(statements: readonly LinkedKernKirStatement[]): boolean 
     (statement) =>
       statement.kind === 'return' ||
       (statement.kind === 'for' && containsReturn(statement.body)) ||
+      (statement.kind === 'while' && containsReturn(statement.body)) ||
       (statement.kind === 'if' &&
         (containsReturn(statement.thenBranch) ||
           (statement.elseBranch !== undefined && containsReturn(statement.elseBranch)))),
@@ -486,6 +487,29 @@ function compileFor(
   });
 }
 
+function compileWhile(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirStatement {
+  meter.step();
+  const properties = nodeProperties(node, label);
+  propertySet(properties, ['cond'], [], label);
+  const cond = properties.get('cond');
+  if (cond === undefined) fault('handler-entry-unsupported', `${label}.cond`);
+  const condition = compileLinkedExpression(cond, scope, meter, `${label}.cond`);
+  assertAsyncCallPosition(condition, scope, `${label}.cond`, false);
+  if (staticExpressionType(condition, scope) !== 'boolean') {
+    fault('handler-entry-unsupported', `${label}.cond: KIR_WHILE_COND_NOT_BOOLEAN`);
+  }
+  return Object.freeze({
+    body: compileBranch(node, scope, meter, `${label}.body`),
+    condition,
+    kind: 'while' as const,
+  });
+}
+
 function compileBlock(
   nodes: readonly StructuralKirNode[],
   scope: LinkScope,
@@ -499,6 +523,10 @@ function compileBlock(
     const kind = nodeKind(node, childLabel);
     if (kind === 'for') {
       statements.push(compileFor(node, scope, meter, childLabel));
+      continue;
+    }
+    if (kind === 'while') {
+      statements.push(compileWhile(node, scope, meter, childLabel));
       continue;
     }
     if (kind !== 'if') {

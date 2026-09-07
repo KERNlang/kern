@@ -268,6 +268,27 @@ function forSource(
       __meter.step();`;
 }
 
+function whileSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'while' }>,
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: () => string,
+  returnSource: (value: string) => string,
+): string {
+  const local = nextLocal();
+  const condition = expressionSource(statement.condition, scope, calls);
+  const body = blockSource(statement.body, new Map(scope), calls, nextLocal, returnSource);
+  return `
+      __meter.step();
+      while(true){
+      ${local}=${condition};
+      if(${local}.tag!=='boolean')throw new __Fault('unsupported-runtime-input','execution');
+      if(${local}.value!==true)break;
+      __meter.step(); __checkAbort();${body}
+      }
+      __meter.step();`;
+}
+
 function blockSource(
   statements: readonly LinkedKernKirStatement[],
   scope: Map<string, string>,
@@ -280,6 +301,7 @@ function blockSource(
       if (statement.kind === 'return') return returnSource(statementValueSource(statement.value, scope, calls));
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
       if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
+      if (statement.kind === 'while') return whileSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
