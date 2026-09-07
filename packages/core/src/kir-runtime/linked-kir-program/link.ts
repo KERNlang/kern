@@ -171,6 +171,7 @@ interface LinkScope {
   readonly calls: LinkedKernKirCallScope | undefined;
   readonly counters: Set<string>;
   readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
+  readonly loopDepth: number;
   readonly types: Map<string, LinkedKernKirStaticType>;
 }
 
@@ -191,6 +192,7 @@ function branchScope(scope: LinkScope): LinkScope {
     calls: scope.calls,
     counters: new Set(scope.counters),
     crossCallTypes: new Map(scope.crossCallTypes),
+    loopDepth: scope.loopDepth,
     types: new Map(scope.types),
   };
 }
@@ -316,6 +318,14 @@ function compileStatement(
   const kind = nodeKind(node, label);
   const properties = nodeProperties(node, label);
   assertLeaf(node, label);
+  if (kind === 'break' || kind === 'continue') {
+    propertySet(properties, [], ['trailingComment'], label);
+    if (scope.loopDepth === 0) {
+      const reason = kind === 'break' ? 'KIR_BREAK_OUTSIDE_LOOP' : 'KIR_CONTINUE_OUTSIDE_LOOP';
+      fault('handler-entry-unsupported', `${label}: ${reason}`);
+    }
+    return Object.freeze({ kind });
+  }
   if (kind === 'let') {
     propertySet(properties, ['name', 'value'], [], label);
     const name = propertyText(properties, 'name', label, meter);
@@ -474,7 +484,7 @@ function compileFor(
   }
   // The counter binds into the body scope and never into `assignable`, so RT-9's one gate refuses an
   // assignment to it and `counters` only selects which label that refusal carries.
-  const bodyScope = branchScope(scope);
+  const bodyScope = { ...branchScope(scope), loopDepth: scope.loopDepth + 1 };
   bindName(bodyScope, counter, 'integer', 'integer');
   bodyScope.counters.add(counter);
   return Object.freeze({
@@ -503,8 +513,9 @@ function compileWhile(
   if (staticExpressionType(condition, scope) !== 'boolean') {
     fault('handler-entry-unsupported', `${label}.cond: KIR_WHILE_COND_NOT_BOOLEAN`);
   }
+  const bodyScope = { ...branchScope(scope), loopDepth: scope.loopDepth + 1 };
   return Object.freeze({
-    body: compileBranch(node, scope, meter, `${label}.body`),
+    body: compileBranch(node, bodyScope, meter, `${label}.body`),
     condition,
     kind: 'while' as const,
   });
@@ -563,6 +574,7 @@ function compileHandler(
     calls: callScope(context),
     counters: new Set<string>(),
     crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
+    loopDepth: 0,
     types: new Map<string, LinkedKernKirStaticType>(),
   };
   for (let index = 0; index < children.length; index += 1) {

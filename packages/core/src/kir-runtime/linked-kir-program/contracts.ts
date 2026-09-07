@@ -249,6 +249,8 @@ export const LINKED_KIR_VOID_RETURN_TYPE = Object.freeze({
 
 export type LinkedKernKirStatement =
   | { readonly kind: 'assign'; readonly target: string; readonly value: LinkedKernKirExpression }
+  | { readonly kind: 'break' }
+  | { readonly kind: 'continue' }
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
       readonly kind: 'capability';
@@ -291,6 +293,7 @@ function statementSubExpressions(statement: LinkedKernKirStatement): readonly Li
   if (statement.kind === 'capability') return statement.input === undefined ? [] : [statement.input];
   if (statement.kind === 'if' || statement.kind === 'while') return [statement.condition];
   if (statement.kind === 'for') return [statement.from, statement.to, statement.step];
+  if (statement.kind === 'break' || statement.kind === 'continue') return [];
   return [statement.value];
 }
 

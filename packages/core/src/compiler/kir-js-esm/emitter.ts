@@ -302,6 +302,9 @@ function blockSource(
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
       if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'while') return whileSource(statement, scope, calls, nextLocal, returnSource);
+      if (statement.kind === 'break' || statement.kind === 'continue') {
+        return `\n      __meter.step(); __checkAbort();\n      ${statement.kind};`;
+      }
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);

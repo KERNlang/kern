@@ -226,6 +226,18 @@ export function* walkStatements(
     runtime.checkAbort();
     if (statement.kind === 'let') {
       bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
+    } else if (statement.kind === 'break') {
+      while (frames.length > 0) {
+        const target = frames.pop();
+        if (target?.loop !== undefined) {
+          meter.step();
+          break;
+        }
+      }
+    } else if (statement.kind === 'continue') {
+      while (frames[frames.length - 1]?.loop === undefined) frames.pop();
+      const target = frames[frames.length - 1];
+      if (target !== undefined) target.index = target.statements.length;
     } else if (statement.kind === 'assign') {
       bindings.set(statement.target, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'capability') {
