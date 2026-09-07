@@ -4,7 +4,7 @@
 **Date:** 2026-09-07
 **Confidence:** 0.89
 
-Stacked on slice A (`feat/kern-5-parity-ledger` @ `b273b20c`: spec
+Stacked on slice A (`feat/kern-5-parity-ledger` @ `f07c3fb9`: spec
 `.Codex/specs/kern-5-parity-ledger/spec.md`, oracle `scripts/kern-5-parity-ledger/`, empty ledger
 `scripts/kern-5-parity-ledger/parity-ledger.json`).
 
@@ -608,56 +608,57 @@ The oracle asserts walker **behaviour**, never walker shape, so either option pa
 
 Each is a test in `scripts/kern-5-rt11-linked-while/`.
 
-- [ ] `while` is a member of `LinkedKernKirStatement` with exactly `body` and `condition`, and
+- [x] `while` is a member of `LinkedKernKirStatement` with exactly `body` and `condition`, and
       `break`, `continue`, `each` and `set` stay outside it.
-- [ ] Every projectable `while` position — handler top level, `if`-then, `if`-else, `for` body,
+- [x] Every projectable `while` position — handler top level, `if`-then, `if`-else, `for` body,
       `while` body, helper body — links and runs on RT-1 and the JavaScript leg with
       byte-identical envelopes.
-- [ ] The condition is evaluated before each trip; the loop runs the exact trip count for every
+- [x] The condition is evaluated before each trip; the loop runs the exact trip count for every
       frozen behaviour row; `to`-style off-by-one errors separate.
-- [ ] A non-boolean condition is refused at link with `KIR_WHILE_COND_NOT_BOOLEAN` on all three
+- [x] A non-boolean condition is refused at link with `KIR_WHILE_COND_NOT_BOOLEAN` on all three
       legs, for an integer literal, an integer parameter, a text parameter and an integer binary. No
       truthiness.
-- [ ] An empty `while` body is refused with `branch block is empty`, not with
+- [x] An empty `while` body is refused with `branch block is empty`, not with
       `statement kind while is outside RT-1`.
-- [ ] `break` and `continue` inside a `while` body are refused with
+- [x] `break` and `continue` inside a `while` body are refused with
       `statement kind <k> is outside RT-1` and specifically **not** with `statement must be a leaf`,
       so the body is proven to be compiled by the ordinary statement path.
-- [ ] An async-helper condition is refused with `KIR_ASYNC_CALL_EXPRESSION_POSITION`.
-- [ ] `print` and `capability` nested under an `if` inside a `while` body link and run, with
+- [x] An async-helper condition is refused with `KIR_ASYNC_CALL_EXPRESSION_POSITION`.
+- [x] `print` and `capability` nested under an `if` inside a `while` body link and run, with
       byte-identical stdout / event ordering on RT-1 and JS; as **direct** body children they stay
       F5-rejected (the two fences).
-- [ ] A `let` in the body does not leak (post-loop read is `unknown identifier`); an `assign` to an
+- [x] A `let` in the body does not leak (post-loop read is `unknown identifier`); an `assign` to an
       outer `let` persists; a `return` in the body ends the handler; a `void` handler whose only
       `return` is in a `while` body is refused at link with `KIR_VOID_HANDLER_VALUE_RETURN`.
-- [ ] An `assign` inside a `while` body is governed by RT-9's rule alone —
+- [x] An `assign` inside a `while` body is governed by RT-9's rule alone —
       `KIR_ASSIGN_TO_LOOP_COUNTER` is unreachable from a `while`.
-- [ ] All four walkers recurse into a `while`: a `capability` in the body and one in the condition
+- [x] All four walkers recurse into a `while`: a `capability` in the body and one in the condition
       reach the closure walk; a helper called from the body reaches it; a call in the body and a
       call in the condition count against call depth; two nested `while`s do not shorten a
       two-frame chain; a `while`-free answer is `false`/`0` rather than a throw.
-- [ ] RT-1 carries exactly **two** `checkAbort()` calls, one in the statement-boundary region and
+- [x] RT-1 carries exactly **two** `checkAbort()` calls, one in the statement-boundary region and
       one in the `enterTrip` region (RT11W-D1).
-- [ ] The JavaScript leg adds exactly **one** checkpoint per `while` over the straight-line twin
+- [x] The JavaScript leg adds exactly **one** checkpoint per `while` over the straight-line twin
       with the identical body. Nesting is asserted as a metering identity, not a checkpoint census:
       widening a nested loop's inner bound by one trip costs one single-loop trip's worth of steps,
       once per outer pass (RT11W-TD3, Corrections Log).
-- [ ] The emitted JavaScript `while` region carries a host `while`, the boolean tag check, the
+- [x] The emitted JavaScript `while` region carries a host `while`, the boolean tag check, the
       `break`, zero `await`/`Promise`/`queueMicrotask`/`setImmediate`, and no new kernel line.
-- [ ] The charge is `2 + n·(1 + B)` with `HEAD_CHARGE = 1`, and the five equivalence rows E1-E5
-      hold.
-- [ ] `while cond="true"` exhausts `maxSteps` and faults `runtime-limit-exceeded` / `execution` with
+- [x] The charge is `A + n·P` with `P = 1_head + B + C` and `A = 1_init + 1_exit + C`
+      (RT11W-C19: the condition is re-evaluated `n+1` times, so `for`'s `2 + n·(1 + B)` is wrong
+      for `while`), `HEAD_CHARGE = 1`, and the measured rows M1–M6 plus E1 hold (RT11W-C14).
+- [x] `while cond="true"` exhausts `maxSteps` and faults `runtime-limit-exceeded` / `execution` with
       an absent result and no events, on RT-1 and JS.
-- [ ] The parity ledger carries the `while` row with the pinned values (RT11W-C16), key-set
+- [x] The parity ledger carries the `while` row with the pinned values (RT11W-C16), key-set
       identical to slice A's `ROW_KEYS`, and it validates under slice A's `validateLedger`.
-- [ ] The Python compile of a `while` program returns exactly
+- [x] The Python compile of a `while` program returns exactly
       `{format, outcome: 'failure', code: 'KIR_PYTHON_LEG_DEFERRED'}` — three keys, no `artifact`,
       no `manifest` — in **every** catalog-permitted `while` position, while the JavaScript leg of
       the same program is `admitted`.
-- [ ] `KernKirLimits` stays at seven fields, `maxIterations` is not introduced, and
+- [x] `KernKirLimits` stays at seven fields, `maxIterations` is not introduced, and
       `KernKirDiagnosticCode` stays at twelve members.
-- [ ] Both target kernels are byte-unchanged, and the F5 projection policy digest is unchanged.
-- [ ] `pnpm test:ci-contract` passes with the new evidence leaf wired; `pnpm lint` is clean.
+- [x] Both target kernels are byte-unchanged, and the F5 projection policy digest is unchanged.
+- [x] `pnpm test:ci-contract` passes with the new evidence leaf wired; `pnpm lint` is clean.
 
 ## Out of Scope
 
