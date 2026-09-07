@@ -21,8 +21,7 @@ const KIR_PYTHON_SRC = new URL('compiler/kir-python/', CORE_SRC);
 const EMISSION_GOLDEN_URL = new URL('./emission-golden.json', import.meta.url);
 const DECLARATION_SCHEMA_URL = new URL('../runtime-contract-v1/public-declaration-schema.json', import.meta.url);
 const ALPHA_RECEIPT_POLICY_URL = new URL('../kir-v1/alpha-receipt-policy.json', import.meta.url);
-const RT2_GOLDEN_TEST_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.test.mjs', import.meta.url);
-const RT4_SUPPORT_URL = new URL('../kern-5-rt4-user-fn-call/k0-support.mjs', import.meta.url);
+const RT4_PROBE_MATRIX_URL = new URL('../kern-5-rt4-user-fn-call/probe-matrix.test.mjs', import.meta.url);
 
 const EMITTER_SHA256 = 'c37b5c0092dd712e30f49b07ae7bc0ba1bb26343bcc219e29c750457756518d8';
 const FACADE_SHA256 = 'eade928a03649637cad48115a6e4023898765963739e27ca73aa5eca41ccdcf7';
@@ -99,12 +98,13 @@ test('the neighbour K0 goldens do not move', () => {
   }
 });
 
-// The two cross-leg equality assertions the first deferred row will have to amend. They are green
-// today because the ledger is empty, and naming them here is what stops that amendment being a
-// surprise in the slice that adds the row.
-test('the cross-leg agreement tripwires are still in place and still green', () => {
-  assert.match(source(RT2_GOLDEN_TEST_URL), /both targets share one linker/u);
-  assert.match(source(RT4_SUPPORT_URL), /assert\.equal\(row\.python, 'handler-entry-unsupported', label\)/u);
+// The rt4 probe matrix keeps a bare three-leg equality over its committed golden rows, and that is
+// correct rather than an oversight: all five rows are link refusals, and a program the linker
+// refused has no linked program for the ledger predicate to read.
+test('the rt4 probe matrix negative rows stay a bare three-leg equality', () => {
+  const text = source(RT4_PROBE_MATRIX_URL);
+  assert.match(text, /assert\.equal\(row\.python, 'handler-entry-unsupported', name\)/u);
+  assert.match(text, /row\.rt1 !== 'admitted'/u);
 });
 
 test('no emitted Python byte moves in this slice', async () => {

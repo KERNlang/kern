@@ -104,17 +104,27 @@ test('the production table admits what the synthetic table refuses', async () =>
   assert.equal(result.artifact.path, 'entry.py');
 });
 
-test('the wrapper and the public compile entry agree on the empty ledger', async () => {
+// The seam must be the production path with an injectable table, never a parallel branch: called
+// without a table it defaults to the production mapping and must be indistinguishable from the
+// public entry, for every fixture in the position matrix.
+test('the seam defaults to the production mapping and matches the public entry everywhere', async () => {
+  const compile = await compileWithLowering();
+  for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
+    const value = await verified(build());
+    const direct = compilePython(value);
+    assert.equal(direct.outcome, 'success', `${name}: ${direct.code}`);
+    assert.deepEqual(
+      compile(value, compilerRequest()),
+      direct,
+      `PARITY_LEDGER_SEAM_DRIFT: ${name} differs between the injectable entry and the public entry`,
+    );
+  }
+});
+
+test('the seam with the production table explicitly passed is the same result again', async () => {
   const compile = await compileWithLowering();
   const value = await verified(STATEMENT_POSITIONS['handler-top-level']());
-  const wrapped = compile(value, compilerRequest(), await loweringTable());
-  const direct = compilePython(value);
-  assert.equal(direct.outcome, 'success', `python compile failed: ${direct.code}`);
-  assert.equal(
-    wrapped.artifact.sha256,
-    direct.artifact.sha256,
-    'PARITY_LEDGER_SEAM_DRIFT: the injectable entry and the public entry emitted different bytes',
-  );
+  assert.deepEqual(compile(value, compilerRequest(), await loweringTable()), compilePython(value));
 });
 
 test('a deferral is Python-only: the JavaScript leg still compiles the same program', async () => {
