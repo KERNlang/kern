@@ -1,19 +1,25 @@
 # KERN 5 — RT-12 unlabelled `break`/`continue`: linked jumps in KIR (JS + RT-1 legs, Python leg deferred)
 
-**Status:** SPEC — ORACLE NOT YET WRITTEN
-**Date:** 2026-09-07
-**Confidence:** 0.87
+**Status:** SPEC — ORACLE LANDED RED
+**Date:** 2026-09-08
+**Confidence:** 0.91
 
-**Depends on slice B landing at commit `e7be45d6`** — `feat/kern-5-rt11-linked-while`
-@ `e7be45d6d5b08f62225d9c6be8e074de02c82b6f` (`fix(kern5): correct the rt11 charge model and align
-its assertion mechanisms`). That tip carries slice B's **spec + RED oracle + wiring only**: `while`
-is **not** in `LinkedKernKirStatement` there (`packages/core/src/kir-runtime/linked-kir-program/contracts.ts:250-274`,
-seven members, measured on this branch 2026-09-07). This slice therefore stacks on a *contract*, not
-on landed code, and every claim below tagged **PINNED-BY-B** is a slice-B spec pin that this slice
-inherits and must re-measure once slice B's implementation commit exists. Slice A
-(`feat/kern-5-parity-ledger`) is **IMPLEMENTED** (`.Codex/specs/kern-5-parity-ledger/spec.md`,
-status line): the deferral mechanism, `KIR_PYTHON_LEG_DEFERRED_CODE` and the exhaustive lowering
-tables are live in `packages/core/src/compiler/kir-python/request.ts:25-156`.
+**Depends on slice B landing at commit `ca890efb`** — `feat/kern-5-rt11-linked-while`
+@ `ca890efb5ec7a36e930df8d1760b107fc179245e` (`docs(kern5): mark the rt11 linked while slice
+IMPLEMENTED and log seven oracle defects`). Slice B is **IMPLEMENTED**: `while` is the eighth member
+of `LinkedKernKirStatement` (`packages/core/src/kir-runtime/linked-kir-program/contracts.ts:250-279`),
+RT-1 routes it (`kir-runtime/expression.ts:269-280`), the JavaScript emitter lowers it
+(`compiler/kir-js-esm/emitter.ts:271-290`) and the parity ledger carries its row. **Every claim in
+this document previously tagged PINNED-BY-B has been re-derived against that landed code**; the
+divergences are in the Corrections Log as RT12J-TD1 through RT12J-TD15, and the three claims that
+moved materially are RT12J-D2 (the `while` body scope), RT12J-C6 (the two semantic walkers collapsed
+into one shared helper) and RT12J-D5 (the metering identities, which were arithmetically wrong). Slice A (`feat/kern-5-parity-ledger`) is **IMPLEMENTED**: the
+deferral mechanism, `KIR_PYTHON_LEG_DEFERRED` and the exhaustive lowering tables are live in
+`packages/core/src/compiler/kir-python/request.ts:25-159`.
+
+**This slice's oracle is landed and RED** at `scripts/kern-5-rt12-linked-jumps/` — twelve files,
+127 tests, **95 RED and 32 GREEN** at base `ca890efb`. The per-module single-cause table is under
+RT12J-O2.
 
 ## Executive Summary
 
@@ -87,76 +93,99 @@ fixture is `assign target="s" value=… # note`
 (`link.ts:352`) — a `trailingComment` key would have failed it. So `break # done` must link exactly
 like `break`.
 
-> **Evidence caveat, recorded once and honoured everywhere below.** The measurements in RT12J-C3/C4
-> ran against `packages/core/dist` built 2026-09-02. That dist is **current for the frontend** — no
-> file in `packages/core/src/frontend-projection*`, `parser-core.ts`,
-> `parser-validate-body-statements.ts` or `kir-structural/` has changed since 2026-08-26
-> (`git log -1 --date=iso` on those paths) — and **stale for the linker**: it predates rt9/rt10, and
-> rt10-for's own `accumulate(0,3)` fixture fails to link on it. **Every link-level claim in this spec
-> is therefore sourced from `link.ts` itself plus landed, CI-green oracle assertions, never from that
-> dist.** The oracle slice must re-measure the base RED table on a freshly built slice-B base.
+> **Evidence caveat, now discharged.** The measurements originally recorded here ran against a
+> `packages/core/dist` built 2026-09-02, which predated rt9/rt10 and could produce no trustworthy
+> link-level label. The oracle slice rebuilt `@kernlang/core` at slice-B tip `ca890efb` and
+> re-measured **every** claim in this section directly. The base RED table is under RT12J-O2 and is
+> no longer deferred.
 
 ### The two base refusals, and which gate wins
 
 **[RT12J-C5 VERIFIED — from source, plus two landed oracles]** `compileBlock`
-(`link.ts:489-515`) routes only `for` and `if`(+`else`) and sends everything else to
-`compileStatement` (`link.ts:308-387`), whose first act is `assertLeaf` (`:317`, defined `:163-165`)
-and whose last line is the kind fallthrough (`:386`). So today:
+(`link.ts:513-543`) routes `for`, `while` and `if`(+`else`) and sends everything else to
+`compileStatement` (`link.ts:309-388`), whose first act is `assertLeaf` (`:318`, defined `:164-166`)
+and whose last line is the kind fallthrough (`:387`). So today:
 
 | Fixture | base label | Evidence |
 | --- | --- | --- |
-| `break` / `continue` as a leaf, anywhere | `<label>: statement kind break is outside RT-1` | `link.ts:386`; **landed and green** at `scripts/kern-5-rt10-for/type-gate.test.mjs:117-129` (`neg-break-in-body`, `neg-continue-in-body`, which also assert the message is *not* `statement must be a leaf`) and again for a `while` body at `scripts/kern-5-rt11-linked-while/type-gate.test.mjs:19-20,83-99` |
-| `break` **with children** | `<label>: statement must be a leaf` | `link.ts:317`; the leaf gate runs before any kind branch, so it wins even inside a loop |
+| `break` / `continue` as a leaf, anywhere | `<label>: statement kind break is outside RT-1` | `link.ts:387`; **measured 2026-09-08 at base `ca890efb`** (RT12J-O2) and landed green at `scripts/kern-5-rt10-for/type-gate.test.mjs:110-123` (`neg-break-in-body`, `neg-continue-in-body`) and for a `while` body at `scripts/kern-5-rt11-linked-while/type-gate.test.mjs:25-26,89-103` |
+| `break` **with children** | `<label>: statement must be a leaf` | `link.ts:318`; **measured** at handler top level *and* inside a `for` body, so the leaf gate demonstrably wins over any depth decision |
 
 **The leaf gate keeps winning after this slice.** `assertLeaf` precedes every kind branch, so a
 `break` carrying children is refused with `statement must be a leaf` whether or not it sits inside a
-loop, and the loop-depth gate never sees it. That precedence is pinned rather than reordered — it
+loop, and the loop-depth gate never sees it — **measured in both positions at base**. That precedence is pinned rather than reordered — it
 costs no code and it is the only reading under which the two labels are unambiguous.
 
-### Seven dispatchers branch on `LinkedKernKirStatement.kind`; every one of them gets a *leaf* arm
+### Six dispatchers branch on `LinkedKernKirStatement.kind`; every one of them gets a *leaf* arm
 
-**[RT12J-C6 VERIFIED]** Exhaustive inventory. Two of the seven are `never`-guarded (a missing arm is
-a `tsc` error); four fall through in a way that turns a missing arm into a **TypeError, not a fault**;
-one throws a plain `Error` at emit time.
+**[RT12J-C6 VERIFIED — re-derived against `ca890efb`, RT12J-TD5]** Exhaustive inventory, **and the
+count dropped from seven to six**: slice B extracted the two semantic walkers' child access into
+`statementSubBlocks` (`contracts.ts:282-288`) and `statementSubExpressions` (`:290-296`), so
+`statementsInvokeCapability` (`:367-379`) and `statementsCallDepth` (`:449-468`) no longer branch on
+kind at all. They now share **one** fallthrough, and this slice's `contracts.ts` walker edit is
+**one line**, not two arms.
 
 | # | Function | File:line | Today | This slice's arm | Without it |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `containsReturn` | `link.ts:152-161` | `return` / `for` / `if` | none — a jump is not a `return` and owns no block | nothing: the `.some` predicate is false for an unknown kind. **No arm needed**, and the oracle pins that a `void` handler with a `break` in a loop body still links |
-| 2 | `compileBlock` | `link.ts:489-515` | routes `for`, `if`+`else` | none — `compileStatement` grows the two kind branches instead | `break` reaches the `:386` fallthrough (RT12J-C5) |
-| 3 | `statementsInvokeCapability` | `contracts.ts:351-373` | `capability` / `if` / `for`, else `statement.value` | `return false` (no owned expression) | `expressionInvokesCapability(undefined, …)` → **TypeError: Cannot read properties of undefined (reading 'kind')** |
-| 4 | `statementsCallDepth` | `contracts.ts:443-471` | `capability` / `if` / `for`, else `statement.value` | `return 0` | same TypeError |
-| 5 | `walkStatements` (RT-1) | `kir-runtime/expression.ts:176-264` | `let`/`assign`/`capability`/`print`/`if`/`for`, **else = the `return` arm** (`:251-263`) | two real arms (RT12J-D1) | a jump falls into the `return` arm and is treated as a value return → `statementValue(undefined, …)` throws |
-| 6 | `blockSource` (JS) | `compiler/kir-js-esm/emitter.ts:271-303` | `return`/`assign`/`for`, else `leafSource` | one arm returning the jump source (RT12J-C13) | `leafSource` reaches `throw new Error('return statements are emitted by the specialized handler')` (`emitter.ts:236`) — an **emit-time TypeScript `Error`**, not a `__Fault` |
-| 7 | `statementDeferral` (Python) | `compiler/kir-python/request.ts:100-131` | exhaustive `switch` closed by `const exhaustive: never` (`:126-129`) | `case 'break': case 'continue': return undefined;` | **`tsc` error** — the union-exhaustiveness tripwire slice A built, doing its job |
+| 1 | `containsReturn` | `link.ts:152-163` | `return` / `for` / `while` / `if` (slice B added the `while` arm) | none — a jump is not a `return` and owns no block | nothing: the `.some` predicate is false for an unknown kind. **No arm needed**; the oracle pins the four-arm shape so no dead arm is added, and pins that a `void` handler with a `break` in a loop body still links |
+| 2 | `compileBlock` | `link.ts:513-543` | routes `for`, `while`, `if`+`else` | none — `compileStatement` grows the two kind branches instead | a jump reaches the `:387` fallthrough (RT12J-C5) |
+| 3 | `statementSubBlocks` | `contracts.ts:282-288` | `if` / `for` / `while`, else `return []` | **none — already correct**: the fallthrough is the empty list and a jump owns no block | nothing |
+| 4 | `statementSubExpressions` | `contracts.ts:290-296` | `capability` / `if` / `while` / `for`, else `return [statement.value]` | one arm returning `[]` for both kinds | `[undefined]` reaches `expressionInvokesCapability` and `expressionCallDepth` → **TypeError: Cannot read properties of undefined (reading 'kind')** in *both* walkers, from one line. **Measured 2026-09-08** |
+| 5 | `walkStatements` (RT-1) | `kir-runtime/expression.ts:184-294` | `let`/`assign`/`capability`/`print`/`if`/`for`/`while`, **else = the `return` arm** (`:281-291`) | two real arms (RT12J-D1) | a jump falls into the `return` arm and is treated as a value return → `statementValue(undefined, …)` throws. **Measured** |
+| 6 | `blockSource` (JS) | `compiler/kir-js-esm/emitter.ts:292-320` | `return`/`assign`/`for`/`while`, else `leafSource` (`:301`) | one arm returning the jump source (RT12J-C13) | `leafSource` reaches `throw new Error('return statements are emitted by the specialized handler')` (`emitter.ts:236`) — an **emit-time TypeScript `Error`**, not a `__Fault`. **Measured** through `emitJavaScriptEsm` directly, because the public compile entry catches it and reports the generic `artifact-emission-failure` |
+| 7 | `statementDeferral` (Python) | `compiler/kir-python/request.ts:101-133` | exhaustive `switch` closed by `const exhaustive: never` (`:129-132`), with slice B's `while` case at `:130` | `case 'break': case 'continue': return undefined;` | **`tsc` error** — the union-exhaustiveness tripwire slice A built, doing its job |
 
-`expressionVariantUnhandled` (`contracts.ts:283-289`) is the expression-side guard; there is still no
-statement-side equivalent, which is why #3 and #4 fail as TypeErrors and why they are drivable from a
-hand-built linked statement with **no linker involvement** — an independent RED cause.
+`expressionVariantUnhandled` (`contracts.ts:299-305`) is the expression-side guard; there is still no
+statement-side equivalent, which is why #4 and #5 fail as TypeErrors and why they are drivable from a
+hand-built linked statement with **no linker involvement** — an independent RED cause. **The
+consequence of the collapse is that rows 3 and 4 of the original inventory are no longer two
+independent causes**: both walkers report the identical TypeError from `statementSubExpressions`, so
+the oracle asserts them as one mechanism reached through two entry points rather than as two.
 
 The Python `blockSource` (`compiler/kir-python/emitter.ts:289-317`) deliberately gains **nothing**;
 its digest stays pinned by slice A's `frozen-surface.test.mjs`.
 
 ### RT-1's frame stack already has the shape a jump needs
 
-**[RT12J-C7 VERIFIED]** `WalkFrame` is
+**[RT12J-C7 VERIFIED — re-derived, RT12J-TD1/TD2]** `LoopState` is no longer one record: slice B
+made it a **discriminated union** `ForLoopState | WhileLoopState` (`kir-runtime/expression.ts:159-172`).
+`ForLoopState` carries `counter`/`kind`/`step`/`to`/`current`; `WhileLoopState` carries only
+`condition`/`kind`; `loopContinues` narrowed to `ForLoopState` (`:180-182`). `WalkFrame` is
 `{ readonly loop: LoopState | undefined; readonly statements: readonly LinkedKernKirStatement[]; index: number }`
-(`kir-runtime/expression.ts:165-169`) held in a `frames` array; `index` is mutable. A loop body is
-pushed **with** `loop` set (`:247`), an `if` branch with `loop: undefined` (`:238`). The re-trip and
-exit logic lives in one place, the frame-exhaustion branch (`:182-197`): `loop.current += loop.step`,
-then `loopContinues(loop)` → `frame.index = 0; enterTrip(loop)` — or `meter.step()` and `frames.pop()`.
-`enterTrip` (`:184-188`) is the **only** loop-head site: `meter.step(); runtime.checkAbort(); bindings.set(...)`.
+(`:174-178`) held in a `frames` array; `index` is mutable. A loop body is pushed **with** `loop` set
+(`:265` for `for`, `:277` for `while`), an `if` branch with `loop: undefined` (`:256`).
 
-**[RT12J-C8 VERIFIED]** `walkStatements` calls `runtime.checkAbort()` at exactly two places — the
-statement boundary (`:208`, right after `frame.index += 1` and the statement `meter.step()` at `:207`)
-and inside `enterTrip` (`:186`). `scripts/kern-5-rt10-pre-linked-arithmetic/tick-discipline.test.mjs:141-146`
-pins the total at exactly **2**, `:146-158` isolates the statement-boundary window
+The re-trip and exit logic still lives in one place, the frame-exhaustion branch, now `:199-222` —
+and **the `while` re-test happens inside it** (`:207-212`), not at the loop head. That is the single
+fact RT12J-O1 named as the largest residual risk, and it resolves **in this spec's favour**:
+`continue` expressed as "jump the loop frame to its end" re-reads the condition for the condition
+form and advances the counter for the counted form, through the same branch, with no duplicated head
+logic. `enterTrip` (`:192-196`) is still the only loop-head site, and its counter bind is now guarded
+`if (loop.kind === 'for')`.
+
+**Constraint this adds for the implementer:** the `break` pop and the `continue` scan must test
+`frame.loop !== undefined` and must never read a loop field before narrowing on `loop.kind` — a
+`WhileLoopState` has no `step`, `to` or `current`.
+
+**[RT12J-C8 VERIFIED — re-derived, RT12J-TD3]** `walkStatements` calls `runtime.checkAbort()` at
+exactly two places — the statement boundary (`:226`) and inside `enterTrip` (`:194`). The statement
+charge above it is now **conditional**: `if (statement.kind !== 'return' || policy.meterReturn) meter.step();`
+(`:225`), which changes nothing for a jump (a jump is not a `return`, so it is always charged) and is
+why RT12J-D3's "charged as an ordinary leaf" claim survives unchanged. The three exit slots are
+`:218` (failed re-test), `:267` (`for` never entered) and `:279` (`while` never entered).
+
+`scripts/kern-5-rt10-pre-linked-arithmetic/tick-discipline.test.mjs:141-146` pins the total at
+exactly **2**, `:146-158` isolates the statement-boundary window
 `between('const statement = frame.statements[frame.index];', "if (statement.kind === 'let')")` at
 exactly 1, and `:158-163` isolates the loop-head window
 `between('const enterTrip = (loop: LoopState): void => {', 'while (frames.length > 0) {')` at exactly 1.
+**Both marker strings survived slice B verbatim** — `LoopState` is still the union's name — and this
+slice's `tick-discipline.test.mjs` re-asserts all three, GREEN at base.
 
 ### Native jumps land correctly on both JavaScript loop forms — and on neither Python one
 
-**[RT12J-C9 VERIFIED]** JS `for` (`compiler/kir-js-esm/emitter.ts:242-269`):
+**[RT12J-C9 VERIFIED — re-derived]** JS `for` (`compiler/kir-js-esm/emitter.ts:242-269`, the header
+update `cursor+=stride` still at `:264` exactly):
 
 ```
       __meter.step();                                   // init
@@ -175,7 +204,9 @@ A native `continue` runs the header update `cursor+=stride` and then the (unmete
 the test and lands on the trailing `__meter.step()` at `:268`. **The `continue`-lands-on-step
 invariant holds by construction on this leg, with no emitter change.**
 
-**[RT12J-C10 PINNED-BY-B]** Slice B's `while` lowering (RT11W-C15) is
+**[RT12J-C10 VERIFIED — was PINNED-BY-B, now measured against `whileSource` at
+`compiler/kir-js-esm/emitter.ts:271-290`; the landed lowering is byte-for-byte what slice B's spec
+promised]** It is
 `__meter.step(); while(true){ local=cond; if(local.tag!=='boolean')throw…; if(local.value!==true)break; __meter.step(); __checkAbort(); …body… } __meter.step();`.
 A native `continue` jumps to the top of `while(true)` and re-evaluates the condition — again exactly
 the fall-off-the-end path. A user `break` and the exit `break` are both native jumps out of the same
@@ -183,8 +214,9 @@ loop; they are not confusable at the semantic level (both exit through the trail
 and the shape row that used to assert "a `break` exists" becomes a **count**: the emitted region for a
 `while` carries `1 + (number of user breaks)` native `break` tokens (RT12J-C13).
 
-**[RT12J-C11 VERIFIED — this is the tribunal's concern, confirmed]** Python `for`
-(`compiler/kir-python/emitter.ts:252-286`):
+**[RT12J-C11 VERIFIED — re-derived; the Python emitter is byte-frozen at
+`c37b5c0092dd712e30f49b07ae7bc0ba1bb26343bcc219e29c750457756518d8`, so every line reference here is
+unchanged]** Python `for` (`compiler/kir-python/emitter.ts:252-286`):
 
 ```
         while cmp(cursor, bound):
@@ -204,8 +236,8 @@ catch-up for `continue` is not "emit `continue`" — see the sketch at RT12J-C17
 
 **[RT12J-C12 VERIFIED]** The entry handler body is emitted inside
 `const __runSpecialized=async(__request,__options,__meter,__deadline,__events)=>{…}`
-(`compiler/kir-js-esm/emitter.ts:389`) and each helper inside
-`const __f0=async(…)=>{…}` (`:335`). A `break` emitted at either top level is
+(`compiler/kir-js-esm/emitter.ts:411`) and each helper inside
+`const __f0=async(…)=>{…}` (`:359`, locals named at `:369`). A `break` emitted at either top level is
 `SyntaxError: Illegal break statement` — the artifact would fail to **load**, not fail closed. So the
 link-time gates in RT12J-D2 are not stylistic: they are what keeps the artifact syntactically valid,
 and the helper-boundary reset is the same argument (a native jump cannot cross a JS function
@@ -284,23 +316,31 @@ scrapes (`/readonly kind: '([a-z-]+)'/gu`) report a kind the catalog does not bi
 Two labels rather than one shared `KIR_LOOP_CONTROL_OUTSIDE_LOOP`, because every landed `type-gate`
 oracle discriminates fixtures by label text (`assertLinkLabel`) and a per-kind label lets a `break`
 row and a `continue` row separate without parsing the label path. The naming follows `link.ts`'s
-`KIR_<SUBJECT>_<REASON>` convention (`KIR_FOR_ZERO_STEP` `:471-473`, `KIR_FOR_BOUND_NOT_INTEGER`
-`:436-455`, `KIR_ASSIGN_TO_LOOP_COUNTER` `:357`, `KIR_IF_COND_NOT_BOOLEAN` `:415`,
-`KIR_VOID_HANDLER_VALUE_RETURN` `:570`).
+`KIR_<SUBJECT>_<REASON>` convention (`KIR_FOR_ZERO_STEP` `:473`, `KIR_FOR_BOUND_NOT_INTEGER` `:453`,
+`KIR_ASSIGN_TO_LOOP_COUNTER` `:358`, `KIR_IF_COND_NOT_BOOLEAN` `:416`, `KIR_WHILE_COND_NOT_BOOLEAN`
+`:504`, `KIR_VOID_HANDLER_VALUE_RETURN` `:598`; the single-return rule at `:600-605`).
 
-**The mechanism.** `LinkScope` (`link.ts:167-174`) gains `readonly loopDepth: number`:
+**The mechanism.** `LinkScope` (`link.ts:168-175`, six fields today) gains `readonly loopDepth: number`:
 
-- `compileHandler` builds a **fresh** `LinkScope` per function (`link.ts:530-537`, all-empty sets), so
+- `compileHandler` builds a **fresh** `LinkScope` per function (`link.ts:560-567`, all-empty sets), so
   `loopDepth: 0` there is what makes the **function boundary reset automatic** — a helper compiled
   from inside a caller's loop body still starts at 0. VERIFIED: helpers are compiled by their own
   `compileHandler` call, never by inheriting the caller's scope.
-- `branchScope` (`link.ts:186-195`) copies every field, so an `if` branch **inherits** the depth: a
+- `branchScope` (`link.ts:187-196`) copies every field, so an `if` branch **inherits** the depth: a
   `break` inside an `if` inside a loop is admitted, and a `break` inside a loop inside an `if` is too.
-- `compileFor` (`link.ts:457-487`) and slice B's `compileWhile` pass `loopDepth: scope.loopDepth + 1`
-  into the body scope they already build with `branchScope`.
+- `compileFor` (`link.ts:458-489`) builds its own body scope — `const bodyScope = branchScope(scope)`
+  at `:477` — so it is a one-line change there: `loopDepth: scope.loopDepth + 1` on that copy.
+- **`compileWhile` (`link.ts:490-511`) does NOT build one** (RT12J-TD4). It hands the caller's
+  `scope` straight to `compileBranch(node, scope, meter, …)` at `:508`, and `compileBranch`
+  (`:390-400`) is what calls `branchScope` at `:399` — the same `compileBranch` that `compileIf`
+  (`:401-427`) uses at `:418`/`:423` and which must **not** increment. So `compileWhile` needs a
+  local `branchScope(scope)` copy of its own, mirroring `compileFor`'s at `:477`, and
+  `compileBranch` stays untouched. Giving `compileBranch` a depth parameter instead would have to
+  thread `0` through both `compileIf` call sites and is the strictly larger change.
 
 This is a scope field and not a `compileBlock` parameter precisely so the copy and the reset both come
-from machinery that already exists and is already tested.
+from machinery that already exists and is already tested: `branchScope` (`:187-196`) copies every
+field, and `compileHandler`'s fresh scope (`:560-567`) is the function-boundary reset.
 
 **No unreachable-code gate.** See RT12J-D4.
 
@@ -326,13 +366,15 @@ from machinery that already exists and is already tested.
 
 - **`break`**: pop frames from the top; the first frame with `loop !== undefined` is popped too, and
   popping it charges **exactly one** `meter.step()` — the same loop-exit slot the natural exit uses
-  (`expression.ts:198` on a failed re-test, `:249` when never entered). **No `checkAbort()`, no head
-  charge, no condition evaluation.**
+  (`expression.ts:218` on a failed re-test, `:267`/`:279` when never entered). **No `checkAbort()`, no
+  head charge, no condition evaluation.**
 - **`continue`**: pop frames until the top frame has `loop !== undefined` **without popping it**, then
   set `frame.index = frame.statements.length` and let the ordinary dispatch loop run. The existing
-  frame-exhaustion branch (`expression.ts:182-197`) then does the whole job — advance/re-test, then
-  either `frame.index = 0; enterTrip(loop)` (head charge + the existing `checkAbort`) or
-  `meter.step(); frames.pop()` (exit charge).
+  frame-exhaustion branch (`expression.ts:199-222`) then does the whole job — for a `ForLoopState`
+  advance and re-test `loopContinues`, for a `WhileLoopState` re-evaluate `loop.condition` (`:207`) —
+  then either `frame.index = 0; enterTrip(loop)` (head charge + the existing `checkAbort`) or
+  `meter.step(); frames.pop()` (exit charge). **Neither arm may read a loop field before narrowing on
+  `loop.kind`** (RT12J-C7).
 
 `continue` is therefore expressed as **"jump the loop frame to its end"** and not as duplicated head
 logic. Three consequences, each an oracle row: the *continue-lands-on-step* invariant holds by
@@ -343,11 +385,12 @@ so `tick-discipline.test.mjs:141-146` stays `=== 2` and both isolation windows s
 **Constraint for the implementer.** Any pop helper may live inside the loop-head isolation window
 `between('const enterTrip = …', 'while (frames.length > 0) {')` **only if it contains no
 `checkAbort()`**, and neither window marker string may change (`:146-163`). The jump arms belong after
-`if (statement.kind === 'let')` (`expression.ts:209`), which puts them outside the statement-boundary
-window by construction.
+`if (statement.kind === 'let')` (`expression.ts:227`), which puts them outside the statement-boundary
+window by construction. All three windows are re-asserted GREEN at base by
+`scripts/kern-5-rt12-linked-jumps/tick-discipline.test.mjs`.
 
 **[RT12J-D3 DECIDED — the JavaScript leg]** One `blockSource` arm, placed **before** the
-`if (statement.kind !== 'if') return leafSource(...)` fallthrough (`emitter.ts:283`), emitting exactly:
+`if (statement.kind !== 'if') return leafSource(...)` fallthrough (`emitter.ts:301`), emitting exactly:
 
 ```
       __meter.step(); __checkAbort();
@@ -356,21 +399,26 @@ window by construction.
 
 (and `continue;` respectively). No local allocated, no wrapper, no signal object. A jump is charged as
 an **ordinary leaf statement** — one `__meter.step()` and one `__checkAbort()` — which is precisely
-what `assignSource` (`:207-209`), the `let`/`print` arms of `leafSource` (`:222-224`, `:227-229`) and
-the `if` arm (`:288-290`) each emit, and precisely what RT-1's statement boundary charges (`:207-208`).
+what `assignSource` (`:209-210`), the `let`/`print` arms of `leafSource` (`:222-225`, `:227-233`) and
+the `if` arm (`:306-308`) each emit, and precisely what RT-1's statement boundary charges (`:225-226`).
 Both legs therefore charge the jump statement itself identically, without a per-leg correction.
 
 **[RT12J-C15 VERIFIED — the per-slot charge table]** Every metered slot on both legs, for both loop
 forms, with the jump paths added. `B` is the body cost, `C` a condition evaluation, `Bounds` the
-three `for` bound reads (once), `Counter` the counter materialisation.
+three `for` bound reads (once), `Counter` the counter materialisation. **Measured on RT-1 at base
+`ca890efb`, 2026-09-08 (RT12J-TD8): `Counter` is `0`** — `integerValue(current, meter)`
+(`expression.ts:195`) charges no step — **`Bounds` is `3`, one head charge and one exit slot are `1`
+each, `C` for one `i < <literal>` is `3`, and one `assign acc = acc + 1` is `4`.** Nine twin atoms
+are frozen from that run in `metering.test.mjs` and asserted GREEN, so every identity below is read
+against the program it was derived on.
 
 | Path | RT-1 | JavaScript | Equal? |
 | --- | --- | --- | --- |
 | `for`, natural, `n` trips | `1_init + Bounds + n·(1_head + Counter + B) + 1_exit` | same slots, `emitter.ts:258-268` | yes (rt10-for's landed three-leg rows) |
 | `for`, `break` on trip `k` | `1_init + Bounds + (k-1)·(1_head+Counter+B) + (1_head+Counter+B_pre+1_jump) + 1_exit` | `break` skips `cursor+=stride` and the test, lands on `:268` | yes |
 | `for`, `continue` on every trip | `1_init + Bounds + n·(1_head+Counter+B_pre+1_jump) + 1_exit` | `continue` runs the header update and the unmetered test | yes |
-| `while`, `break` on trip `k` | as above without `Bounds`/`Counter`, with `k·C` condition charges | native `break` out of `while(true)` onto the trailing `__meter.step()` | yes (PINNED-BY-B) |
-| `while`, `continue` on every trip | `n` extra `C` charges, because `continue` re-tests the condition | identical: `continue` → top of `while(true)` → condition | yes (PINNED-BY-B) |
+| `while`, `break` on trip `k` | as above without `Bounds`/`Counter`, with `k·C` condition charges | native `break` out of `while(true)` onto the trailing `__meter.step()` | yes (VERIFIED against `whileSource` `:271-290`) |
+| `while`, `continue` on every trip | `n` extra `C` charges, because `continue` re-tests the condition | identical: `continue` → top of `while(true)` → condition | yes (VERIFIED) |
 | any jump | `1_jump = 1 meter.step() + 1 checkAbort()` at the statement boundary | `__meter.step(); __checkAbort();` | yes (RT12J-D3) |
 | the exit slot after a `break` | exactly one `meter.step()`, no `checkAbort()` | the trailing `__meter.step()`, no `__checkAbort()` | yes |
 
@@ -379,23 +427,35 @@ three `for` bound reads (once), `Counter` the counter materialisation.
 Every metering row here is an identity between twins measured in the same run, using rt10-for's
 `loopStepBudget` binary search (`scripts/kern-5-rt10-for/k0-support.mjs:100-125`):
 
-| Row | Identity | What it falsifies |
+**Correction applied before any of these became fixtures (RT12J-TD9).** The J-rows as first drafted
+compared a jump fixture against "one metered leaf" — but **no statement in RT-1 costs exactly one
+step**: every leaf carries a value expression and `evaluateExpression` charges at least one on top of
+the statement boundary. The cheapest measured body statement is `assign acc = acc + 1` at **four**.
+So each row below is instead a **difference between a jump fixture and a hand-counted twin that
+carries the jump fixture's body minus exactly the jump statements**, with the statement counts written
+into the assertion message. Rows are as landed in
+`scripts/kern-5-rt12-linked-jumps/metering.test.mjs`.
+
+| Row | Identity (as landed) | What it falsifies |
 | --- | --- | --- |
-| **J1** break exits | `ticks(for 0..N { break })` is **independent of `N`** for `N ∈ {1,3,10}` | a `break` that does not actually leave the loop |
-| **J2** break is an ordinary statement landing on the exit slot | `ticks(for 0..1 { break }) == ticks(for 0..1 { <one metered leaf> })` | a `break` charged 0 or 2, a `break` that re-charges the head, a `break` that skips the exit charge |
-| **J3** continue lands on the step | `ticks(for 0..3 { continue }) == ticks(for 0..3 { <one metered leaf> })`, and the run **terminates** | a `continue` that skips the counter advance (would exhaust `maxSteps`), or one that charges the head twice |
-| **J4** continue skips the rest of the trip | `ticks(for 0..3 { continue; assign acc=acc+1 }) == ticks(for 0..3 { continue })`, and `acc == 0` | a `continue` that falls through to the trailing statements |
-| **J5** the `while` form agrees | `ticks(while … { continue }) == ticks(while … { <one metered leaf> })`, and the trip count is unchanged | a `while` `continue` that skips the condition (would diverge from J3's shape) or double-charges it |
-| **J6** jumps are loop-local | `ticks(for o 0..3 { for n 0..2 { break } }) == ticks(for o 0..3 { for n 0..1 { <leaf> } })` | an inner `break` that pops the outer loop (strictly fewer ticks) or pops nothing (strictly more) |
-| **J7** leg identity | for each of J1-J6's fixtures, the emitted artifact's own step threshold equals RT-1's execution count exactly, pinned from both sides; and one budget below the threshold fails on both legs | any single slot charged differently on one leg |
-| **J8** checkpoint census | RT-1 total `=== 2` with both isolations `=== 1`; the emitted JS statement region gains exactly one `__checkAbort()` per jump statement over the same body without the jump | a third RT-1 site; a jump lowered without the ordinary statement checkpoint |
-| **J9** cancellation latency | a `break`/`continue` never widens the abort window: the next observation point is the loop head (`continue`) or the statement boundary after the loop (`break`) | a jump path that bypasses both checkpoints |
+| **J1** break exits | `ticks(for 0..N { assign; break })` is **independent of `N`** for `N ∈ {1,3,10}` — identical two-statement bodies, integer-literal bounds throughout | a `break` that does not actually leave the loop (would scale with `N`) |
+| **J2** break is an ordinary statement landing on the shared exit slot | `ticks(for 0..1 { assign; break }) − ticks(for 0..1 { assign }) == 1` — body **2 statements vs 1**, one trip each, the twin exiting by failed re-test and the fixture by the break | a `break` charged 0 or 2; one that re-charges the head (2); one that skips the exit slot (0) |
+| **J3** continue lands on the step | `ticks(for 0..3 { assign; continue }) − ticks(for 0..3 { assign }) == 3` — body **2 vs 1**, three trips each — and the run terminates returning 3 | a `continue` that skips the counter advance (no threshold exists at all); one that charges the head twice (6) |
+| **J4** continue and break skip the rest of the trip | `ticks(for 0..3 { continue; assign }) == ticks(for 0..3 { continue })` and `ticks(for 0..3 { break; assign }) == ticks(for 0..3 { break })` — body **2 vs 1**, the extra statement unreachable | a jump that falls through to the trailing statement |
+| **J5a** the `while` form agrees on `continue` | `ticks(while i<3 { assign; incr; continue }) − ticks(while i<3 { assign; incr }) == 3` — body **3 vs 2**, three trips each, both returning 3 | a condition-form `continue` that skips the condition re-read (diverges) or double-charges it |
+| **J5b** the `while` form agrees on `break` | `ticks(while i<1 { assign; incr }) − ticks(while i<1 { assign; incr; break }) == C − 1`, body **2 vs 3**, one trip each, with `C` measured independently from the never-entered path | a `break` that re-tests on its way out (`−1`); one that skips the exit slot (`C`) |
+| **J6a** inner break is loop-local | `ticks(for o 0..3 { for n 0..5 { assign; break } }) − ticks(for o 0..3 { for n 0..1 { assign } }) == 3` — inner body **2 vs 1**, one inner trip either way, three outer passes | an inner `break` that pops the **outer** loop (run ends after one outer pass, far fewer ticks) or pops nothing (five inner trips, far more) |
+| **J6b** inner continue is loop-local | `ticks(for o 0..3 { for n 0..2 { assign; continue } }) − ticks(for o 0..3 { for n 0..2 { assign } }) == 6` — inner body **2 vs 1**, identical bound | a `continue` that escaped its inner loop, or one charged per outer pass rather than per inner trip |
+| **J7** leg identity | for each jump family, the emitted artifact's own step threshold equals RT-1's execution count exactly, pinned from both sides; one budget below the threshold fails on both legs. Seven families: both kinds, both loop forms, a nested pair, a jump-only body, and the `while(true)` importer shape | any single slot charged differently on one leg |
+| **J8** checkpoint census | RT-1 total `=== 2` with both isolations `=== 1`; and a jump adds **exactly one** emitted `__checkAbort()` — measured against a control twin that adds one ordinary statement to the same loop body, so the claim is "a jump costs an ordinary leaf's census", not an absolute count | a third RT-1 site; a jump lowered without the ordinary statement checkpoint (0) or with a head checkpoint of its own (2) |
+| **J9** cancellation latency never widens | every jump fixture carries **at least as many** emitted checkpoints as the jump-free twin of the same loop shape — six pairs | a lowering that hoisted a jump above the loop head, or replaced the head checkpoint with the jump's own |
+| **J10** divergence agrees | a `continue` that skips its own increment exhausts `maxSteps` **byte-identically on both legs** at every budget in `{16, 64, 512}` | a leg on which a divergent `continue` terminates, or one that reports a different fault |
 
 ### Emitted-shape rows
 
-**[RT12J-C13 VERIFIED — design]** Using slice B's region extraction
-(`scripts/kern-5-rt11-linked-while/tick-discipline.test.mjs:22-36`: artifact → `__runSpecialized` →
-the `try {`/`} finally {` statement region):
+**[RT12J-C13 VERIFIED — design; region extraction re-derived and reused verbatim from
+`scripts/kern-5-rt11-linked-while/tick-discipline.test.mjs:24-36`: artifact → `__runSpecialized` →
+the `try {`/`} finally {` statement region. All four marker strings survive slice B]**
 
 | Rule | Value |
 | --- | --- |
@@ -403,7 +463,7 @@ the `try {`/`} finally {` statement region):
 | `for` body with one user `break` | the region carries exactly **one** `break` token for that loop |
 | `while` body with one user `break` | exactly **two** `break` tokens: the lowering's exit break plus the user's |
 | signal objects | zero. No `__Break`, no `__Continue`, no `throw` added — the tribunal's ruling, and the reason the rt4 fault channel is untouched |
-| function boundaries | the region from the loop head onward contains **no** `function` and no `=>` token beyond what the same body carries under a straight-line twin (a native jump cannot cross a function boundary; PINNED-BY-B, RT11W-C21 item 2) |
+| function boundaries | the region from the loop head onward contains **no** `function` and no `=>` token beyond what the same body carries under a jump-free twin (a native jump cannot cross a function boundary), asserted as a token equality against that twin rather than as an absolute census |
 | new host patterns | zero. `scripts/kern-5-r2-js-lowering/closure.test.mjs:17`'s `FORBIDDEN_EMITTED` matches none of the added text; no `JSON`, `process`, `eval`, `Function`, `import`, `require`, no `node:` specifier |
 | new kernel bytes | zero; both `TARGET_KERNEL_SHA256` values unchanged |
 | suspension points | zero new `await`/`Promise`/`queueMicrotask`/`setImmediate` |
@@ -415,14 +475,14 @@ the `try {`/`} finally {` statement region):
 after an unconditional `break`/`continue` inside a loop body is **admitted and not analysed**. Three
 pieces of precedent, all from source:
 
-1. **The linker performs no reachability analysis anywhere.** `compileBlock` (`link.ts:489-515`)
-   compiles children in order and tracks nothing about completion; `containsReturn` (`:152-161`) exists
-   solely to feed the void-handler gate, never a reachability decision.
-2. **The single-return rule filters the top-level list only** (`link.ts:568-574`:
+1. **The linker performs no reachability analysis anywhere.** `compileBlock` (`link.ts:513-543`)
+   compiles children in order and tracks nothing about completion; `containsReturn` (`:152-163`) exists
+   solely to feed the void-handler gate (`:598`), never a reachability decision.
+2. **The single-return rule filters the top-level list only** (`link.ts:600-605`:
    `statements.at(-1)?.kind !== 'return'` and `statements.filter(...).length !== 1` over the handler's
    own statement array), which is exactly why rt10-for's `for-early-return` fixture
-   (`scripts/kern-5-rt10-for/k0-support.mjs:250-251`, a `return` inside a `for` body plus a final
-   top-level `return`) is admitted today. A loop body is never inspected for completion, so a `break`
+   (a `return` inside a `for` body plus a final top-level `return`) is admitted today, and is
+   re-asserted admitted by this slice's `type-gate.test.mjs`. A loop body is never inspected for completion, so a `break`
    in one cannot change that rule's answer.
 3. **The `if` precedent**: statements after a `return` inside an `if` branch are admitted for the same
    reason. Refusing unreachable code after a jump would be the **first** reachability rule in the
@@ -437,7 +497,7 @@ top-level `[return v, break]` is refused with **`KIR_BREAK_OUTSIDE_LOOP`** and *
 ### Python leg — two ledger rows
 
 **[RT12J-C16 VERIFIED]** Two rows, key-set exactly slice A's `ROW_KEYS`
-(`scripts/kern-5-parity-ledger/ledger-support.mjs:43` = `['blockedBy','label','nodeKind','since','spec','surface']`),
+(`scripts/kern-5-parity-ledger/ledger-support.mjs:43` = `['blockedBy','label','nodeKind','since','spec','surface']`, asserted through slice A's own constant rather than copied),
 sorted with slice B's `while` row (`break` < `continue` < `while`):
 
 | Field | `break` | `continue` | Why |
@@ -456,15 +516,17 @@ cannot be repaid** before `while` is: step 5 of slice A's catch-up procedure req
 "three-leg byte-identical envelopes for the node kind", and one of the catalog-permitted positions for
 a jump is a `while` body — a program in that position still refuses on the `while` row, so the
 repayment evidence is unobtainable until `while` lands. `validateLedger`
-(`ledger-support.mjs:117-124`) enforces that a `blockedBy` entry names an existing row, so these rows
+(`ledger-support.mjs:120-125`) enforces that a `blockedBy` entry names an existing row, so these rows
 are only valid **after** slice B's row exists, and slice A's catch-up step 3 already prescribes
-deleting the reference when the `while` row goes.
+deleting the reference when the `while` row goes. Slice B's row is landed
+(`scripts/kern-5-parity-ledger/parity-ledger.json`, `blockedBy: []`), so the ordering constraint is
+satisfied and `validateLedger` accepts the three-row document.
 
 | Refusal rule | Value |
 | --- | --- |
 | what refuses | slice A's compile-entry pass, after `linkVerifiedKernKirProgramOrThrow` succeeds and before `emitPython` |
 | the result | exactly `{format:'kern.compiler.kir-python.v1', outcome:'failure', code:'KIR_PYTHON_LEG_DEFERRED'}` — three keys, no `artifact`, no `manifest` |
-| **which kind is reported** | `pythonLoweringDeferral` returns the **first** deferred kind in pre-order (`request.ts:145-156`). A `for` body containing a `break` reports `'break'`; a `while` body containing a `break` reports `'while'`. Same code either way — but a row that asserts the reported kind must expect `'break'` only from the `for` position |
+| **which kind is reported** | `pythonLoweringDeferral` returns the **first** deferred kind in pre-order (`request.ts:148-159`, over `statementsDeferral` `:135-146`). A `for` body containing a `break` reports `'break'` (the `for` is `lowered`, so the walk descends); a `while` body containing a `break` reports `'while'` (the `while` row fires at `:104` before the walk reaches the body). Same code either way — but a row that asserts the reported kind must expect `'break'` only from the `for` position. **Both halves are oracle rows** |
 | coverage | every catalog-permitted position reachable through the linker: `for` body, `while` body, `if`-then/`if`-else inside a loop body, nested loops |
 | `compiler/kir-python/emitter.ts` | **byte-identical**; slice A's frozen digest must not move |
 
@@ -476,7 +538,7 @@ deleting the reference when the `while` row goes.
 - **`continue` in the `while` form** (slice B's `while True:` sketch, RT11W-C17) is a bare native
   `continue`: the condition is re-evaluated at the top of the loop, so the invariant holds.
 - **`continue` in the `for` form must not be a bare `continue`.** The counter advance is the last line
-  of the trip body (`emitter.ts:272, inside the trip template at :269-273`). Two admissible repairs, in preference order:
+  of the trip body (`emitter.ts:272`, inside the trip template at `:269-273`). Two admissible repairs, in preference order:
   1. **Advance-then-continue**: emit `cursor = cursor + stride` immediately before every `continue`
      that targets that loop. Purely local, no head restructuring, no new host pattern, and the emitted
      text still contains exactly one arithmetic form the artifact already uses. Cost: the advance
@@ -495,13 +557,15 @@ deleting the reference when the `while` row goes.
 One option; the decision space genuinely collapses once RT12J-D1 is chosen. Ordered so that no
 intermediate state fails to compile:
 
-1. **`kir-runtime/linked-kir-program/contracts.ts`** — the two union members (RT12J-C14) and the leaf
-   arms of `statementsInvokeCapability` and `statementsCallDepth`. If slice B landed its recommended
-   `statementSubBlocks`/`statementSubExpressions` extraction, these are two table entries with empty
-   blocks and empty expressions; if slice B took its fallback, they are two two-line arms.
-2. **`kir-runtime/linked-kir-program/link.ts`** — `loopDepth` on `LinkScope`, `0` in `compileHandler`,
-   `+1` in `compileFor` and `compileWhile`, and the two `compileStatement` kind branches with the
-   labels of RT12J-D2.
+1. **`kir-runtime/linked-kir-program/contracts.ts`** — the two union members (RT12J-C14) and **one
+   line** in `statementSubExpressions` (`:290-296`): slice B did land the
+   `statementSubBlocks`/`statementSubExpressions` extraction, `statementSubBlocks`'s `return []`
+   fallthrough is already correct for a childless kind, and the single edit is an arm returning `[]`
+   for both jump kinds ahead of the `return [statement.value]` fallthrough (RT12J-C6, RT12J-TD5).
+2. **`kir-runtime/linked-kir-program/link.ts`** — `loopDepth` on `LinkScope` (`:168-175`), `0` in
+   `compileHandler` (`:560-567`), `+1` on `compileFor`'s existing `bodyScope` (`:477`) and on a **new**
+   `branchScope` copy inside `compileWhile` (`:508`, which today passes the caller's scope straight
+   through — RT12J-TD4), and the two `compileStatement` kind branches with the labels of RT12J-D2.
 3. **`kir-runtime/expression.ts`** — the two RT-1 arms of RT12J-D1, with `checkAbort()` untouched.
 4. **`compiler/kir-js-esm/emitter.ts`** — one `blockSource` arm (RT12J-D3), placed before the
    `leafSource` fallthrough.
@@ -516,9 +580,10 @@ intermediate state fails to compile:
 
 ### Two file-size facts, and neither may be answered with a new file
 
-`packages/core/src/kir-runtime/linked-kir-program/contracts.ts` is **536 lines** and `link.ts` is
-**695** (measured, this branch, 2026-09-07) — both already past the 500-line rule, and slice B grows
-both. The 354-file compiled inventory pin
+`packages/core/src/kir-runtime/linked-kir-program/contracts.ts` is **532 lines** and `link.ts` is
+**723** (re-measured on the landed slice-B base, 2026-09-08; slice B's walker extraction shrank
+`contracts.ts` by four lines and its `while` compiler grew `link.ts` by twenty-eight) — both already
+past the 500-line rule. The 354-file compiled inventory pin
 (`scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs:11`) forbids a **new file under
 `packages/core/src`**, and history confirms the pin bites: a `linked-kir-program/walkers.ts` was
 created and then withdrawn (`e105f1da refactor(kern5): keep both expression walkers in contracts.ts
@@ -535,7 +600,7 @@ arm, which is the cheapest arm shape there is — and the `contracts.ts` / `link
 | `package.json` | edit | `test:kern-5-rt12-linked-jumps`; appended to `test:kern-5-script-family` |
 | `scripts/ci/test-tier-contract.test.mjs` | edit | `kern5EvidenceCommands` gains one entry; the `deepEqual` is exact and order-sensitive |
 | `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once |
-| `packages/core/src/kir-runtime/linked-kir-program/contracts.ts` | edit | two union members; two leaf arms in each of the two semantic walkers |
+| `packages/core/src/kir-runtime/linked-kir-program/contracts.ts` | edit | two union members; **one** arm in `statementSubExpressions` (RT12J-TD5) — not two walker arms |
 | `packages/core/src/kir-runtime/linked-kir-program/link.ts` | edit | `LinkScope.loopDepth`; the depth increments in `compileFor`/`compileWhile`; two `compileStatement` branches |
 | `packages/core/src/kir-runtime/expression.ts` | edit | the two RT-1 arms (RT12J-D1); **no new `checkAbort()`** |
 | `packages/core/src/compiler/kir-js-esm/emitter.ts` | edit | one `blockSource` arm before the `leafSource` fallthrough |
@@ -545,36 +610,45 @@ arm, which is the cheapest arm shape there is — and the `contracts.ts` / `link
 | `packages/core/src/parser-core.ts`, `parser-validate-body-statements.ts`, `kir-structural/**`, the constitution, the closure ledger, any `.kern` | **no edit** | RT12J-C1/C3: F5 already projects both kinds in every needed position. `BODY_LOOP_CONTROL_OUTSIDE_LOOP` belongs to the legacy TS parser and is not this stack's gate |
 | `scripts/kern-5-parity-ledger/parity-ledger.json` | **edit — licensed** | the `break` and `continue` rows (RT12J-C16) |
 | `scripts/kern-5-parity-ledger/ledger-support.mjs` | **edit — licensed** | `LEDGER_SHA256` re-pin (`:40`); the only digest a row move touches |
-| `scripts/kern-5-parity-ledger/ledger-schema.test.mjs` | **edit — licensed if slice B left a row-count assertion** | slice B replaced slice A's zero-row assertion; if that became "carries the `while` row", it becomes "carries three rows" |
-| `scripts/kern-5-rt2-boolean-if/k0-golden.{json,test.mjs}` | **edit — licensed** | `linkedStatementKinds` gains `"break"` and `"continue"`; the golden's **second** test (`:120-129`) requires `STATEMENT_PROBES.filter(admission === 'admitted')` to `deepEqual` that union, so `PROBE_BODIES` (`:17-28`) and `STATEMENT_PROBES` (`:30-40`) each gain a `break` and a `continue` entry whose body wraps the jump in a `for` (a bare jump would be `handler-entry-unsupported` and the two lists would disagree) |
-| `scripts/kern-5-rt9-linked-assign/k0-golden.{json,test.mjs}` | **edit — licensed** | `linkedStatementKinds` gains both kinds; the hardcoded `assert.deepEqual(golden.linkedStatementKinds, […])` (`:99-104`) grows; its `for (const kind of ['each','set','while'])` loop drops nothing here but must already have dropped `'while'` in slice B |
+| `scripts/kern-5-parity-ledger/ledger-schema.test.mjs` | **no edit** | re-measured: its row-count assertions (`:69`, `:72`) run against synthetic documents it builds itself, never against the checked-in ledger |
+| `scripts/kern-5-parity-ledger/ledger-aware-gates.test.mjs:61-79` | **edit — licensed** | asserts `loadParityLedger().rows` deepEquals the single `while` row and `[...kinds.statement]` deepEquals `['while']` (`:76`); becomes three rows and three kinds (RT12J-TD10) |
+| `scripts/kern-5-parity-ledger/exhaustiveness.test.mjs:70-77` | **edit — licensed** | `STATEMENT_KINDS` gains `break`/`continue`, and `assert.deepEqual(deferred, ['while'])` becomes `['break','continue','while']` (RT12J-TD10) |
+| `scripts/kern-5-parity-ledger/ledger-support.mjs:268-289` (`WHILE_ROW_POSITIONS`) | **edit — licensed, and NOT optional** | slice B's `while`-shaped mirror is selected by `row.nodeKind === 'while' ? … : STATEMENT_POSITIONS` in **two** dispatchers (`parent-positions.test.mjs:69-75`, `refusal-golden.test.mjs:77-84`). A `break` or `continue` row falls through those ternaries to the `for`-shaped `STATEMENT_POSITIONS`, which carry **no jump node at all**, so the Python compile succeeds and `assertNoPythonArtifact` fails. Two jump-shaped mirrors — or one `Record<nodeKind, positions>` replacing both ternaries — are required (RT12J-TD11) |
+| `scripts/kern-5-parity-ledger/parent-positions.test.mjs:69-75` and `refusal-golden.test.mjs:77-84` | **edit — licensed** | the two `nodeKind === 'while'` ternaries become a per-kind lookup (RT12J-TD11) |
+| `scripts/kern-5-parity-ledger/frozen-surface.test.mjs` (`NEIGHBOUR_GOLDENS`) | **edit — licensed** | slice B re-pinned rt2/rt3/rt9 there to their post-rt11-cascade digests; this slice's cascade moves all three again (RT11W-TD4's successor) |
+| `scripts/kern-5-parity-ledger/support.mjs` | **no edit** | re-measured: `linkedProgramKinds` adds `statement.kind` unconditionally and probes only `[value, input, condition, from, to, step]` and `[body, thenBranch, elseBranch]`, all `undefined` on a zero-field jump, so `pythonDeferral` and `pythonLegAdmissionColumn` handle jumps with no change (RT12J-TD12) |
+| `scripts/kern-5-rt2-boolean-if/k0-golden.{json,test.mjs}` | **edit — licensed** | `linkedStatementKinds` gains `"break"` and `"continue"`; the golden's **second** test (`:121-129`) requires `STATEMENT_PROBES.filter(admission === 'admitted')` to `deepEqual` that union, so `PROBE_BODIES` (`:17-28`) and `STATEMENT_PROBES` (`:30-40`) each gain a `break` and a `continue` entry whose body wraps the jump in a `for` — e.g. `['let name=x value="0"', 'for name=i from="0" to="1"', '  break']` (a bare jump would be `handler-entry-unsupported` and the two lists would disagree) |
+| `scripts/kern-5-rt9-linked-assign/k0-golden.{json,test.mjs}` | **edit — licensed** | re-measured: the hardcoded list at `:102` is `['assign','capability','for','if','let','print','return','while']` and gains both kinds; the loop at `:103` is already `['each','set']` (slice B dropped `'while'`) and needs no change; the test title at `:100` names the kinds and should too |
 | `scripts/kern-5-rt3-binary-expression/k0-golden.json` | **edit — licensed** | its `rt2GoldenSha256` field is derived from the RT-2 golden |
 | `scripts/kern-5-rt4-user-fn-call/probe-matrix.json` | **edit — licensed** | carries both `rt2GoldenSha256` and `rt3GoldenSha256` |
 | `RT2_GOLDEN_SHA256` literals in rt4, rt5, rt6, rt9, rt10-pre, rt10-X `compatibility.test.mjs` | **edit — licensed** | **6 files** (measured: `grep -rln RT2_GOLDEN_SHA256 scripts`) |
 | `RT3_GOLDEN_SHA256` literals in rt6, rt9, rt10-for, rt10-X, rt10-pre, rt11 `compatibility.test.mjs` | **edit — licensed** | **6 files** (measured) |
 | `RT9_GOLDEN_SHA256` literals in rt10-for, rt10-X `compatibility.test.mjs` | **edit — licensed** | **2 files** (measured) |
 | the historical pre-image literals in rt9 and rt10-pre `compatibility.test.mjs` | **verify, do not assume** | slice B's RT11W-O5 applies unchanged: the reconstructions `{...golden, rt2GoldenSha256: <historical>}` survive only while that is the single RT-3 field the cascade moves |
-| `scripts/kern-5-rt10-for/type-gate.test.mjs:117-129` | **edit — licensed** | the test *`break` and `continue` reach the ordinary statement refusal inside a loop body* is exactly what this slice invalidates: both fixtures become **admitted**. Move them to rt10-for's admitted set or delete them and let this slice's suite own them |
-| `scripts/kern-5-rt10-for/compatibility.test.mjs:63` | **edit — licensed** | `STILL_OUTSIDE` drops both kinds → `['each','set']` (slice B already dropped `'while'`) |
-| `scripts/kern-5-rt11-linked-while/type-gate.test.mjs:19-20,83-99` | **edit — licensed** | slice B's two REFUSALS rows and its *break and continue reach the ordinary statement refusal inside a while body* test flip to admitted |
-| `scripts/kern-5-rt11-linked-while/compatibility.test.mjs:67` | **edit — licensed** | `STILL_OUTSIDE` → `['each','set']` |
-| `scripts/kern-5-rt11-linked-while/fixtures.mjs:282-283,318-319` | keep | `neg-while-break-in-body` / `neg-while-continue-in-body` stay valid fixtures; only their expected verdict moves |
+| `scripts/kern-5-rt10-for/type-gate.test.mjs:110-123` | **edit — licensed** | the test *`break` and `continue` reach the ordinary statement refusal inside a loop body* is exactly what this slice invalidates: both fixtures become **admitted**. Move them to rt10-for's admitted set or delete them and let this slice's suite own them |
+| `scripts/kern-5-rt10-for/compatibility.test.mjs:63` | **edit — licensed** | `STILL_OUTSIDE` is `['break','continue','each','set']` today and drops both kinds → `['each','set']` |
+| `scripts/kern-5-rt11-linked-while/type-gate.test.mjs:25-26,89-103` | **edit — licensed** | slice B's two `REFUSALS` rows (`:25-26`) and its *break and continue reach the ordinary statement refusal inside a while body* test (`:89-103`) flip to admitted |
+| `scripts/kern-5-rt11-linked-while/compatibility.test.mjs:75` | **edit — licensed** | `STILL_OUTSIDE` → `['each','set']` |
+| `scripts/kern-5-rt11-linked-while/fixtures.mjs:282-283,318-319` | keep | `neg-while-break-in-body` / `neg-while-continue-in-body` stay valid fixtures; only their expected verdict moves. Note both use `while cond="false"`, so as admitted rows they run zero trips |
+| `scripts/kern-5-rt12-linked-jumps/**` | **added by this slice** | twelve files: `fixtures.mjs` (66 fixtures), `k0-support.mjs`, `behavior-table.json` (25 frozen rows), `probe-matrix.json`, and eight test modules. Every hand-written module is under 500 lines |
 | `scripts/kern-5-rt11-linked-while/probe-matrix.{json,test.mjs}` | **no edit** | the 28-child list and the catalog schema are unchanged catalog facts |
-| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs:97` (`compiledCoreDigest`, currently `5cfa299d…`) | **edit — licensed** | any content change under `packages/core/src` moves it. Re-pin, then `pnpm write:kern-canonicalizer-coverage` |
+| `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` (`compiledCoreDigest`) | **edit — licensed** | any content change under `packages/core/src` moves it. Slice B re-pinned it at `1eb312e4`; re-pin again, then `pnpm write:kern-canonicalizer-coverage` |
 | `scripts/kern-canonicalizer/*.json` coverage receipts | regenerate | `pnpm write:kern-canonicalizer-coverage`; `coverageImplementationDigest` moves because the re-pin edits a `.mjs` under `scripts/kern-canonicalizer` |
 | the 354-file inventory count and path digest | **no edit** | five existing files are edited; none added or removed. **No new file under `packages/core/src` is permitted** |
 | `TARGET_KERNEL_SHA256` (both kernels), every emitted-artifact digest, every manifest digest, `projectionArtifactSha256` | **no edit** | if one moves, a `KERNEL_SOURCE` byte was touched, which is forbidden. `linkedProgramSha256` changes per *program*, which is not a re-pin |
 | `scripts/runtime-contract-v1/**`, `scripts/kir-v1/alpha-receipt-policy.json` | **no edit** | slice A PL-C7: RC-v1 declares only the `KernRuntimeHandler*` surface. **No amendment record required** |
 | `scripts/kern-5-admission-census/**` | **no edit** | RT12J-C13a: zero tracked files are rejected at `link`, so the admission gain is exactly **0** and the ratchet is a floor |
 | `scripts/kir-v1/eligibility.json`, `coverage-witness-ledger.json`, `scripts/kern-canonicalizer/coverage-family-registry.json` | **no edit** | slice B's negative grep stands: these are the F5/static-catalog track and do not observe linker admission |
-| `scripts/kern-5-rt10-pre-linked-arithmetic/tick-discipline.test.mjs:141-163` | **no edit** | RT12J-D1 is chosen precisely so `=== 2` and both `=== 1` isolations hold. If a builder needs a third site, the decision has changed and this spec is wrong |
+| `scripts/kern-5-rt10-pre-linked-arithmetic/tick-discipline.test.mjs:141-163` | **no edit** | RT12J-D1 is chosen precisely so `=== 2` and both `=== 1` isolations hold, and both window marker strings survived slice B verbatim. Re-asserted GREEN by this slice's own `tick-discipline.test.mjs`. If a builder needs a third site, the decision has changed and this spec is wrong |
 | `scripts/kern-5-runtime-envelope-max-steps/**`, `scripts/kern-frontend-*`, `scripts/conformance.mjs` | **no edit** | the legacy IRNode runner is a different execution stack |
 
 ## Acceptance Criteria
 
-Each becomes a test in `scripts/kern-5-rt12-linked-jumps/`. Every criterion here rests on a VERIFIED
-or PINNED-BY-B claim; the PINNED-BY-B ones must be re-measured against slice B's implementation commit
-before they are promoted to fixtures.
+Each **is** a test in `scripts/kern-5-rt12-linked-jumps/`, landed RED at base `ca890efb`. Every
+criterion rests on a VERIFIED claim: no PINNED-BY-B tag survived the re-derivation, and no ASSUMED or
+OPEN claim fed a fixture. The one residual is RT12J-O6 — the frozen values and identities are derived
+from the re-measured RT-1 charge model and cannot be confirmed against a running jump implementation
+until one exists.
 
 - [ ] `break` and `continue` are members of `LinkedKernKirStatement` with **no fields**, and `each` and
       `set` stay outside it.
@@ -599,20 +673,25 @@ before they are promoted to fixtures.
       `KIR_BREAK_OUTSIDE_LOOP` and **not** `expected exactly one final return`.
 - [ ] A `void` handler with a `break` in a loop body links (no `containsReturn` arm is needed) while
       one with a `return` there is still refused with `KIR_VOID_HANDLER_VALUE_RETURN`.
-- [ ] All four semantic walkers see a jump: a `capability` after a `break` still reaches the closure
-      walk, a call in a jump-carrying body still counts against call depth, and a jump-only body
-      answers `false`/`0` rather than throwing (the RED here is a **TypeError**, driven by a hand-built
-      linked statement independent of the linker).
-- [ ] RT-1 carries exactly **two** `checkAbort()` calls, one in each isolation window (J8).
+- [ ] Every dispatcher sees a jump: a `capability` after a `break` still reaches the closure walk, a
+      call in a jump-carrying body still counts against call depth, a jump-only body answers
+      `false`/`0` rather than throwing, RT-1's own walk runs the jump instead of mistaking it for a
+      value return, and `emitJavaScriptEsm` lowers it to the host keyword instead of throwing. All
+      five are driven from hand-built linked programs, independent of the linker.
+- [ ] RT-1 carries exactly **two** `checkAbort()` calls, one in each isolation window (J8), and no
+      jump lowering removes an emitted checkpoint from the region it sits in (J9).
 - [ ] The emitted JavaScript region carries a native `break;`/`continue;` preceded by
       `__meter.step(); __checkAbort();`, no `__Break`/`__Continue`, no new `function`/`=>` token, no new
       `await`/`Promise`/`queueMicrotask`/`setImmediate`, and no new kernel line; a `while` with one user
       break carries exactly two `break` tokens and a `for` exactly one.
-- [ ] The metering identities **J1-J9** hold as measured twins, and the two legs' step thresholds agree
-      exactly (J7).
+- [ ] The metering identities **J1-J10** hold as measured twin differences, every twin hand-counted
+      statement-by-statement against its jump fixture with the count in the assertion message, and the
+      two legs' step thresholds agree exactly across seven fixture families (J7).
 - [ ] The parity ledger carries the `break` and `continue` rows with the pinned values, key-set
-      identical to slice A's `ROW_KEYS`, sorted after nothing and before `while`, each with
-      `blockedBy: ['while']`, and the document validates under slice A's `validateLedger`.
+      identical to slice A's `ROW_KEYS`, sorted before `while`, each with `blockedBy: ['while']`, and
+      the three-row document validates under slice A's `validateLedger`.
+- [ ] Slice A's two row-position dispatchers select a jump-shaped mirror catalogue for a jump row
+      rather than falling through to the `for`-shaped `STATEMENT_POSITIONS` (RT12J-TD11).
 - [ ] The Python compile of a jump-containing program returns exactly
       `{format, outcome:'failure', code:'KIR_PYTHON_LEG_DEFERRED'}` — three keys, no `artifact`, no
       `manifest` — in every linker-reachable jump position, while the JavaScript leg of the same
@@ -656,26 +735,55 @@ before they are promoted to fixtures.
 
 ## Open Questions
 
-- **[RT12J-O1 OPEN — technical, resolve when slice B's implementation lands]** Every PINNED-BY-B claim
-  (RT12J-C10, the `while` rows of RT12J-C15, the region markers of RT12J-C13, the frame/`LoopState`
-  shape RT12J-D1 pops) is a slice-B *spec* pin, not landed code. If slice B's implementation deviates —
-  most plausibly in how a condition loop re-enters its head on frame exhaustion — RT12J-D1's `continue`
-  formulation ("jump the loop frame to its end") must be re-derived against what landed. This caps
-  confidence below 0.90 and is the single largest residual risk.
-- **[RT12J-O2 OPEN — technical, must be measured on a built base]** The base RED table for this
-  slice's oracle is **not** measured in this document: the available `packages/core/dist` predates
-  rt9/rt10 (evidence caveat under RT12J-C4), so no link-level base label could be produced by running
-  code. The oracle slice must build slice B's tip and re-measure. The two labels this spec claims as
-  base behaviour (`statement kind break is outside RT-1`; `statement must be a leaf`) are sourced from
-  `link.ts:317,386` **and** from landed green assertions in rt10-for and rt11, which is why the claim
-  is VERIFIED despite the caveat.
+- **[RT12J-O1 RESOLVED — 2026-09-08, against `ca890efb`]** Every PINNED-BY-B claim was re-derived
+  against the landed slice-B implementation. The largest named risk — how a condition loop re-enters
+  its head on frame exhaustion — resolved **in this spec's favour**: the `while` re-test lives inside
+  the frame-exhaustion branch (`expression.ts:207-212`), so RT12J-D1's `continue` formulation ("jump
+  the loop frame to its end") works unchanged for both loop forms. RT12J-C10 landed byte-for-byte as
+  promised. Four claims moved: RT12J-C7 (`LoopState` is now a discriminated union), RT12J-C6 (the two
+  semantic walkers collapsed into one shared helper, so the edit is one line and the two REDs are one
+  cause), RT12J-D2 (`compileWhile` builds no body scope and needs one), and RT12J-D5 (the J-rows had
+  to be rewritten as twin differences). All four are in the Corrections Log.
+- **[RT12J-O2 RESOLVED — measured 2026-09-08 on `@kernlang/core` built at `ca890efb`]** The base RED
+  table, and the single-cause table the oracle design gate requires:
+
+  | Oracle module | RED | GREEN | The one cause every RED reports |
+  | --- | --- | --- | --- |
+  | `probe-matrix.test.mjs` | 0 | 7 | — (all GREEN: every fixture projects, so no link RED is a projection gap) |
+  | `compatibility.test.mjs` | 0 | 11 | — (all GREEN: kernels, emitter, policy, goldens, limits, census, the reserved label, and the F5-projects-a-bare-jump fence) |
+  | `walker-coverage.test.mjs` | 15 | 1 | `TypeError: Cannot read properties of undefined (reading 'kind')` (rows 1-9, from `statementSubExpressions`); `Error: return statements are emitted by the specialized handler` (rows 10-11, from `leafSource`); the mapping/union/switch absences (rows 12-13, 16); the link refusal (row 14) |
+  | `type-gate.test.mjs` | 21 | 6 | `entry.…: statement kind <break\|continue> is outside RT-1` — the `link.ts:387` kind fallthrough, in every one |
+  | `behavior.test.mjs` | 33 | 2 | `RT12J_LINK_REFUSED: javascript compile failed: handler-entry-unsupported` |
+  | `metering.test.mjs` | 16 | 1 | `linking does not succeed inside the scanned step range` — the same link refusal surfacing through `loopStepBudget`'s search |
+  | `tick-discipline.test.mjs` | 7 | 3 | `RT12J_LINK_REFUSED` (the three RT-1 checkpoint rows are GREEN and must stay GREEN) |
+  | `python-deferral.test.mjs` | 3 | 1 | the ledger's missing rows, then the link refusal |
+  | **total** | **95** | **32** | |
+
+  Measured base labels, by position: a jump **as a leaf** anywhere reports
+  `statement kind <kind> is outside RT-1` (`link.ts:387`) — at handler top level
+  (`children[1]`), inside an `if` (`children[1].then.children[0]`), inside an `else`
+  (`children[1].else.children[0]`), in a `for` body (`children[1].body.children[0]`), in a `while`
+  body, after a loop (`children[2]`), after the final return (`children[2]`), and inside a helper
+  (`helper.jb.handler.children[0]`). A jump **with children** reports `statement must be a leaf`
+  (`link.ts:318`) both inside a loop and at handler top level — so the leaf gate's precedence over the
+  depth gate is measured, not argued.
 - **[RT12J-O3 DECIDED — 2026-09-07]** Unreachable code after a jump is admitted and ignored
   (RT12J-D4). Recorded as a decision rather than an open question because the alternative would
   introduce the linker's first reachability rule, which `return` would immediately make inconsistent.
 - **[RT12J-O4 OPEN — routing, inherited]** Slice B's RT11W-O1 (RT-9's `admissionRow` asserting
-  `rt1 === javascript` **and** `javascript === python`, `scripts/kern-5-rt9-linked-assign/k0-golden.test.mjs:72-76`)
-  is unresolved. It fires on any per-leg divergence, and this slice adds two more diverging kinds. No
-  acceptance criterion here depends on the answer; it is named in Blast Radius either way.
+  `rt1 === javascript` **and** `javascript === python`) is unresolved. It fires on any per-leg
+  divergence, and this slice adds two more diverging kinds. Partially mitigated by re-derivation:
+  slice A's `pythonLegAdmissionColumn` (`scripts/kern-5-rt4-user-fn-call/k0-support.mjs:145-159`) is
+  ledger-aware and returns the JavaScript code once a kind is deferred, and it needs no change for
+  jumps (RT12J-TD12). No acceptance criterion here depends on the answer.
+- **[RT12J-O6 OPEN — technical, for the implementation slice]** The twenty-five frozen behaviour
+  values and the eleven metering identities were hand-derived against the RT-1 charge model
+  re-measured at RT12J-C15 (`Counter = 0`, `Bounds = 3`, head and exit `1` each, `C = 3`, one
+  `assign acc = acc + 1` `= 4`); the model reproduces all nine measured twin atoms exactly. They have
+  **not** been confirmed against a running jump implementation, because none exists. If a row fails at
+  GREEN time the first question is whether the fixture's hand-count or RT12J-D1's charge decision is
+  wrong — the assertion messages carry the statement counts precisely so that question is answerable
+  without re-deriving the model.
 - **[RT12J-O5 OPEN — advisory]** RT12J-C17's preference between advance-then-`continue` and
   head-advance restructuring for the Python `for` form is a *catch-up* decision. It is recorded with a
   recommendation and a rejected option so the catch-up slice inherits the reasoning; nothing in this
@@ -732,3 +840,32 @@ No version skew window: every consumer is in this repository and ships in the sa
 | `trailingComment` must be allowed through the link-time property gate | RT-9's `assign … # note` fixture is pinned `"admitted"` while `assign`'s gate is `propertySet(properties,['target','value'],['op'],label)` — a `trailingComment` key would have failed it, so the property never reaches the linker | The gate stays `propertySet(properties, [], ['trailingComment'], label)` as pure defence in depth, and `break # done` becomes a positive link row that settles it either way |
 | The union could carry one `{kind:'jump'; target:'break'\|'continue'}` member | The parity ledger keys rows on a linked-union kind that must also be a catalog kind (`validateLedger`), the Python lowering tables are `Record<LinkedKernKirStatement['kind'],…>`, and the rt2/rt9 goldens scrape `readonly kind: '…'` literals | Two zero-field members named for the catalog kinds (RT12J-C14) |
 | A new `linked-kir-program/walkers.ts` could absorb the walker arms and keep `contracts.ts` under 500 lines | That file was created and **withdrawn** (`e105f1da`), and the 354-file compiled inventory pin forbids a new file under `packages/core/src` | The splits stay queued; this slice adds only leaf arms, the cheapest arm shape available, and says so explicitly rather than silently growing an over-long file |
+
+### Re-derivation against the landed slice B (`ca890efb`), 2026-09-08
+
+Every row here is a claim this document made against slice B's *spec* and that the oracle slice
+re-measured against slice B's *code*. RT12J-O1 named this as the largest residual risk; these twelve
+rows are the answer.
+
+| ID | Original Claim | Reality at `ca890efb` | Impact |
+| --- | --- | --- | --- |
+| **RT12J-TD1** | `LoopState` is one record with `counter`/`step`/`to`/`current`, and `loopContinues(loop)` takes it | Slice B split it into a discriminated union `ForLoopState \| WhileLoopState` (`expression.ts:159-172`); `WhileLoopState` carries only `condition`/`kind`, and `loopContinues` narrowed to `ForLoopState` (`:180-182`) | RT12J-D1 gains an explicit constraint: the `break` pop and the `continue` scan must test `frame.loop !== undefined` and must never read a loop field before narrowing on `loop.kind`. Neither arm needs one, so the decision itself is unchanged |
+| **RT12J-TD2** | The frame-exhaustion branch is `expression.ts:182-197`, and a condition loop's re-entry is unspecified | It is `:199-222`, and the `while` re-test is **inside** it (`:207-212`): the branch evaluates `loop.condition` on exhaustion, exactly as it advances a `for` counter | The single largest RT12J-O1 risk resolves in this spec's favour. `continue` as "jump the loop frame to its end" re-tests the condition for free, with no duplicated head logic, on both loop forms |
+| **RT12J-TD3** | `enterTrip` is `:184-188`; the statement `meter.step()` is unconditional at `:207`; `checkAbort` at `:186` and `:208` | `enterTrip` is `:192-196` with its counter bind guarded `if (loop.kind === 'for')`; the statement charge is conditional — `if (statement.kind !== 'return' \|\| policy.meterReturn) meter.step();` (`:225`) — and `checkAbort` is at `:194` and `:226`. Both rt10-pre window marker strings survived verbatim | Nothing for a jump: a jump is never a `return`, so it is always charged. The `LoopState` type name survived, so the loop-head window still resolves; this slice re-asserts all three checkpoint rows GREEN |
+| **RT12J-TD4** | "`compileFor` and slice B's `compileWhile` pass `loopDepth: scope.loopDepth + 1` into the body scope they already build with `branchScope`" | `compileFor` does build one (`link.ts:477`). **`compileWhile` does not** — it hands the caller's `scope` straight to `compileBranch(node, scope, …)` (`:508`), and `compileBranch` (`:390-400`) is what calls `branchScope` (`:399`) — the same `compileBranch` `compileIf` uses and which must not increment | The implementation plan gains a real step: `compileWhile` needs its own `branchScope(scope)` copy, mirroring `compileFor`. A `compileBranch` depth parameter would have to thread `0` through both `compileIf` call sites and is strictly larger |
+| **RT12J-TD5** | Seven dispatchers; `statementsInvokeCapability` and `statementsCallDepth` each branch on kind and each need a leaf arm, giving two independent RED causes | Slice B extracted `statementSubBlocks` (`contracts.ts:282-288`) and `statementSubExpressions` (`:290-296`); both walkers now go through them and branch on kind nowhere. `statementSubBlocks`'s `return []` fallthrough is already correct; `statementSubExpressions`'s `return [statement.value]` is the single source of both TypeErrors (measured identical) | The `contracts.ts` walker edit is **one line, not two arms**, and the two walker REDs are one mechanism reached through two entry points. The oracle says so rather than claiming two independent causes |
+| **RT12J-TD6** | `containsReturn` has three arms (`return`/`for`/`if`) | Four: slice B added `while` (`link.ts:152-163`) | Conclusion unchanged — a jump owns no block, so still no arm. The oracle now pins the **four**-arm shape, so an added dead arm is caught |
+| **RT12J-TD7** | `contracts.ts` is 536 lines and `link.ts` 695 | 532 and 723: the walker extraction shrank `contracts.ts`, the `while` compiler grew `link.ts` | Both still past the 500-line rule; the splits stay queued behind the 354-file inventory pin |
+| **RT12J-TD8** | The RT-1 charge table's `Counter` term (counter materialisation) is an unmeasured cost | Measured `0`: `integerValue(current, meter)` (`expression.ts:195`) charges no step. `Bounds = 3`, head `= 1`, exit `= 1`, one `i < <literal>` `= 3`, one `assign acc = acc + 1` `= 4`, and the model reproduces all nine twin atoms exactly | RT12J-C15 became a measured table, and the nine atoms are frozen GREEN in `metering.test.mjs` so no identity can be read against a program it was not derived on |
+| **RT12J-TD9** | The J-rows can compare a jump fixture against "one metered leaf" — e.g. `ticks(for 0..1 { break }) == ticks(for 0..1 { <one metered leaf> })` | **No RT-1 statement costs one step.** Every leaf carries a value expression and `evaluateExpression` charges at least one on top of the statement boundary; the cheapest measured body statement is four. All five such rows were arithmetically wrong and would have gone RED against a correct implementation — RT11W-TD1's defect class, caught before it became a fixture | Every J-row was rewritten as a **difference against a hand-counted twin** that carries the jump fixture's body minus exactly the jump statements, with the statement counts written into the assertion message. J5 split into a `continue` half and a `break` half whose identity is `C - 1`; J9 became "no checkpoint is removed"; J10 was added for divergence |
+| **RT12J-TD10** | Slice A's ledger tests need at most a row-count edit | Three of them assert the ledger's exact contents, not its size: `ledger-aware-gates.test.mjs:61-79` deepEquals the single `while` row and `[...kinds.statement]` against `['while']` (`:76`); `exhaustiveness.test.mjs:70-77` deepEquals the deferred set against `['while']`. `ledger-schema.test.mjs` needs **no** edit — its row counts are over synthetic documents | Three named licensed edits in Blast Radius instead of one speculative one, and one file moved to "no edit" with the reason |
+| **RT12J-TD11** | Slice B's ledger widening shows how a new row registers, so `break`/`continue` rows slot in without further slice-A edits | They do **not**. Slice B's `WHILE_ROW_POSITIONS` mirror is selected by `row.nodeKind === 'while' ? … : STATEMENT_POSITIONS` in two dispatchers (`parent-positions.test.mjs:69-75`, `refusal-golden.test.mjs:77-84`). A jump row falls through to the `for`-shaped `STATEMENT_POSITIONS`, which carry no jump node, so the Python compile **succeeds** and `assertNoPythonArtifact` fails | A required licensed slice-A edit, now named: two jump-shaped mirrors, or one `Record<nodeKind, positions>` replacing both ternaries. Discovering this at implementation time would have looked like a jump defect |
+| **RT12J-TD12** | Unstated: slice A's `pythonDeferral` walk might need a jump arm | It does not. `linkedProgramKinds` (`scripts/kern-5-parity-ledger/support.mjs:34-44`) adds `statement.kind` unconditionally and probes only `[value, input, condition, from, to, step]` and `[body, thenBranch, elseBranch]`, all `undefined` on a zero-field jump | `support.mjs` and `pythonLegAdmissionColumn` are "no edit" rows with evidence, and the type-gate rows that route through them are GREEN once the linker admits |
+
+### Measured directly, superseding argued evidence
+
+| ID | Original Claim | Reality (measured 2026-09-08) | Impact |
+| --- | --- | --- | --- |
+| **RT12J-TD13** | `trailingComment` never reaches the linker, argued from RT-9's `assign … # note` fixture being pinned `"admitted"` against a `propertySet` that would have rejected the key | F5 **drops the comment entirely**: `break # done` inside a `for` body projects with `properties: {}`, byte-identical to a bare `break`. The projected shapes are equal node-for-node | RT12J-D2's property gate is unreachable by construction, not merely fenced. `probe-matrix.test.mjs` asserts the two projected shapes are `deepEqual`, which settles it without an inference chain |
+| **RT12J-TD14** | `break name=x` inside a `for` body → `projectKernModules` returns `status: 'rejected'`, `['projection-rejected']` | `status: 'rejected'` with `diagnostics: []` — the status is right, the diagnostic code list is empty | The two F5 fences assert `status === 'rejected'` only, and the probe matrix freezes the empty diagnostic list rather than a code that does not appear |
+| **RT12J-TD15** | Unstated: the JavaScript emit-time `Error` is observable through the public compile entry | `compileJavaScript` catches every emit throw and returns the generic code `artifact-emission-failure` (`compiler/kir-js-esm/index.ts:70-73`), which masks the cause | `walker-coverage.test.mjs` drives `emitJavaScriptEsm` directly with a hand-built linked program, so the RED reports `Error: return statements are emitted by the specialized handler` and names its own cause |
