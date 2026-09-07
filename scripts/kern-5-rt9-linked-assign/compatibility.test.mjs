@@ -7,8 +7,8 @@ const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
 // The seals RT-9 re-pinned in the rt4/rt5/rt6 compatibility guards.
-const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
-const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
+const RT2_GOLDEN_SHA256 = '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939';
+const RT3_GOLDEN_SHA256 = '969dd11bdeaf11169559b1c790f6350ed3e29cf21983797acf3167c1bed8d512';
 
 // The pre-images those seals replaced, preserved here rather than in the frozen guards they left:
 // spec Corrections Log, resolution (A) plus its rider.
@@ -34,8 +34,10 @@ test('undoing the two RT-9 edits reproduces the pre-RT-9 RT-2 K0 golden byte for
   const { for: _forAdmission, ...admissionBeforeFor } = golden.admission;
   const preRt9 = {
     ...golden,
-    admission: { ...admissionBeforeFor, assign: 'projection-rejected' },
-    linkedStatementKinds: golden.linkedStatementKinds.filter((kind) => kind !== 'assign' && kind !== 'for'),
+    admission: { ...admissionBeforeFor, assign: 'projection-rejected', while: 'projection-rejected' },
+    linkedStatementKinds: golden.linkedStatementKinds.filter(
+      (kind) => kind !== 'assign' && kind !== 'for' && kind !== 'while',
+    ),
   };
   assert.equal(
     sha256(`${JSON.stringify(preRt9, null, 2)}\n`),

@@ -9,7 +9,7 @@
     "let": "admitted",
     "print": "admitted",
     "return": "admitted",
-    "while": "projection-rejected"
+    "while": "admitted"
   },
   "linkedStatementKinds": [
     "assign",
@@ -18,7 +18,8 @@
     "if",
     "let",
     "print",
-    "return"
+    "return",
+    "while"
   ],
   "structuralSchema": {
     "else": {

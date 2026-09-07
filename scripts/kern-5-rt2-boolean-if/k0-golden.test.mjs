@@ -24,7 +24,7 @@ const PROBE_BODIES = Object.freeze({
   let: ['let name=held value="\"a\""'],
   print: ['print value="\"a\""'],
   return: [],
-  while: ['while cond="flag"', '  print value="\"w\""'],
+  while: ['while cond="false"', '  if cond="flag"', '    print value="\"w\""'],
 });
 
 const STATEMENT_PROBES = Object.freeze([

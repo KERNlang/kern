@@ -22,9 +22,9 @@ const F5_POLICY_URL = new URL('../kern-frontend-f5-projection/policy.json', impo
 // RT-3 the expression union. A cross-call type is neither. RT-9's golden later moved anyway, as
 // a correction unrelated to this slice: its stale `control-for` admission row was re-pinned to
 // admitted once a later slice made the linker admit `for`.
-const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
-const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
-const RT9_GOLDEN_SHA256 = 'c8a7253c86d6c04c73370129dfa99f0cf2e510eaad3e64410076c93785ddedb4';
+const RT2_GOLDEN_SHA256 = '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939';
+const RT3_GOLDEN_SHA256 = '969dd11bdeaf11169559b1c790f6350ed3e29cf21983797acf3167c1bed8d512';
+const RT9_GOLDEN_SHA256 = '1a28f75c914a5631dfb3b00a45ac352b5dde28ae864cd98aa85d8e580e5e491b';
 
 const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877bad90dbd942';
 

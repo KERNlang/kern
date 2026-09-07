@@ -25,12 +25,7 @@ const REFUSALS = Object.freeze([
   ['neg-continue-in-body', 'statement kind continue is outside RT-1'],
 ]);
 
-// `while` and `each` are refused by `assertLeaf` before any kind branch runs, and this slice must
-// not change that: they stay outside RT-1 with the same message they carry at base.
-const LEAF_REFUSALS = Object.freeze([
-  ['neg-while', 'statement must be a leaf'],
-  ['neg-each', 'statement must be a leaf'],
-]);
+const LEAF_REFUSALS = Object.freeze([['neg-each', 'statement must be a leaf']]);
 
 const ADMITTED = Object.freeze([
   ...TABLE_ROWS.map((row) => row.name),
