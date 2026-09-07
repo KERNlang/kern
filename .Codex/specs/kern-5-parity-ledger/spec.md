@@ -371,12 +371,12 @@ Each criterion is a test in `scripts/kern-5-parity-ledger/`. None rests on an AS
 - [x] The ledger exists at `scripts/kern-5-parity-ledger/parity-ledger.json`, declares the pinned
       format and label, is sorted and unique, and ships with **zero rows**.
 - [x] The ledger's digest is pinned independently and folded into no other digest.
-- [x] The row schema rejects all nineteen drifts the catch-up procedure could introduce — unknown or
-      missing keys, a foreign format or label, a row label disagreeing with the ledger, an unknown
-      surface, an uppercase or truncated blame digest, a free-text `since`, a non-kind `nodeKind`, a
-      duplicate or unsorted `nodeKind`, a `blockedBy` that dangles, self-references, or is not an
-      array, a free-text or out-of-tree `spec`, a `spec` naming a slice with no spec on disk, and a
-      resurrected `jsLoweringBlameDigest`.
+- [x] The row schema rejects all twenty drifts the catch-up procedure could introduce — an unknown or
+      missing ledger key, a foreign format or label, `rows` that is not an array, an unknown or
+      missing row key, a row label disagreeing with the ledger, an unknown surface, a free-text
+      `since`, a free-text or out-of-tree `spec`, a `spec` naming a slice with no spec on disk, a
+      non-kind `nodeKind`, a duplicate `nodeKind`, unsorted rows, a `blockedBy` that dangles,
+      self-references or is not an array, and a resurrected `jsLoweringBlameDigest`.
 - [x] The ledger lives outside `packages/core/**` and the compiled inventory stays at 354 files.
 - [x] **The cross-leg gates are ledger-aware.** With the checked-in empty ledger the predicate fires
       for none of the 18 position fixtures and every affected suite stays green with a
