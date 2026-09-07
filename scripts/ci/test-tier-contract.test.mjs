@@ -67,6 +67,7 @@ const kern5EvidenceCommands = [
   'pnpm test:kern-5-rt10-for',
   'pnpm test:kern-5-parity-ledger',
   'pnpm test:kern-5-rt11-linked-while',
+  'pnpm test:kern-5-rt12-linked-jumps',
 ];
 
 const shardedFrontendJobs = new Map([
