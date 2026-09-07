@@ -9,9 +9,16 @@ import {
   type KernKirPythonCompileFailureCode,
   type KernKirPythonCompileRequest,
   type KernKirPythonCompileResult,
+  KIR_PYTHON_LEG_DEFERRED_CODE,
 } from './contracts.js';
 import { emitPython, TARGET_KERNEL_SHA256, type TargetManifestBase } from './emitter.js';
-import { inspectCompilerRequest, invalidCompilerRequest } from './request.js';
+import {
+  inspectCompilerRequest,
+  invalidCompilerRequest,
+  KIR_PYTHON_LOWERING,
+  type KirPythonLowering,
+  pythonLoweringDeferral,
+} from './request.js';
 
 const encoder = new TextEncoder();
 const LINK_CODES: readonly KernKirLinkCode[] = [
@@ -29,6 +36,14 @@ function failure(code: KernKirPythonCompileFailureCode): KernKirPythonCompileRes
 export function compileKernKirToPython(
   projection: VerifiedKernProjection,
   input: KernKirPythonCompileRequest,
+): KernKirPythonCompileResult {
+  return compileKernKirToPythonWithLowering(projection, input);
+}
+
+export function compileKernKirToPythonWithLowering(
+  projection: VerifiedKernProjection,
+  input: KernKirPythonCompileRequest,
+  lowering: KirPythonLowering = KIR_PYTHON_LOWERING,
 ): KernKirPythonCompileResult {
   let inspected: ReturnType<typeof inspectCompilerRequest>;
   try {
@@ -50,6 +65,8 @@ export function compileKernKirToPython(
     }
     throw error;
   }
+
+  if (pythonLoweringDeferral(linked, lowering) !== undefined) return failure(KIR_PYTHON_LEG_DEFERRED_CODE);
 
   const manifestBase: TargetManifestBase = Object.freeze({
     artifactFormat: KERN_KIR_PYTHON_ARTIFACT_FORMAT,

@@ -1,5 +1,10 @@
 import { KernKirFault, type KernKirLimits } from '../../kir-runtime/contracts.js';
 import { RuntimeMeter } from '../../kir-runtime/inspect.js';
+import type {
+  LinkedKernKirExpression,
+  LinkedKernKirProgram,
+  LinkedKernKirStatement,
+} from '../../kir-runtime/linked-kir-program/index.js';
 import { KERN_KIR_PYTHON_COMPILER_FORMAT, type KernKirPythonCompileRequest } from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
@@ -14,6 +19,124 @@ const LIMIT_KEYS = [
 ] as const;
 
 type UnknownRecord = Record<string, unknown>;
+
+export type KirPythonLoweringState = 'lowered' | 'deferred';
+
+export const KIR_PYTHON_STATEMENT_LOWERING = Object.freeze({
+  assign: 'lowered',
+  capability: 'lowered',
+  for: 'lowered',
+  if: 'lowered',
+  let: 'lowered',
+  print: 'lowered',
+  return: 'lowered',
+}) satisfies Record<LinkedKernKirStatement['kind'], KirPythonLoweringState>;
+
+export const KIR_PYTHON_EXPRESSION_LOWERING = Object.freeze({
+  binary: 'lowered',
+  identifier: 'lowered',
+  'json-call': 'lowered',
+  list: 'lowered',
+  literal: 'lowered',
+  member: 'lowered',
+  record: 'lowered',
+  unary: 'lowered',
+  'user-call': 'lowered',
+}) satisfies Record<LinkedKernKirExpression['kind'], KirPythonLoweringState>;
+
+export const KIR_PYTHON_LOWERING = Object.freeze({
+  expression: KIR_PYTHON_EXPRESSION_LOWERING,
+  statement: KIR_PYTHON_STATEMENT_LOWERING,
+});
+
+export type KirPythonLowering = {
+  readonly expression: Record<LinkedKernKirExpression['kind'], KirPythonLoweringState>;
+  readonly statement: Record<LinkedKernKirStatement['kind'], KirPythonLoweringState>;
+};
+
+function expressionDeferral(
+  expression: LinkedKernKirExpression,
+  lowering: KirPythonLowering,
+): LinkedKernKirExpression['kind'] | undefined {
+  if (lowering.expression[expression.kind] === 'deferred') return expression.kind;
+  switch (expression.kind) {
+    case 'binary':
+      return expressionDeferral(expression.left, lowering) ?? expressionDeferral(expression.right, lowering);
+    case 'unary':
+    case 'json-call':
+      return expressionDeferral(expression.argument, lowering);
+    case 'list':
+      for (const item of expression.items) {
+        const deferred = expressionDeferral(item, lowering);
+        if (deferred !== undefined) return deferred;
+      }
+      return undefined;
+    case 'record':
+      for (const entry of expression.entries) {
+        const deferred = expressionDeferral(entry.value, lowering);
+        if (deferred !== undefined) return deferred;
+      }
+      return undefined;
+    case 'member':
+      return expressionDeferral(expression.object, lowering);
+    case 'user-call':
+      for (const argument of expression.arguments) {
+        const deferred = expressionDeferral(argument, lowering);
+        if (deferred !== undefined) return deferred;
+      }
+      return undefined;
+    case 'identifier':
+    case 'literal':
+      return undefined;
+  }
+}
+
+function statementsDeferral(
+  statements: readonly LinkedKernKirStatement[],
+  lowering: KirPythonLowering,
+): LinkedKernKirStatement['kind'] | LinkedKernKirExpression['kind'] | undefined {
+  for (const statement of statements) {
+    if (lowering.statement[statement.kind] === 'deferred') return statement.kind;
+    if (statement.kind === 'if') {
+      const deferred =
+        expressionDeferral(statement.condition, lowering) ??
+        statementsDeferral(statement.thenBranch, lowering) ??
+        statementsDeferral(statement.elseBranch ?? [], lowering);
+      if (deferred !== undefined) return deferred;
+      continue;
+    }
+    if (statement.kind === 'for') {
+      const deferred =
+        expressionDeferral(statement.from, lowering) ??
+        expressionDeferral(statement.to, lowering) ??
+        expressionDeferral(statement.step, lowering) ??
+        statementsDeferral(statement.body, lowering);
+      if (deferred !== undefined) return deferred;
+      continue;
+    }
+    const deferred =
+      statement.kind === 'capability'
+        ? statement.input === undefined
+          ? undefined
+          : expressionDeferral(statement.input, lowering)
+        : expressionDeferral(statement.value, lowering);
+    if (deferred !== undefined) return deferred;
+  }
+  return undefined;
+}
+
+export function pythonLoweringDeferral(
+  linked: LinkedKernKirProgram,
+  lowering: KirPythonLowering = KIR_PYTHON_LOWERING,
+): LinkedKernKirStatement['kind'] | LinkedKernKirExpression['kind'] | undefined {
+  const entryDeferral = statementsDeferral(linked.program.statements, lowering);
+  if (entryDeferral !== undefined) return entryDeferral;
+  for (const helper of linked.helpers ?? []) {
+    const deferred = statementsDeferral(helper.handler.statements, lowering);
+    if (deferred !== undefined) return deferred;
+  }
+  return undefined;
+}
 
 function plain(value: unknown): UnknownRecord {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('expected plain data');
