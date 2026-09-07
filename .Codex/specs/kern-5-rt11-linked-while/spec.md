@@ -2,7 +2,7 @@
 
 **Status:** SPEC — ORACLE LANDED RED
 **Date:** 2026-09-07
-**Confidence:** 0.86
+**Confidence:** 0.89
 
 Stacked on slice A (`feat/kern-5-parity-ledger` @ `b273b20c`: spec
 `.Codex/specs/kern-5-parity-ledger/spec.md`, oracle `scripts/kern-5-parity-ledger/`, empty ledger
@@ -315,22 +315,74 @@ rule and nothing else. That is an observable difference from `for` and the oracl
 | iteration budget | `maxSteps` only; no per-loop iteration cap exists | VERIFIED (RT11W-C6) |
 | non-boolean at run time | RT-1 `KernKirFault('unsupported-runtime-input','execution')`; JS `__Fault('unsupported-runtime-input','execution')` — **defence in depth, unreachable through the public entry today** (RT11W-O2) | VERIFIED |
 
+**[RT11W-C22 DECIDED — item 5]** The boolean gate is asserted by the **same mechanism RT-2 uses for
+`if`, and no further**: `scripts/kern-5-rt2-boolean-if/branch-behavior.test.mjs:150-174` asserts that
+every leg fails closed under the one closed link code and that the run commits no event, and makes
+no claim about emitted text. This slice's `behavior.test.mjs` carries that row verbatim in shape, and
+`type-gate.test.mjs` adds the label discrimination through the landed `assertLinkLabel` helper — a
+link-diagnostic assertion, which is the established precedent in rt6, rt9, rt10-pre, rt10-for and
+rt10-X. The regex on the emitted tag-check text that this spec's first revision carried has been
+**removed**: it was a stricter claim than the precedent it cited, and it was brittle against any
+emitter formatting change. The emitted-shape rows that remain — a host `while`, a native `break`, no
+`__Break`/`__Continue`, the inline-body census, no new kernel line — are rt10-for's own precedent
+(`scripts/kern-5-rt10-for/tick-discipline.test.mjs`, the two `*_SHAPE` tests).
+
 ### Metering and tick discipline — the reconciliation
 
 **[RT11W-D1 DECIDED]** **`while` reuses the RT-1 loop-head checkpoint site. RT-1 keeps exactly two
 `checkAbort()` calls. The rt10-pre pin does not move.**
 
-Charge model, identical to `for`'s pinned `1_init + Σ(1_head + body) + 1_exit`:
+### The per-path charge table — RT-1 against JavaScript, from source
 
-| Event | Charge | Site |
-| --- | --- | --- |
-| the `while` statement is reached | 1 `meter.step()` | the statement-boundary site (`expression.ts:207`), which also charges the one statement-boundary `checkAbort()` |
-| a trip is entered (condition was `true`) | 1 `meter.step()` + 1 `checkAbort()` | the loop-head site, inside `enterTrip` (`expression.ts:184-188`) |
-| the condition is evaluated | whatever the expression costs; **no** loop-specific charge | `evaluateExpression` |
-| the loop is left (condition was `false`) | 1 `meter.step()`, **no** `checkAbort()` | the frame-exhaustion exit (`expression.ts:198`) / the first-entry else (`:248`) |
+**[RT11W-C18 VERIFIED — resolved from source, not derivation]** Every metered slot, on both legs,
+for `for` today and for `while` as pinned. The two legs charge **identically on every path**:
 
-So for `n` trips and per-trip body cost `B`: `2 + n·(1 + B)`, with `HEAD_CHARGE = 1` — the same
-constant `scripts/kern-5-rt10-for/metering.test.mjs:11` uses.
+| Slot | RT-1 `for` | JS `for` | RT-1 `while` (pinned) | JS `while` (pinned) |
+| --- | --- | --- | --- | --- |
+| init | `meter.step()`, `expression.ts:207` (statement boundary) | `__meter.step()`, `emitter.ts:259` | same site | same site |
+| bounds / condition | `evaluateExpression(from/to/step)`, `expression.ts:240-242` — **once** | `(__meter.step(),…)` per node, `emitter.ts:138`, hoisted above the head at `:260-262` — **once** | `evaluateExpression(condition)` — **once per attempt**, `n+1` times | same, at the top of `while(true)` — **once per attempt**, `n+1` times |
+| head, per successful trip | `enterTrip` → `meter.step()` + `runtime.checkAbort()`, `expression.ts:185-186` | `__meter.step(); __checkAbort();`, `emitter.ts:265` | same site, reused | same placement |
+| counter materialisation | `integerValue(current, meter)`, `expression.ts:187` | `__intValue(cursor,__meter)`, `emitter.ts:266` | **absent** — a `while` binds no counter | **absent** |
+| exit / failed final probe | `meter.step()` — the never-entered `else` at `expression.ts:249` **or** the frame-exhaustion probe at `:198`, exactly one of the two | `__meter.step()`, `emitter.ts:268`, reached by falling out of the host `for` | same two sites | same site, reached by falling out of `while(true)` through the native `break` |
+| checkAbort on the failed probe | **none** | **none** | **none** | **none** |
+
+**No pre-existing rt10-for discrepancy exists.** The premise that the JavaScript leg charges nothing
+on the failed final probe is false: the trailing `__meter.step()` at `emitter.ts:268` is precisely
+the counterpart of RT-1's `expression.ts:198`/`:249`, and `break` in the pinned `while` lowering
+falls straight into it. Both legs charge `1_init + Bounds + n·(1_head + Counter + B) + 1_exit` for
+`for`, which is why rt10-for's three-leg byte-identity rows pass at base with no per-leg correction.
+
+### The corrected charge formula
+
+**[RT11W-C19 VERIFIED — corrects an error in this spec's first revision]** The formula this spec
+first carried, `2 + n·(1 + B)`, is **wrong for `while`**. It is `for`'s formula, and it holds for
+`for` only because bounds are read once and therefore fold into the constant. A `while` re-evaluates
+its condition on **every attempt** — `n` true probes and one false one — so:
+
+```
+ticks(n) = A + n · P     with   P = 1_head + B + C   and   A = 1_init + 1_exit + C
+```
+
+`B` is the body cost, `C` the condition's per-evaluation cost. Checked on all three paths:
+
+| Path | Charge |
+| --- | --- |
+| never entered (`n = 0`) | `2 + C` — one false probe, one init, one exit |
+| one shot (`n = 1`) | `2 + 2C + 1 + B` |
+| `n` trips | `2 + (n+1)·C + n·(1 + B)` |
+
+`2 + n·(1 + B)` cannot satisfy all three, which is exactly why the first revision's metering rows
+would have gone RED against a correct implementation. `HEAD_CHARGE = 1` and `1_init + 1_exit = 2`
+survive unchanged; the `(n+1)·C` term is what was missing. The one real metering difference between
+the two loop forms is this term, and it is a **property of the construct, not of a leg**.
+
+### Cancellation latency
+
+**[RT11W-C20 DECIDED]** Cancellation latency inside a `while` is bounded by one metered condition
+evaluation plus the statement-boundary `checkAbort()` that follows the loop — identical to `for`'s
+bound and pinned by the same two rt10-pre sites. The failed final probe carries no `checkAbort()` on
+either leg and does not need one: an abort raised during the last condition evaluation is observed
+at the next head, and an abort raised after the loop is observed at the statement boundary.
 
 **Why this is the reconciling choice, not a second rule.** Two rules were on the table: charge on
 each head *attempt* (n+1 checkpoints for n trips) or charge on each *successful trip* (n
@@ -363,20 +415,49 @@ Both are envelope `outcome: 'failure'`, `diagnostics[0].code === 'runtime-limit-
 ### The `for`/`while` equivalence pair (tribunal deliverable 3b)
 
 **[RT11W-C14 VERIFIED — and the naive form is impossible]** A literal "equal tick counts" pair
-cannot exist for `n > 0` trips: a `while` must spell out the counter (`let name=i value="0"` plus
-`assign target="i" value="i + 1"` in the body) that `for` provides for free, and those statements
-are metered. Asserting equality anyway would only be satisfiable by mis-metering one of the two
-forms. The honest, strictly stronger claim is that the **loop machinery** charge is identical and
-every difference is the measured cost of the extra statements. Four rows, all differences measured
-from straight-line twins in the same run:
+cannot exist. A `while` must spell out the counter (`let name=i value="0"` plus
+`assign target="i" value="i + 1"`), and it re-reads its condition `n+1` times where a `for` reads
+three bounds once (RT11W-C18). Asserting equality anyway would be satisfiable only by mis-metering
+one of the two forms. What *is* equal, and what the rows below assert, is the machinery: the same
+head charge, the same init/exit pair, the same checkpoint placement, and the same charge on both
+legs. Six measured rows, every atom twin-measured in the same run:
 
 | Row | Identity | What it falsifies |
 | --- | --- | --- |
-| E1 output | `for`-sum(0,3) and `while`-sum(0,3) return the same integer, byte-identically, on RT-1 and JS | a `while` that is off by one trip |
-| E2 head charge | `ticks(while, n+2) − ticks(while, n) = 2·(1 + B_while)` with `HEAD_CHARGE = 1` | a head charged 0 or 2, or a body charged twice per trip |
-| E3 init/exit | `ticks(while, 1) − ticks(while, 0) = 1 + B_while` | an init or exit term that scales with the trip count |
-| E4 cross-form | `ticks(while, n) − ticks(for, n) = letCost + n·incrementCost`, both twin-measured | a `while` whose machinery costs more or less than `for`'s |
-| E5 zero trips | `ticks(while, 0) − ticks(for, 0) = condCost − boundsCost`, both twin-measured | an init/exit charge that differs between the two forms |
+| M1 affine | `ticks(3) − ticks(1) = 2·(ticks(1) − ticks(0))` — no twin, no `C`, no `A` | a body charged twice, an init or exit that scales, a condition evaluated other than `n+1` times |
+| M2 two paths to `C` | `P − 1 − B` equals `A − 2`, both measured | the head charge is not 1, or the two exit paths (`:249` never-entered, `:198` final probe) charge differently |
+| M3 body rate | `P(fat) − P(thin) = ` the extra statement's twin cost | a loop that surcharges or discounts a body statement |
+| M4 condition is per-attempt | a costlier condition costs `(n+1)·ΔC`, and `1·ΔC` when never entered | a hoisted condition — the mirror of rt10-for's bounds-read-once row, and the row that distinguishes the two forms |
+| M5 never-entered body-independence | two never-entered loops with one condition and different bodies cost the same | a lowering that ran the body once before its first test |
+| M6 leg identity | the emitted artifact's own step threshold equals RT-1's execution count exactly, pinned from both sides, for never-entered / one-shot / three-trip / wide-body; and an unbounded loop fails byte-identically at three budgets | any single slot charged differently on one leg — a budget one step under the threshold exhausts inside whichever slot the count lands in |
+| E1 outputs | a `for` and a `while` over the same trip count return the same integer, byte-identically, on both legs | a loop off by one trip |
+
+### Constraints that keep `break`/`continue` a kind and not a channel
+
+**[RT11W-C21 DECIDED — item 4]** The `while` arms must not bake in "a loop exits only by its
+condition or by a `return`". Three constraints, each with an oracle row or a named shape:
+
+1. **Walker arms are generic sub-block recursion, never kind-specific completion logic.** The
+   recommended extraction — `statementSubBlocks(statement)` returning the statement's child blocks
+   and `statementSubExpressions(statement)` returning its owned expressions — is what both
+   `statementsInvokeCapability` and `statementsCallDepth` traverse. `while` becomes one entry in a
+   table, and so does `break`/`continue` later: a new *kind*, not a new *channel*. A walker that
+   reasoned about "does this block complete" would have to be rewritten when abrupt exit arrives.
+   The oracle asserts walker **behaviour** only, so either shape passes today; this constraint is
+   what makes the later slice cheap, and it is why the fallback minimal-arms option is second choice.
+2. **The JavaScript body stays inline inside the native `while(true){}`** — no function wrapper, no
+   per-trip closure, no IIFE. A native `break`/`continue` cannot cross a function boundary, so a
+   wrapped body would force the signal-object lowering the tribunal rejected. Oracle row: the
+   emitted statement region's `function` and `=>` census equals the same body's census under `for`,
+   and the region from the loop head onwards contains neither token.
+3. **RT-1's frame stack must let a later `break` pop exactly one loop frame.** The frame shape is
+   `WalkFrame { readonly loop: LoopState | undefined; readonly statements: readonly
+   LinkedKernKirStatement[]; index: number }` (`expression.ts:165-169`), held in a `frames` array;
+   a loop body is pushed as a frame **with** `loop` set (`expression.ts:247`) and an `if` branch as a
+   frame with `loop: undefined` (`:238`). So `break` is "pop frames until and including the nearest
+   frame whose `loop !== undefined`", and `continue` is "pop to that frame and re-enter its head".
+   `while` must therefore push its body as a frame carrying its own loop state — not run the body on
+   the enclosing frame — or the later slice has no frame to pop.
 
 ### Emitted JavaScript shape
 
@@ -416,7 +497,7 @@ declares (the oracle asserts agreement rather than hardcoding it), carrying thes
 | --- | --- | --- |
 | `nodeKind` | `'while'` | the stable ID; never a source path |
 | `surface` | `'statement'` | if slice A keeps the column |
-| `blockedBy` | `[]` | the first row; nothing precedes it |
+| `blockedBy` | `[]` | the catch-up **ordering** dependency: which other deferred node kinds must gain their Python lowering before this one can. It is not an "unblocked for automation" flag and it gates nothing at compile time. `while` is the first row, so nothing precedes it and `[]` is correct |
 | `label` | `'KIR_PYTHON_LEG_DEFERRED'` | `= ledger.label`, the redundancy that is the drift gate |
 | `since` | `'kern-5-rt11-linked-while'` | matches slice A's `/^kern-5-[a-z0-9]+(-[a-z0-9]+)*$/` |
 | `spec` | `.Codex/specs/kern-5-rt11-linked-while/spec.md` | provenance, per the coordinator's scope change; replaces the dropped `jsLoweringBlameDigest` |
@@ -487,6 +568,7 @@ The oracle asserts walker **behaviour**, never walker shape, so either option pa
 | --- | --- | --- |
 | `.Codex/specs/kern-5-rt11-linked-while/spec.md` | add | this document |
 | `scripts/kern-5-rt11-linked-while/**` | add | 8 test files, 2 JSON fixtures, 1 harness module, 1 fixture-catalogue module (the catalogue is split out so neither hand-written module passes 500 lines) |
+| `.Codex/specs/kern-5-parity-ledger/spec.md` | **no edit** | slice A's spec is slice A's; RT11W-O1's routing answer belongs there or in the implementation, not here |
 | `package.json` | edit | `test:kern-5-rt11-linked-while`; appended to `test:kern-5-script-family` |
 | `scripts/ci/test-tier-contract.test.mjs` | edit | `kern5EvidenceCommands` gains one entry; the `deepEqual` is exact and order-sensitive |
 | `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once |
@@ -619,16 +701,16 @@ Each is a test in `scripts/kern-5-rt11-linked-while/`.
 Measured on this branch @ the slice-A tip `b273b20c`, each file run individually with
 `node --test scripts/kern-5-rt11-linked-while/<file>.test.mjs`.
 
-**90 tests: 21 GREEN, 69 RED.**
+**96 tests: 22 GREEN, 74 RED.**
 
 | File | tests | pass | fail | Base |
 | --- | --- | --- | --- | --- |
 | `probe-matrix` | 6 | **6** | 0 | all GREEN — the F5 facts this contract is built on, and the four schema fences |
 | `compatibility` | 8 | **8** | 0 | all GREEN — must stay green |
-| `tick-discipline` | 9 | 3 | **6** | RT-1's two-site pin and both isolations are GREEN; every emitted-shape row needs an admitted `while` |
+| `tick-discipline` | 10 | 3 | **7** | RT-1's two-site pin and both isolations are GREEN; every emitted-shape row needs an admitted `while` |
 | `type-gate` | 24 | 1 | **23** | the `for` regression row is GREEN |
-| `behavior` | 25 | 2 | **23** | the table's own shape rows are GREEN |
-| `metering` | 8 | 1 | **7** | the twin-cost row is GREEN |
+| `behavior` | 25 | 3 | **22** | the two table-shape rows and the RT-2-precedent boolean-gate row are GREEN |
+| `metering` | 13 | 1 | **12** | the twin-cost row is GREEN |
 | `walker-coverage` | 7 | 0 | **7** | two TypeError causes plus the union gap |
 | `python-deferral` | 3 | 0 | **3** | one row is blocked on slice A's column change (RED-6) |
 
@@ -636,26 +718,26 @@ Every RED resolves to exactly one of six causes:
 
 | Cause | REDs | Verbatim, as measured |
 | --- | --- | --- |
-| **RED-1** the linker does not route `while` | 60 | thirteen `expected the <gate> gate to fire, but the linker reported: <label>: statement must be a leaf`; two `… reported: <label>: statement kind while is outside RT-1` (the empty body); seven `RT11W_LINK_REFUSED: <fixture> must link on RT-1`; thirty `RT11W_LINK_REFUSED: javascript compile failed: handler-entry-unsupported`; six `<id>: linking does not succeed inside the scanned step range`; one `RT11W_ROUTE_GAP: the refusal must be attributed to the while body, not to the while statement` |
+| **RED-1** the linker does not route `while` | 65 | thirteen `expected the <gate> gate to fire, but the linker reported: <label>: statement must be a leaf`; two `… reported: <label>: statement kind while is outside RT-1` (the empty body); seven `RT11W_LINK_REFUSED: <fixture> must link on RT-1`; thirty-two `RT11W_LINK_REFUSED: javascript compile failed: handler-entry-unsupported`; ten `<id>: linking does not succeed inside the scanned step range`; one `RT11W_ROUTE_GAP: the refusal must be attributed to the while body, not to the while statement` |
 | **RED-2** the union has no `while` member | 1 | `RT11W_UNION_GAP: the linked statement union must carry the while member` |
 | **RED-3/RED-4** the two semantic walkers are blind to `while` | 6 | `TypeError: Cannot read properties of undefined (reading 'kind')` — the walkers fall through to `statement.value`, which a `while` node does not have |
 | **RED-5** the ledger has no `while` row | 1 | `RT11W_LEDGER_ROW_MISSING: the parity ledger must carry the while row` |
 | **RED-6** slice A's ledger column change has not landed | 1 | `RT11W_LEDGER_SHAPE: the proposed while row must carry exactly blockedBy, jsLoweringBlameDigest, label, nodeKind, since, surface` |
 
-RED-3 and RED-4 are driven by a hand-built linked `while` (`linkedWhileStatement` in `k0-support.mjs`), so
-they are independent of RED-1 and fail even after `while` links. They share one verbatim message
-because both walkers fall through the same way; the test names separate them, and each test targets
-exactly one walker. RED-2 is a source scrape, likewise independent of RED-1.
+RED-3 and RED-4 are driven by a hand-built linked `while` (`linkedWhileStatement` in
+`k0-support.mjs`), so they are independent of RED-1 and fail even after `while` links. They share one
+verbatim message because both walkers fall through the same way; the test names separate them, and
+each test targets exactly one walker. RED-2 is a source scrape, likewise independent of RED-1.
 
-The six metering REDs are the weakest-worded of the RED-1 group: `loopStepBudget` reports
-`linking does not succeed inside the scanned step range` rather than naming the refusal, because it
-binary-searches a step budget rather than reading a label. The cause is still single — the fixture
-does not link at any budget — and `type-gate` names the label for the same fixtures.
+The ten metering REDs whose message is `linking does not succeed inside the scanned step range` are
+the weakest-worded of the RED-1 group: `loopStepBudget` binary-searches a step budget rather than
+reading a label, so it reports the search failing rather than the refusal. The cause is still
+single — the fixture links at no budget — and `type-gate` names the label for the same fixtures.
 
-No RED comes from a fixture typo. `probe-matrix.test.mjs` asserts every one of the 44 position
+No RED comes from a fixture typo. `probe-matrix.test.mjs` asserts every one of the 48 position
 fixtures projects with zero diagnostics, GREEN at base, precisely so a projection regression can
 never masquerade as a link RED. The oracle-cause labels RED-1..RED-6 are distinct from the
-contract claim IDs RT11W-C1..RT11W-C17.
+contract claim IDs RT11W-C1..RT11W-C22.
 
 ### Tests blocked on slice A's production code
 
@@ -727,7 +809,7 @@ scripts, so `scripts/kern-5-rt11-linked-while/**` carries no lint gate and is ha
 
 ## Deploy Order
 
-1. **This slice: spec + RED oracle + wiring.** 69 RED, 21 GREEN. Nothing under `packages/core/src`
+1. **This slice: spec + RED oracle + wiring.** 74 RED, 22 GREEN. Nothing under `packages/core/src`
    moves, so no digest is re-pinned here.
 2. **Slice A's implementation** (mapping, `KIR_PYTHON_LEG_DEFERRED_CODE`, the compile-entry pass)
    must land before the `while` row can refuse anything. A `while` implementation without it
@@ -755,6 +837,12 @@ No version skew window: every consumer is in this repository and ships in the sa
 - **The Python `while` catch-up.** RT11W-C17 is the design. Follows slice A's documented catch-up
   procedure: land the lowering, re-pin `emitter.ts`'s frozen digest, flip the mapping to
   `'lowered'`, delete the row, re-pin `LEDGER_SHA256`, add three-leg byte-identical envelope rows.
+- **The closures slice.** KIR has no functions-as-values today, so copied bindings are simply the
+  `for`/`if` precedent and no escape is expressible. When capture arrives, per-trip `let` freshness
+  against outer-`assign` write-through must be re-examined: this slice pins both halves as rows
+  (`behavior.test.mjs` — an `assign` to an outer `let` accumulates across trips while a body `let` is
+  per-trip; `type-gate.test.mjs` — a post-loop read of a body `let` is `unknown identifier`), and a
+  capturing closure would make the two observably different from what a copied scope implies.
 - **The `contracts.ts` split.** Blocked by the 354-file compiled inventory pin. Unblockable only
   when that pin is renegotiated; the net-neutral helper extraction above is the interim mitigation.
 - **RT11W-O1** (RT-9's third cross-leg tripwire) and **RT11W-O5** (the pre-image reconstructions).
@@ -770,6 +858,10 @@ No version skew window: every consumer is in this repository and ships in the sa
 | The census admission count must be measured with a sweep, or declared unmeasured | `admission.json` already records all 240 results by stage: **zero** are rejected at `link` | Answered exactly — the gain is 0 admissions — from a single JSON read, with no five-minute sweep (RT11W-C7) |
 | rt2 and rt4 are the two cross-leg agreement tripwires | RT-9's `admissionRow` is a third, and it asserts `rt1 === javascript` as well as `javascript === python` | Raised as RT11W-O1 for coordinator routing, and recorded in Blast Radius so it cannot be discovered during implementation |
 | The rt2 golden's `while` admission row is what moves | Its `PROBE_BODIES.while` uses a bare `print` under `while`, which F5 rejects; the row would stay `projection-rejected` while `while` sat in `linkedStatementKinds`, breaking the golden's *second* test rather than its first | The probe **body** must change, not only the expected value — a distinct edit from the per-leg amendment slice A owns |
+| The `while` charge is `2 + n·(1 + B)`, the same formula `for` is pinned to | It is `A + n·P` with `P = 1 + B + C` and `A = 2 + C`, because a `while` re-evaluates its condition on every attempt — `n+1` times — where a `for` reads its bounds once. `2 + n·(1 + B)` cannot satisfy the never-entered, one-shot and n-trip paths simultaneously | **Four metering rows in the first revision would have gone RED against a correct implementation.** Replaced with six rows that cancel `A` and `C` by construction or cross-check two independent paths to the same unknown: affine linearity, the two-paths-to-`C` agreement, body rate, the per-attempt condition row, never-entered body-independence, and the two-leg step threshold (RT11W-C19, M1-M6) |
+| The JavaScript leg charges nothing on the failed final condition probe, so the legs disagree | False, and checked at source: the trailing `__meter.step()` at `kir-js-esm/emitter.ts:268` is the counterpart of RT-1's `expression.ts:198`/`:249`, and the native `break` falls straight into it. Both legs charge `1_init + Bounds + n·(1_head + Counter + B) + 1_exit` for `for` | **No pre-existing rt10-for discrepancy exists** and none is copied. The per-slot table (RT11W-C18) now states every charge with file:line for both legs and both loop forms, and M6 pins leg identity by measurement rather than by derivation |
+| The emitted boolean tag check can be asserted by a regex on the artifact, citing RT-2 as precedent | RT-2 asserts the `if` gate behaviourally — all legs fail closed under the closed link code, zero events (`branch-behavior.test.mjs:150-174`) — and makes no claim about emitted text | The regex rows are removed from `behavior.test.mjs` and `tick-discipline.test.mjs` and replaced with RT-2's own row verbatim in shape; the emitted-shape rows that remain are rt10-for's precedent (RT11W-C22) |
+| A missing name reached through `export *` is in scope | `export *` re-exports for consumers but does not bind into the re-exporting module's own scope, so `assertTwoLegStepThreshold` threw `loopStepBudget is not defined` on first run | `loopStepBudget` is imported by name as well as re-exported, the same guard rt10-for's own harness carries in a comment. Caught by running the suite, not by review |
 | `while`'s `allowedChildren` has 27 members | It has **28**. The fact report's verbatim list is right and its count label is wrong: `throw` is in the list and was not counted | The probe matrix asserts 28 and `deepEqual`s the list against `for`'s, so the count is now measured rather than quoted |
 | A `while` body containing an `each` is a discriminating negative on the message alone | At base the outer unrouted `while` fires the identical `statement must be a leaf`, so the row was GREEN for the wrong reason | The assertion moved to the label **path** (`/\.body\.children\[/`): a refusal attributed to the loop's body proves the loop itself was compiled |
 | The zero-trip `for`/`while` charge difference can be asserted directly | The only available expression for the expected value is the measured difference itself, making the row a tautology | Replaced with a body-independence row: two never-entered loops with the same condition and different bodies must cost the same, which a lowering that ran the body once before its first test fails and nothing else does |

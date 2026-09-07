@@ -6,7 +6,11 @@ import {
   WHILE_POSITIONS,
   WHILE_TABLE_ROWS,
   integerSlot,
-  javascriptArtifact,
+  compileJavaScript,
+  compilePython,
+  executeKernKir,
+  project,
+  provider,
   runtimeRequest,
   twoLegBytes,
   twoLegs,
@@ -127,15 +131,35 @@ test('an infinite while exhausts maxSteps and faults runtime-limit-exceeded on b
   }
 });
 
-// The runtime boolean tag check is defence in depth: `staticExpressionType` is total, so every
-// non-boolean condition dies at link and no projectable fixture reaches the check. It is therefore
-// asserted as emitted text rather than as an executed fault — RT-2 pins the `if` equivalent the
-// same way, and an executed-fault row here would be unfalsifiable.
-test('the emitted JavaScript carries the per-trip boolean tag check the if arm already emits', async () => {
-  const artifact = await javascriptArtifact(WHILE_POSITIONS['while-counted-3']());
-  assert.match(
-    artifact,
-    /if\([^)]*\.tag!=='boolean'\)throw new __Fault\('unsupported-runtime-input','execution'\)/u,
-    'RT11W_TAG_CHECK_MISSING: the condition must be tag-checked before it is believed',
-  );
+// The boolean gate, asserted exactly as RT-2 asserts the `if` gate and no further: every leg fails
+// closed under the one closed link code, and the run commits nothing. RT-2's own row is
+// `branch-behavior.test.mjs:150-174`; it makes no claim about emitted text, because
+// `staticExpressionType` is total and no projectable fixture reaches the runtime tag check. A
+// regex on the emitted artifact would have been a stricter claim than the precedent it cites.
+test('a non-boolean condition fails closed on every leg and commits nothing', async () => {
+  for (const name of [
+    'neg-while-cond-integer-literal',
+    'neg-while-cond-integer-param',
+    'neg-while-cond-text-param',
+    'neg-while-cond-binary-integer',
+  ]) {
+    const source = WHILE_POSITIONS[name]();
+    const verified = await project(source);
+    assert.ok(verified !== undefined, `${name} must project so the refusal is a link decision`);
+    const direct = await executeKernKir(verified, runtimeRequest(`rt11w-${name}`, whilePositionArguments(name)), provider([]));
+    assert.deepEqual(
+      {
+        javascript: compileJavaScript(verified).code,
+        python: compilePython(verified).code,
+        rt1: direct.diagnostics[0]?.code,
+      },
+      {
+        javascript: 'handler-entry-unsupported',
+        python: 'handler-entry-unsupported',
+        rt1: 'handler-entry-unsupported',
+      },
+      `KIR_WHILE_COND_NOT_BOOLEAN: ${name} must fail closed identically on all three legs`,
+    );
+    assert.deepEqual([...direct.events], [], `${name} must commit no event`);
+  }
 });

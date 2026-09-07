@@ -59,11 +59,11 @@ export function quotedText(value) {
 // The canonical counted `while`: an accumulator, an explicit counter, and the increment the loop
 // form has to spell out because nothing binds it. Every metering identity is derived against this
 // shape so the counter's cost is a measured term rather than a hidden one.
-export function whileAccumulate(bound, { helpers = [], parameters = [], term = 'i' } = {}) {
+export function whileAccumulate(bound, { helpers = [], parameters = [], seed = 0, term = 'i' } = {}) {
   return whileProgram(
     [
       'let name=acc value="0"',
-      'let name=i value="0"',
+      `let name=i value="${seed}"`,
       `while cond="i < ${bound}"`,
       `  assign target="acc" value="acc + ${term}"`,
       '  assign target="i" value="i + 1"',
@@ -71,6 +71,20 @@ export function whileAccumulate(bound, { helpers = [], parameters = [], term = '
     ],
     { helpers, parameters },
   );
+}
+
+// The same counted loop with one extra body statement. The per-trip charge measured against the
+// thin family isolates the body term without needing the condition's cost as a separate atom.
+export function whileFat(bound) {
+  return whileProgram([
+    'let name=acc value="0"',
+    'let name=i value="0"',
+    `while cond="i < ${bound}"`,
+    '  assign target="acc" value="acc + 1"',
+    '  assign target="acc" value="acc + 1"',
+    '  assign target="i" value="i + 1"',
+    'return value="acc"',
+  ]);
 }
 
 export function forAccumulate(to, { term = 'i' } = {}) {
@@ -384,6 +398,20 @@ export const WHILE_TWINS = Object.freeze({
     whileProgram(['let name=acc value="0"', 'assign target="acc" value="acc + 1"', 'return value="acc"']),
   'twin-let-literal': () => whileProgram(['let name=x value="3"', 'return value="x"']),
   'twin-two-lets': () => whileProgram(['let name=acc value="0"', 'let name=i value="0"', 'return value="acc"']),
+  'twin-two-lets-cond-cheap': () =>
+    whileProgram([
+      'let name=acc value="0"',
+      'let name=i value="0"',
+      'let name=b value="i < 3"',
+      'return value="acc"',
+    ]),
+  'twin-two-lets-cond-costly': () =>
+    whileProgram([
+      'let name=acc value="0"',
+      'let name=i value="0"',
+      'let name=b value="i < 1 + 2"',
+      'return value="acc"',
+    ]),
   'twin-two-lets-assign': () =>
     whileProgram([
       'let name=acc value="0"',
@@ -420,6 +448,10 @@ export const WHILE_METER_POSITIONS = Object.freeze({
       '  assign target="i" value="i + 1"',
       'return value="acc"',
     ]),
+  'meter-cond-costly-0': () => whileAccumulate('1 + 2', { term: '1', seed: 3 }),
+  'meter-cond-costly-3': () => whileAccumulate('1 + 2', { term: '1' }),
+  'meter-fat-0': () => whileFat(0),
+  'meter-fat-1': () => whileFat(1),
   'meter-trips-0': () => whileAccumulate(0, { term: '1' }),
   'meter-trips-0-fat': () =>
     whileProgram([

@@ -10,6 +10,7 @@ import {
   executeJavaScriptChild,
   executeKernKir,
   project,
+  stepRequest,
   provider,
 } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
 import {
@@ -18,6 +19,10 @@ import {
   ROW_KEYS,
   validateLedger,
 } from '../kern-5-parity-ledger/ledger-support.mjs';
+
+// An `export *` re-export does not bring a name into this module's own scope, so anything this file
+// calls is imported by name as well as re-exported.
+import { loopStepBudget } from '../kern-5-rt10-for/k0-support.mjs';
 
 export * from '../kern-5-rt10-for/k0-support.mjs';
 
@@ -67,6 +72,35 @@ export async function twoLegBytes(source, request) {
     'RT11W_LEG_DIVERGENCE: emitted JavaScript diverged from RT-1',
   );
   return { bytes: direct, legs };
+}
+
+// The leg-identity gate item 1 demands, measured rather than derived. RT-1 links and executes under
+// one budget, so its smallest succeeding `maxSteps` is `link + execution`; the emitted artifact is
+// compiled once and its meter counts execution only. So the two legs charge identically exactly when
+// the emitted artifact's own threshold equals RT-1's execution count — pinned from both sides, which
+// is what makes it a threshold rather than a bound.
+export async function assertTwoLegStepThreshold(name, source, args = {}) {
+  const rt1 = await loopStepBudget(source, args, `rt11w-threshold-${name}`);
+  const verified = await project(source);
+  assert.ok(verified !== undefined, `${name} must project`);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', `RT11W_LINK_REFUSED: javascript compile failed: ${javascript.code}`);
+  const runs = async (maxSteps) => {
+    const request = stepRequest(`rt11w-threshold-${name}-${maxSteps}`, args, maxSteps);
+    const run = await executeJavaScriptChild(javascript.artifact.bytes, request);
+    return run.envelope.outcome === 'success';
+  };
+  assert.equal(
+    await runs(rt1.execution),
+    true,
+    `RT11W_LEG_CHARGE_DRIFT: ${name} must succeed on the JavaScript leg at RT-1's execution count ${rt1.execution}`,
+  );
+  assert.equal(
+    await runs(rt1.execution - 1),
+    false,
+    `RT11W_LEG_CHARGE_DRIFT: ${name} must fail one step under RT-1's execution count, so the legs share a threshold`,
+  );
+  return rt1;
 }
 
 export async function javascriptArtifact(source) {

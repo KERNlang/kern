@@ -20,6 +20,22 @@
     }
   },
   "positions": {
+    "meter-cond-costly-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-cond-costly-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-fat-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-fat-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "meter-for-trips-0": {
       "diagnostics": [],
       "status": "projected"
@@ -113,6 +129,14 @@
       "status": "projected"
     },
     "twin-two-lets-assign": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets-cond-cheap": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets-cond-costly": {
       "diagnostics": [],
       "status": "projected"
     },

@@ -110,17 +110,35 @@ test('a while and a for carry the identical emitted checkpoint census for one he
 
 // The tribunal pinned native jumps. `while(true)` plus a `break` is one, and it is the minimal
 // shape that can unwrap a tagged condition and tag-check it before believing it.
-test('the JavaScript leg lowers the loop to a host while with a native break and a tag check', async () => {
+test('the JavaScript leg lowers the loop to a host while with a native break', async () => {
   const statements = (await region(WHILE_POSITIONS['while-counted-3']())).statements;
   assert.match(statements, /while\s*\(/u, 'RT11W_JS_SHAPE: the loop must be a host while statement');
   assert.match(statements, /\bbreak\b/u, 'RT11W_JS_SHAPE: the exit must be a native jump, not a signal object');
-  assert.match(
-    statements,
-    /\.tag!=='boolean'\)throw new __Fault\('unsupported-runtime-input','execution'\)/u,
-    'RT11W_JS_SHAPE: the condition must be tag-checked every trip, exactly as the if arm checks it',
-  );
   assert.equal(statements.includes('__Break'), false, 'RT11W_JS_SHAPE: no signal-object lowering');
   assert.equal(statements.includes('__Continue'), false, 'RT11W_JS_SHAPE: no signal-object lowering');
+});
+
+// Item 4b, and the constraint a later native `break`/`continue` depends on: the body is emitted
+// INLINE inside the host loop, never wrapped in a function or a per-trip closure. Asserted
+// structurally rather than by formatting — the same body under `for` is the control, so the claim is
+// that the while lowering introduces no callable of its own, whatever the surrounding census is.
+test('the while lowering keeps the body inline and introduces no function or arrow of its own', async () => {
+  const viaWhile = (await region(WHILE_METER_POSITIONS['meter-trips-3']())).statements;
+  const viaFor = (await region(WHILE_METER_POSITIONS['meter-for-trips-3']())).statements;
+  for (const token of ['function', '=>']) {
+    assert.equal(
+      countOccurrences(viaWhile, token),
+      countOccurrences(viaFor, token),
+      `RT11W_BODY_WRAPPED: the while lowering must not add a ${token} the for lowering does not have`,
+    );
+  }
+  const head = viaWhile.slice(viaWhile.search(/while\s*\(/u));
+  assert.equal(
+    countOccurrences(head, 'function'),
+    0,
+    'RT11W_BODY_WRAPPED: nothing from the loop head onwards may be a function body',
+  );
+  assert.equal(countOccurrences(head, '=>'), 0, 'RT11W_BODY_WRAPPED: the body must not be a per-trip closure');
 });
 
 // Zero new host patterns, and zero new suspension points. `while`'s allowedChildren admits no
