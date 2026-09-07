@@ -2,7 +2,7 @@
 
 **Status:** SPEC — ORACLE LANDED RED
 **Date:** 2026-09-07
-**Confidence:** 0.87
+**Confidence:** 0.86
 
 Stacked on slice A (`feat/kern-5-parity-ledger` @ `b273b20c`: spec
 `.Codex/specs/kern-5-parity-ledger/spec.md`, oracle `scripts/kern-5-parity-ledger/`, empty ledger
@@ -30,7 +30,7 @@ proves the two loop forms charge the same machinery.
 ### F5 already projects `while`; this slice is linker + two legs + one ledger row
 
 **[RT11W-C1 VERIFIED]** `while` is a bound catalog node with `allowedChildren` set to the same
-27-member statement list `for` carries — `scripts/kir-structural/constitution.json:780-815` for
+**28-member** statement list `for` carries — `scripts/kir-structural/constitution.json:780-815` for
 `while`, `:816-860` for `for`; generated into
 `packages/core/src/kir-structural/catalog.generated.ts:3108-3155`. Its **only** property is `cond`
 (`expression`, required). `projectStructuralNode`
@@ -38,7 +38,8 @@ proves the two loop forms charge the same machinery.
 special-case any node kind, so a projected `while` and a projected `for` differ only in which
 catalog rules attach to the `kind` string.
 
-The 27 admitted children, verbatim: `comment, fn, let, expression-v1, assign, destructure, do, fmt,
+The 28 admitted children, verbatim (measured live, not copied from the fact report — see the
+Corrections Log): `comment, fn, let, expression-v1, assign, destructure, do, fmt,
 clamp, firstTruthy, coalesce, firstDefined, objectMerge, objectOmit, objectPick, return, if, else,
 while, for, each, try, with, catch, throw, continue, break, branch`. **`print` and `capability` are
 absent**, exactly as for `for`.
@@ -260,7 +261,7 @@ already know how to visit `statement.condition`.
 | properties | exactly `{cond}`, required, `expression` | VERIFIED (RT11W-C1) |
 | body | the node's `children`, never a sibling | VERIFIED (RT11W-C1) |
 | linker-admitted body children | `let`, `assign`, `return`, `if`(+`else`), `for`, `while` | VERIFIED (RT11W-C11) |
-| catalog-admitted but linker-refused body children | the other 21 of the 27, each with the label below | VERIFIED (RT11W-C11) |
+| catalog-admitted but linker-refused body children | the other 22 of the 28, each with the label below | VERIFIED (RT11W-C11) |
 | `print` / `capability` as a **direct** child | refused by **F5**, not the linker | VERIFIED (RT11W-C2 fence) |
 | `print` / `capability` **under an `if`** in the body | projects, and must link and run | VERIFIED projection; link is this slice's work |
 
@@ -618,45 +619,63 @@ Each is a test in `scripts/kern-5-rt11-linked-while/`.
 Measured on this branch @ the slice-A tip `b273b20c`, each file run individually with
 `node --test scripts/kern-5-rt11-linked-while/<file>.test.mjs`.
 
-**64 tests: 27 GREEN, 37 RED.**
+**90 tests: 21 GREEN, 69 RED.**
 
 | File | tests | pass | fail | Base |
 | --- | --- | --- | --- | --- |
-| `probe-matrix` | 6 | **6** | 0 | all GREEN — the F5 facts this contract is built on |
-| `compatibility` | 8 | **8** | 0 | all GREEN except the two scope rows that must flip; must stay green |
-| `tick-discipline` | 8 | 3 | **5** | RT-1's two-site pin is GREEN; every emitted-shape row needs an admitted `while` |
-| `type-gate` | 17 | 6 | **11** | the `for` regression rows and the two F5 fences are GREEN |
-| `behavior` | 10 | 2 | **8** | the table's own shape rows are GREEN |
-| `metering` | 6 | 1 | **5** | the twin-cost row is GREEN |
+| `probe-matrix` | 6 | **6** | 0 | all GREEN — the F5 facts this contract is built on, and the four schema fences |
+| `compatibility` | 8 | **8** | 0 | all GREEN — must stay green |
+| `tick-discipline` | 9 | 3 | **6** | RT-1's two-site pin and both isolations are GREEN; every emitted-shape row needs an admitted `while` |
+| `type-gate` | 24 | 1 | **23** | the `for` regression row is GREEN |
+| `behavior` | 25 | 2 | **23** | the table's own shape rows are GREEN |
+| `metering` | 8 | 1 | **7** | the twin-cost row is GREEN |
 | `walker-coverage` | 7 | 0 | **7** | two TypeError causes plus the union gap |
-| `python-deferral` | 2 | 1 | **1** | the ledger-schema conformance of the proposed row is GREEN |
+| `python-deferral` | 3 | 0 | **3** | one row is blocked on slice A's column change (RED-6) |
 
-Every RED resolves to exactly one of five causes:
+Every RED resolves to exactly one of six causes:
 
-| Cause | REDs | Verbatim |
+| Cause | REDs | Verbatim, as measured |
 | --- | --- | --- |
-| **C1** the linker does not route `while` | 28 | `RT11W_LINK_REFUSED: <label>: statement must be a leaf` (or `… statement kind while is outside RT-1` for the empty body) |
-| **C2** the union has no `while` member | 1 | `RT11W_UNION_GAP: the linked statement union must carry the while member` |
-| **C3** `statementsInvokeCapability` is blind to `while` | 3 | `RT11W_CLOSURE_BLIND: …` — a `TypeError` reading `.kind` of `undefined` at base |
-| **C4** `statementsCallDepth` is blind to `while` | 3 | `RT11W_DEPTH_BLIND: …` — same shape |
-| **C5** the ledger has no `while` row | 1 | `RT11W_LEDGER_ROW_MISSING: the parity ledger must carry the while row` |
+| **RED-1** the linker does not route `while` | 60 | thirteen `expected the <gate> gate to fire, but the linker reported: <label>: statement must be a leaf`; two `… reported: <label>: statement kind while is outside RT-1` (the empty body); seven `RT11W_LINK_REFUSED: <fixture> must link on RT-1`; thirty `RT11W_LINK_REFUSED: javascript compile failed: handler-entry-unsupported`; six `<id>: linking does not succeed inside the scanned step range`; one `RT11W_ROUTE_GAP: the refusal must be attributed to the while body, not to the while statement` |
+| **RED-2** the union has no `while` member | 1 | `RT11W_UNION_GAP: the linked statement union must carry the while member` |
+| **RED-3/RED-4** the two semantic walkers are blind to `while` | 6 | `TypeError: Cannot read properties of undefined (reading 'kind')` — the walkers fall through to `statement.value`, which a `while` node does not have |
+| **RED-5** the ledger has no `while` row | 1 | `RT11W_LEDGER_ROW_MISSING: the parity ledger must carry the while row` |
+| **RED-6** slice A's ledger column change has not landed | 1 | `RT11W_LEDGER_SHAPE: the proposed while row must carry exactly blockedBy, jsLoweringBlameDigest, label, nodeKind, since, surface` |
 
-C3 and C4 are driven by a hand-built linked `while` statement (`linkedWhileStatement` in
-`k0-support.mjs`), so they are independent of C1 and fail even after `while` links. C2 is a source
-scrape, likewise independent.
+RED-3 and RED-4 are driven by a hand-built linked `while` (`linkedWhileStatement` in `k0-support.mjs`), so
+they are independent of RED-1 and fail even after `while` links. They share one verbatim message
+because both walkers fall through the same way; the test names separate them, and each test targets
+exactly one walker. RED-2 is a source scrape, likewise independent of RED-1.
+
+The six metering REDs are the weakest-worded of the RED-1 group: `loopStepBudget` reports
+`linking does not succeed inside the scanned step range` rather than naming the refusal, because it
+binary-searches a step budget rather than reading a label. The cause is still single — the fixture
+does not link at any budget — and `type-gate` names the label for the same fixtures.
+
+No RED comes from a fixture typo. `probe-matrix.test.mjs` asserts every one of the 44 position
+fixtures projects with zero diagnostics, GREEN at base, precisely so a projection regression can
+never masquerade as a link RED. The oracle-cause labels RED-1..RED-6 are distinct from the
+contract claim IDs RT11W-C1..RT11W-C17.
 
 ### Tests blocked on slice A's production code
 
 Slice A shipped spec + RED oracle only; its mapping, `KIR_PYTHON_LEG_DEFERRED_CODE` and the
-compile-entry pass do not exist yet. Two tests in `python-deferral.test.mjs` therefore depend on
-**both** slices, and both are written so the `while` side is named first:
+compile-entry pass do not exist yet, and its ledger column list has not yet been changed. All three
+tests in `python-deferral.test.mjs` are affected, and the one that needs both slices is written so
+the `while` side is named first:
 
 | Test | Depends on | Base cause | Cause after `while` lands, before slice A's pass |
 | --- | --- | --- | --- |
-| `the parity ledger carries the while row` | this slice only | C5 | — (goes GREEN) |
-| `a while program is admitted on the JavaScript leg and refused on the Python leg` | this slice **and** slice A | C1 (the JS admission assertion runs first and fails first) | `RT11W_PY_NOT_DEFERRED: expected KIR_PYTHON_LEG_DEFERRED, received handler-entry-unsupported` |
+| `the while row satisfies the parity ledger schema slice A defines` | **slice A only** | RED-6 — slice A's `ROW_KEYS` still declares `jsLoweringBlameDigest` and no `spec` | — (goes GREEN when slice A lands the column change) |
+| `the parity ledger carries the while row` | this slice only | RED-5 | — (goes GREEN) |
+| `a while program is admitted on the JavaScript leg and refused on the Python leg` | this slice **and** slice A | RED-1 (the JS admission assertion runs first and fails first) | `RT11W_PY_NOT_DEFERRED: expected KIR_PYTHON_LEG_DEFERRED, received handler-entry-unsupported` |
 
-The position sweep over all six `while` positions lives inside that second test, so slice A's
+The RED-6 row is deliberately left RED rather than pinned to the current column list: the row's key set
+is asserted against slice A's `ROW_KEYS` **export**, so whatever shape slice A finally lands is what
+this slice's row must match, and the failure message prints the live column list. That is the only
+cross-slice RED in the suite, and it is not blocked on any `while` production code.
+
+The position sweep over all six `while` positions lives inside that last test, so slice A's
 absence cannot masquerade as a `while` failure and vice versa. No `python-deferral` test imports a
 slice-A production symbol statically; the ledger row is read from JSON and the refusal code is
 compared as a string literal, so a missing slice-A export cannot turn into a module-level
@@ -666,8 +685,8 @@ compared as a string literal, so a missing slice-A export cannot turn into a mod
 
 | Command | Base |
 | --- | --- |
-| `pnpm test:ci-contract` | passes with this slice's `kern5EvidenceCommands` entry and the `test:kern-5-script-family` append applied |
-| `pnpm lint` | exit 0 |
+| `pnpm test:ci-contract` | **19/19 pass**, with this slice's `kern5EvidenceCommands` entry and the `test:kern-5-script-family` append applied |
+| `pnpm lint` | **exit 0**, `Checked 1449 files`, 2 pre-existing infos (`String.raw`), no error |
 
 `biome.json`'s `files.includes` covers `packages/*/src/**`, `packages/*/tests/**` and two named
 scripts, so `scripts/kern-5-rt11-linked-while/**` carries no lint gate and is hand-formatted to the
@@ -708,7 +727,7 @@ scripts, so `scripts/kern-5-rt11-linked-while/**` carries no lint gate and is ha
 
 ## Deploy Order
 
-1. **This slice: spec + RED oracle + wiring.** 37 RED, 27 GREEN. Nothing under `packages/core/src`
+1. **This slice: spec + RED oracle + wiring.** 69 RED, 21 GREEN. Nothing under `packages/core/src`
    moves, so no digest is re-pinned here.
 2. **Slice A's implementation** (mapping, `KIR_PYTHON_LEG_DEFERRED_CODE`, the compile-entry pass)
    must land before the `while` row can refuse anything. A `while` implementation without it
@@ -751,4 +770,7 @@ No version skew window: every consumer is in this repository and ships in the sa
 | The census admission count must be measured with a sweep, or declared unmeasured | `admission.json` already records all 240 results by stage: **zero** are rejected at `link` | Answered exactly — the gain is 0 admissions — from a single JSON read, with no five-minute sweep (RT11W-C7) |
 | rt2 and rt4 are the two cross-leg agreement tripwires | RT-9's `admissionRow` is a third, and it asserts `rt1 === javascript` as well as `javascript === python` | Raised as RT11W-O1 for coordinator routing, and recorded in Blast Radius so it cannot be discovered during implementation |
 | The rt2 golden's `while` admission row is what moves | Its `PROBE_BODIES.while` uses a bare `print` under `while`, which F5 rejects; the row would stay `projection-rejected` while `while` sat in `linkedStatementKinds`, breaking the golden's *second* test rather than its first | The probe **body** must change, not only the expected value — a distinct edit from the per-leg amendment slice A owns |
+| `while`'s `allowedChildren` has 27 members | It has **28**. The fact report's verbatim list is right and its count label is wrong: `throw` is in the list and was not counted | The probe matrix asserts 28 and `deepEqual`s the list against `for`'s, so the count is now measured rather than quoted |
+| A `while` body containing an `each` is a discriminating negative on the message alone | At base the outer unrouted `while` fires the identical `statement must be a leaf`, so the row was GREEN for the wrong reason | The assertion moved to the label **path** (`/\.body\.children\[/`): a refusal attributed to the loop's body proves the loop itself was compiled |
+| The zero-trip `for`/`while` charge difference can be asserted directly | The only available expression for the expected value is the measured difference itself, making the row a tautology | Replaced with a body-independence row: two never-entered loops with the same condition and different bodies must cost the same, which a lowering that ran the body once before its first test fails and nothing else does |
 | The `while` union member needs a `forBounds`-style bounds helper | A `while` carries one condition expression, and both walkers already visit `statement.condition` for `if` | No new helper; `forBounds` folds into the recommended shared-traversal extraction instead (RT11W-C10, Implementation Plan) |
