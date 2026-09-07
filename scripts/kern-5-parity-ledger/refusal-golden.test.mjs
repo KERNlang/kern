@@ -5,6 +5,7 @@ import {
   DEFERRAL_LABEL,
   EXPRESSION_POSITIONS,
   STATEMENT_POSITIONS,
+  WHILE_ROW_POSITIONS,
   assertNoPythonArtifact,
   compileJavaScript,
   compilePython,
@@ -50,11 +51,13 @@ test('link is target neutral: one linker, one digest, whatever the target', asyn
   );
 });
 
-test('with an empty ledger every catalog-permitted position still compiles to Python', async () => {
-  assert.deepEqual(ledgerRows(), []);
+// The checked-in ledger now carries the `while` row, so this is no longer "with an empty ledger":
+// it is "positions that carry no deferred kind still compile," which `STATEMENT_POSITIONS` and
+// `EXPRESSION_POSITIONS` still exercise, because neither catalogue's fixtures carry a `while` node.
+test('positions that carry no deferred kind still compile to Python', async () => {
   for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
     const result = compilePython(await verified(build()));
-    assert.equal(result.outcome, 'success', `PARITY_LEDGER_EMPTY_START: ${name} refused with ${result.code}`);
+    assert.equal(result.outcome, 'success', `PARITY_LEDGER_UNRELATED_REFUSAL: ${name} refused with ${result.code}`);
   }
 });
 
@@ -72,7 +75,12 @@ test('every ledger row refuses with the exact label and no Python artifact', asy
   const table = await loweringTable();
   for (const row of ledgerRows()) {
     assert.equal(table[row.surface][row.nodeKind], 'deferred', `${row.nodeKind}: the row must be deferred`);
-    const positions = row.surface === 'statement' ? STATEMENT_POSITIONS : EXPRESSION_POSITIONS;
+    const positions =
+      row.nodeKind === 'while'
+        ? WHILE_ROW_POSITIONS
+        : row.surface === 'statement'
+          ? STATEMENT_POSITIONS
+          : EXPRESSION_POSITIONS;
     for (const [name, fixture] of Object.entries(positions)) {
       const result = compile(await verified(fixture()), compilerRequest(), table);
       assert.equal(assertNoPythonArtifact(result, `${row.nodeKind} at ${name}`), row.label);

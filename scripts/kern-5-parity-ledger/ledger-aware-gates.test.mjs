@@ -58,10 +58,22 @@ function syntheticLedger(surface, nodeKind) {
   };
 }
 
-test('the checked-in ledger defers nothing, so the shared gates are inert today', async () => {
-  assert.deepEqual(loadParityLedger().rows, []);
+// kern-5-rt11-linked-while landed the ledger's first row (RT11W-TD5, Corrections Log): the checked-
+// in ledger defers exactly `while`, and every `for`-shaped position these shared harnesses build
+// stays inert, because none of them contains a `while`.
+test('the checked-in ledger defers exactly the while row, so every other statement position stays inert', async () => {
+  assert.deepEqual(loadParityLedger().rows, [
+    {
+      blockedBy: [],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'while',
+      since: 'kern-5-rt11-linked-while',
+      spec: '.Codex/specs/kern-5-rt11-linked-while/spec.md',
+      surface: 'statement',
+    },
+  ]);
   const kinds = deferredNodeKinds();
-  assert.deepEqual([...kinds.statement], []);
+  assert.deepEqual([...kinds.statement], ['while']);
   assert.deepEqual([...kinds.expression], []);
   for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
     assert.equal(pythonDeferral(await linked(build())), undefined, `${name} must not be deferred today`);

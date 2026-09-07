@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { expressionLowering, linkedKinds, requestSource, statementLowering } from './ledger-support.mjs';
 
-const STATEMENT_KINDS = Object.freeze(['assign', 'capability', 'for', 'if', 'let', 'print', 'return']);
+const STATEMENT_KINDS = Object.freeze(['assign', 'capability', 'for', 'if', 'let', 'print', 'return', 'while']);
 const EXPRESSION_KINDS = Object.freeze([
   'binary',
   'identifier',
@@ -67,12 +67,14 @@ test('both mappings are exhaustive by type, not only by measurement', () => {
   }
 });
 
-test('every node kind the Python emitter lowers today is mapped lowered', async () => {
+// kern-5-rt11-linked-while landed the ledger's first row (RT11W-TD6, Corrections Log): exactly
+// `while` is mapped `deferred` today, and it is the only one, matching the ledger's own row.
+test('the deferred node kinds are exactly the ones the parity ledger carries', async () => {
   const statements = await statementLowering();
   const expressions = await expressionLowering();
   const deferred = [
     ...Object.entries(statements).filter(([, state]) => state === 'deferred'),
     ...Object.entries(expressions).filter(([, state]) => state === 'deferred'),
   ].map(([kind]) => kind);
-  assert.deepEqual(deferred, [], 'PARITY_LEDGER_EMPTY_START: the mechanism slice defers no node kind');
+  assert.deepEqual(deferred, ['while'], 'PARITY_LEDGER_MAPPING_DRIFT: the deferred set and the ledger disagree');
 });

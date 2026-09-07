@@ -6,6 +6,7 @@ import {
   EXPRESSION_POSITIONS,
   POSITION_FENCES,
   STATEMENT_POSITIONS,
+  WHILE_ROW_POSITIONS,
   admission,
   assertNoPythonArtifact,
   compileWithLowering,
@@ -59,11 +60,19 @@ test('the two unreachable positions stay unreachable', async () => {
   }
 });
 
+// `STATEMENT_POSITIONS`/`EXPRESSION_POSITIONS` are `for`/`binary`-shaped position sweeps and carry
+// no `while` node, so a row whose nodeKind is `while` needs its own mirror catalogue
+// (RT11W-TD7, Corrections Log) rather than the generic one.
 test('each ledger row refuses in every position of its surface', async () => {
   const compile = await compileWithLowering();
   const table = await loweringTable();
   for (const row of ledgerRows()) {
-    const positions = row.surface === 'statement' ? STATEMENT_POSITIONS : EXPRESSION_POSITIONS;
+    const positions =
+      row.nodeKind === 'while'
+        ? WHILE_ROW_POSITIONS
+        : row.surface === 'statement'
+          ? STATEMENT_POSITIONS
+          : EXPRESSION_POSITIONS;
     for (const [name, build] of Object.entries(positions)) {
       const result = compile(await verified(build()), compilerRequest(), table);
       assert.equal(assertNoPythonArtifact(result, `${row.nodeKind} at ${name}`), row.label);

@@ -247,6 +247,41 @@ export const STATEMENT_POSITIONS = Object.freeze({
   'if-then': () => entryProgram([ACC, 'if cond="true"', ...LOOP.map((line) => `  ${line}`), RETURN_ACC]),
 });
 
+// A `while`-shaped mirror of `STATEMENT_POSITIONS`: that catalogue's fixtures are built around
+// `for` as the position-sweep vehicle and carry no `while` node at all, so a ledger row whose
+// nodeKind is `while` cannot be exercised against it (RT11W-TD7, Corrections Log).
+const WHILE_COUNTER = 'let name=i value="0"';
+const WHILE_LOOP = Object.freeze([
+  WHILE_COUNTER,
+  'while cond="i < 3"',
+  '  assign target="acc" value="acc + i"',
+  '  assign target="i" value="i + 1"',
+]);
+
+const WHILE_LOOP_HELPER = Object.freeze({
+  body: Object.freeze([ACC, ...WHILE_LOOP, RETURN_ACC]),
+  name: 'whilesum',
+  parameters: Object.freeze([]),
+  returns: 'integer',
+});
+
+export const WHILE_ROW_POSITIONS = Object.freeze({
+  'for-body': () =>
+    entryProgram([ACC, 'for name=o from="0" to="2"', ...WHILE_LOOP.map((line) => `  ${line}`), RETURN_ACC]),
+  'handler-top-level': () => entryProgram([ACC, ...WHILE_LOOP, RETURN_ACC]),
+  'helper-body': () => entryProgram(['return value="whilesum()"'], { helpers: [WHILE_LOOP_HELPER] }),
+  'if-else': () =>
+    entryProgram([
+      ACC,
+      'if cond="false"',
+      '  assign target="acc" value="1"',
+      'else',
+      ...WHILE_LOOP.map((line) => `  ${line}`),
+      RETURN_ACC,
+    ]),
+  'if-then': () => entryProgram([ACC, 'if cond="true"', ...WHILE_LOOP.map((line) => `  ${line}`), RETURN_ACC]),
+});
+
 const BOUND_BODY = Object.freeze(['  assign target="acc" value="acc + i"']);
 
 // Every expression position a `binary` reaches today, measured. A deferral that fires only at the
