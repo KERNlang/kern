@@ -71,7 +71,7 @@ test('the deferral code is a member of the closed Python compile failure union',
   assert.ok(start >= 0, 'contracts.ts must declare KernKirPythonCompileFailureCode');
   const end = text.indexOf('\n\n', start);
   assert.ok(
-    text.slice(start, end).includes(`'${DEFERRAL_LABEL}'`),
+    text.slice(start, end).includes('typeof KIR_PYTHON_LEG_DEFERRED_CODE'),
     `PARITY_LEDGER_UNION_GAP: ${DEFERRAL_LABEL} must be a member of KernKirPythonCompileFailureCode`,
   );
 });
