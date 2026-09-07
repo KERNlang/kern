@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { POSITIONS } from '../kern-5-rt10-for/k0-support.mjs';
-import { WHILE_POSITIONS, WHILE_TABLE_ROWS, assertLinkLabel, assertWhileAdmitted } from './k0-support.mjs';
+import {
+  WHILE_POSITIONS,
+  WHILE_TABLE_ROWS,
+  assertLinkLabel,
+  assertWhileAdmitted,
+  pythonLegAdmissionColumn,
+} from './k0-support.mjs';
 
 // Every row is (position, label). The link code is closed and identical for all of them, so the
 // label text is the only thing that says which gate fired.
@@ -100,7 +106,7 @@ test('break and continue reach the ordinary statement refusal inside a while bod
 // unreachable from a while. An `assign` in the body is RT-9's ordinary decision and nothing else.
 test('an assign inside a while body is governed by RT-9 alone, with no loop-counter label', async () => {
   const row = await assertWhileAdmitted('while-counted-3', WHILE_POSITIONS['while-counted-3']());
-  assert.equal(row.python, 'admitted', 'the base row is admitted on every leg until the ledger row lands');
+  pythonLegAdmissionColumn(row, 'while-counted-3');
   const counterMessage = await assertLinkLabel(POSITIONS['neg-assign-counter'](), 'KIR_ASSIGN_TO_LOOP_COUNTER');
   assert.ok(
     counterMessage.includes('KIR_ASSIGN_TO_LOOP_COUNTER'),

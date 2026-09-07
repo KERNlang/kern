@@ -25,13 +25,21 @@ const PYTHON_KERNEL_SHA256 = 'f79a39633f58475124eafdec3c62a9fd042ffa50b1de637509
 
 const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877bad90dbd942';
 
-// Four goldens whose scrapes a statement-union addition does not touch: RT-3 scrapes the expression
-// union, RT-6 the void return contract, RT-10-pre the arithmetic surface, RT-10-X the cross-call
-// type table. The RT-2 and RT-9 goldens are absent on purpose — both scrape
-// `linkedStatementKinds` and both move in this slice's licensed cascade.
-const RT3_GOLDEN_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
+// Three goldens whose scrapes a statement-union addition does not touch: RT-6 the void return
+// contract, RT-10-pre the arithmetic surface, RT-10-X the cross-call type table. The RT-2 and RT-9
+// goldens are absent on purpose — both scrape `linkedStatementKinds` and both move in this slice's
+// licensed cascade. RT-3 is absent from this list too: it carries no statement-union scrape of its
+// own, but it does carry `rt2GoldenSha256`, which the RT-2 cascade changes, so RT-3 moves as well —
+// pinned separately below rather than here.
 const RT10PRE_GOLDEN_SHA256 = '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718';
 const RT10X_GOLDEN_SHA256 = '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf';
+
+// The RT-3 golden before and after this slice's licensed RT-2 → RT-3 digest cascade, and the one
+// field of RT-3's golden the cascade is licensed to move.
+const RT3_GOLDEN_BASE_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
+const RT3_GOLDEN_SHA256 = '969dd11bdeaf11169559b1c790f6350ed3e29cf21983797acf3167c1bed8d512';
+const RT3_GOLDEN_BASE_RT2_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
+const RT2_GOLDEN_SHA256 = '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939';
 
 // The Python emitter is byte-frozen: `while` is deferred by ledger row, not lowered. Slice A pins
 // this digest too, and it must not move in either slice.
@@ -91,9 +99,8 @@ test('the frontend carries the same F5 projection policy digest, because while a
   assert.equal(await digest(F5_POLICY_URL), F5_POLICY_SHA256, 'RT11W_FRONTEND_TOUCH: the F5 policy moved');
 });
 
-test('the RT-3, RT-6, RT-10-pre and RT-10-X goldens do not move', async () => {
+test('the RT-6, RT-10-pre and RT-10-X goldens do not move', async () => {
   for (const [url, expected, label] of [
-    [RT3_GOLDEN_URL, RT3_GOLDEN_SHA256, 'RT-3'],
     [RT10PRE_GOLDEN_URL, RT10PRE_GOLDEN_SHA256, 'RT-10-pre'],
     [RT10X_GOLDEN_URL, RT10X_GOLDEN_SHA256, 'RT-10-X'],
   ]) {
@@ -104,6 +111,27 @@ test('the RT-3, RT-6, RT-10-pre and RT-10-X goldens do not move', async () => {
     Object.keys(rt6).sort(),
     ['envelopeText', 'linkedReturnType', 'typeAdmission'],
     'RT11W_GOLDEN_DRIFT: the RT-6 golden scrapes no statement surface and must keep its three keys',
+  );
+});
+
+// RT-3 moves, but only through the one field it carries for exactly this purpose. Undoing that one
+// field on the current golden must reproduce the base golden byte for byte, proving the cascade
+// touched nothing else — RT-3's own expression-union scrape included.
+test('the RT-3 golden differs from its base content in exactly the carried rt2GoldenSha256 field', async () => {
+  const raw = await readFile(RT3_GOLDEN_URL, 'utf8');
+  const golden = JSON.parse(raw);
+  assert.equal(`${JSON.stringify(golden, null, 2)}\n`, raw, 'the RT-3 golden must stay canonically serialized');
+  assert.equal(sha256(raw), RT3_GOLDEN_SHA256, 'RT11W_GOLDEN_DRIFT: the RT-3 golden moved beyond its licensed cascade');
+  assert.equal(
+    golden.rt2GoldenSha256,
+    RT2_GOLDEN_SHA256,
+    'RT11W_GOLDEN_DRIFT: the RT-3 golden must carry the post-cascade RT-2 digest',
+  );
+  const base = { ...golden, rt2GoldenSha256: RT3_GOLDEN_BASE_RT2_SHA256 };
+  assert.equal(
+    sha256(`${JSON.stringify(base, null, 2)}\n`),
+    RT3_GOLDEN_BASE_SHA256,
+    'RT11W_GOLDEN_DRIFT: the RT-3 golden moved beyond the rt2GoldenSha256 field',
   );
 });
 
