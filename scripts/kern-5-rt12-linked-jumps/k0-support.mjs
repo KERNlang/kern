@@ -137,3 +137,47 @@ export function linkedBreakStatement() {
 export function linkedContinueStatement() {
   return Object.freeze({ kind: 'continue' });
 }
+
+export function linkedIntegerReturn(value = '0') {
+  return Object.freeze({
+    kind: 'return',
+    value: Object.freeze({ kind: 'literal', value: Object.freeze({ tag: 'integer', value }) }),
+  });
+}
+
+export function handBuiltEntryHandler(statements) {
+  return Object.freeze({
+    parameters: Object.freeze([]),
+    returnType: Object.freeze({ kind: 'integer' }),
+    statements: Object.freeze(statements),
+  });
+}
+
+// A whole linked program assembled by hand, so the JavaScript emitter and the Python deferral pass
+// can each be reached without the linker admitting anything first. The digests are placeholders:
+// no row in this suite reads them, and every row that does read a digest reads a real artifact.
+export function handBuiltLinkedProgram(statements) {
+  return Object.freeze({
+    entry: Object.freeze({ handlerName: 'route', moduleId: 'route.kern' }),
+    format: 'kern.linked-kir-program.v1',
+    program: handBuiltEntryHandler(statements),
+    projectionArtifactSha256: '0'.repeat(64),
+    sha256: '0'.repeat(64),
+  });
+}
+
+export function handBuiltManifestBase() {
+  return Object.freeze({
+    artifactFormat: 'kern.compiler.kir-js-esm.artifact.v1',
+    canonicalization: 'kern.canonical-json.v1',
+    compilerFormat: 'kern.compiler.kir-js-esm.v1',
+    compilerRequestSha256: '0'.repeat(64),
+    entry: Object.freeze({ handlerName: 'route', moduleId: 'route.kern' }),
+    hashAlgorithm: 'sha256',
+    hostProfile: 'kern.host-profile.node-esm.v1',
+    kernelSha256: '0'.repeat(64),
+    linkedProgramSha256: '0'.repeat(64),
+    projectionArtifactSha256: '0'.repeat(64),
+    runtimeFormat: 'kern.kir-runtime.v1',
+  });
+}
