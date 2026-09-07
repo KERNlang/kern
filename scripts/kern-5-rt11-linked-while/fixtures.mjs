@@ -412,10 +412,14 @@ export const WHILE_TWINS = Object.freeze({
       'let name=b value="i < 1 + 2"',
       'return value="acc"',
     ]),
+  // The true straight-line twin of one `meter-trips-3` trip: `whileAccumulate` charges both the
+  // accumulate and the counter-increment assign per trip, so the twin must carry both statements or
+  // it undercounts by one checkpoint (RT11W-TD1, Corrections Log).
   'twin-two-lets-assign': () =>
     whileProgram([
       'let name=acc value="0"',
       'let name=i value="0"',
+      'assign target="acc" value="acc + 1"',
       'assign target="i" value="i + 1"',
       'return value="acc"',
     ]),
@@ -431,6 +435,21 @@ export const WHILE_METER_POSITIONS = Object.freeze({
       'while cond="i < 2"',
       '  let name=j value="0"',
       '  while cond="j < 2"',
+      '    assign target="acc" value="acc + 1"',
+      '    assign target="j" value="j + 1"',
+      '  assign target="i" value="i + 1"',
+      'return value="acc"',
+    ]),
+  // Same shape as `meter-nested-2x2`, only the inner bound widened by one trip: the tick-discipline
+  // nested-cost row measures the marginal cost of that one extra inner trip against a single loop's
+  // own per-trip cost (RT11W-TD3, Corrections Log).
+  'meter-nested-2x3': () =>
+    whileProgram([
+      'let name=acc value="0"',
+      'let name=i value="0"',
+      'while cond="i < 2"',
+      '  let name=j value="0"',
+      '  while cond="j < 3"',
       '    assign target="acc" value="acc + 1"',
       '    assign target="j" value="j + 1"',
       '  assign target="i" value="i + 1"',

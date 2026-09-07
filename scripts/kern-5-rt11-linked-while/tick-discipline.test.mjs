@@ -6,9 +6,11 @@ import {
   WHILE_METER_POSITIONS,
   WHILE_POSITIONS,
   WHILE_TWINS,
+  assertTwoLegStepThreshold,
   between,
   countOccurrences,
   javascriptArtifact,
+  loopStepBudget,
 } from './k0-support.mjs';
 
 const RT1_EVALUATOR_URL = new URL('../../packages/core/src/kir-runtime/expression.ts', import.meta.url);
@@ -35,6 +37,13 @@ async function region(source) {
 
 async function checkpoints(source) {
   return countOccurrences((await region(source)).statements, CHECKPOINT);
+}
+
+// The metered execution step count (RT-1), not the emitted-text checkpoint census: this is what
+// `metering.test.mjs` calls `ticks`, reused here for the one row that is a metering claim rather
+// than a checkpoint-census claim.
+async function ticks(name) {
+  return (await loopStepBudget(WHILE_METER_POSITIONS[name](), {}, `rt11w-td-${name}`)).execution;
 }
 
 // The reconciliation this slice owes, asserted on the interpreter itself rather than on emitted
@@ -88,10 +97,25 @@ test('a while adds exactly one checkpoint over the same body written straight-li
   );
 });
 
-test('a nested while carries one checkpoint per head, so nesting cannot lose one', async () => {
-  const single = await checkpoints(WHILE_METER_POSITIONS['meter-trips-3']());
-  const nested = await checkpoints(WHILE_METER_POSITIONS['meter-nested-2x2']());
-  assert.equal(nested - single, 1, 'the inner head is a second checkpoint site');
+// Not a checkpoint-census claim: `meter-nested-2x2`'s body carries statements a single loop's body
+// does not (the inner counter's own `let` and the outer's own counter increment), so its emitted
+// checkpoint count is not "single's count plus one" — that was the RT11W-TD3 defect (Corrections
+// Log). The real claim is metering-shaped: an inner trip costs the same inside a while body as it
+// does alone, and the outer loop only adds its own head/probe charges. Widening the inner bound by
+// one trip re-enters that one extra trip once per outer pass, so the marginal cost is
+// `outerTrips * perTrip`, where `perTrip` is measured independently from a single, unnested loop.
+test('a nested while re-enters an inner trip at the same per-trip cost, once per outer pass', async () => {
+  const perTrip = (await ticks('meter-trips-1')) - (await ticks('meter-trips-0'));
+  const outerTrips = 2;
+  assert.equal(
+    (await ticks('meter-nested-2x3')) - (await ticks('meter-nested-2x2')),
+    outerTrips * perTrip,
+    'RT11W_NEST_METER_DRIFT: widening the inner bound by one trip must cost one inner trip per outer pass',
+  );
+});
+
+test('a nested while charges identically on RT-1 and the JavaScript leg at every budget', async () => {
+  await assertTwoLegStepThreshold('meter-nested-2x2', WHILE_METER_POSITIONS['meter-nested-2x2']());
 });
 
 // A `while` and a `for` over the same body must carry the same emitted checkpoint census: one head
@@ -161,14 +185,23 @@ test('the emitted while region introduces no suspension point and no forbidden h
 });
 
 // The whole point of reusing the `if` arm's tag check and the existing meter helpers: the loop is
-// per-program code and no kernel byte moves. If this fires, every emitted-artifact digest moved.
+// per-program code and no kernel byte moves — `compatibility.test.mjs`'s JAVASCRIPT_KERNEL_SHA256
+// pin already proves that byte for byte. This row is the structural half: the `while(true)` head
+// lives only in the handler section, never the kernel, and `__checkAbort` is deliberately absent
+// from this check because it is specialized-handler-scoped (deadline/abort-controller closure), not
+// a kernel-resident helper — RT10F's own precedent checks `__intValue`, a helper that genuinely is
+// kernel-resident, for exactly this reason (RT11W-TD2, Corrections Log).
 test('the while lowering adds no line to the JavaScript target kernel', async () => {
   const parts = await region(WHILE_POSITIONS['while-counted-3']());
   assert.equal(
     countOccurrences(parts.kernel, 'while(true)'),
     0,
-    'RT11W_KERNEL_TOUCH: the loop head belongs to the specialized handler',
+    'RT11W_KERNEL_TOUCH: the loop head belongs to the specialized handler, not the shared kernel',
   );
-  assert.ok(parts.kernel.includes('__checkAbort'), 'the kernel helper the loop reuses must already be there');
   assert.ok(parts.kernel.includes('__Fault'), 'the fault class the tag check raises must already be there');
+  assert.equal(
+    countOccurrences(parts.statements, 'while(true)'),
+    1,
+    'RT11W_KERNEL_TOUCH: exactly one while lives in the handler section for a single, unnested loop',
+  );
 });

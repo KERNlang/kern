@@ -41,7 +41,11 @@ async function bodyCost(withBody, without) {
 test('the straight-line twins reproduce the base costs the identities are derived from', async () => {
   assert.equal(await twinCost('twin-let-literal'), 4, 'a let of a literal plus a return is the 4-step floor');
   assert.equal(await bodyCost('twin-assign-one', 'twin-let-literal'), 4, 'assign acc = acc + 1 costs four steps');
-  assert.equal(await bodyCost('twin-two-lets-assign', 'twin-two-lets'), 4, 'assign i = i + 1 costs four steps');
+  assert.equal(
+    await bodyCost('twin-two-lets-assign', 'twin-two-lets'),
+    8,
+    'assign acc = acc + 1 and assign i = i + 1 together cost eight steps',
+  );
   assert.ok(
     (await bodyCost('twin-two-lets-cond-costly', 'twin-two-lets-cond-cheap')) > 0,
     'the costlier condition must actually cost more, or the per-attempt row proves nothing',
@@ -68,10 +72,11 @@ test('the charge is affine in the trip count', async () => {
 // from different paths through the loop, so an exit charge missing on one path, or a condition
 // evaluated once instead of on every attempt, separates them.
 test('the never-entered total and the per-trip increment imply the same condition cost', async () => {
-  const accumulator = await bodyCost('twin-assign-one', 'twin-let-literal');
-  const increment = await bodyCost('twin-two-lets-assign', 'twin-two-lets');
+  // `twin-two-lets-assign` is the true straight-line twin of one `meter-trips-3` trip (RT11W-TD1,
+  // Corrections Log): both body statements together, not the counter increment alone.
+  const body = await bodyCost('twin-two-lets-assign', 'twin-two-lets');
   const perTrip = (await loopCost('meter-trips-1')) - (await loopCost('meter-trips-0'));
-  const fromIncrement = perTrip - HEAD_CHARGE - accumulator - increment;
+  const fromIncrement = perTrip - HEAD_CHARGE - body;
   const fromNeverEntered = (await loopCost('meter-trips-0')) - (await twinCost('twin-two-lets')) - INIT_AND_EXIT;
   assert.equal(
     fromIncrement,
