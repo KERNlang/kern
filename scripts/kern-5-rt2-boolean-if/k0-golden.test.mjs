@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
+import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import { assertPythonLegAdmission } from '../kern-5-parity-ledger/support.mjs';
+
+import { ENTRY, LIMITS, compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL(
@@ -84,8 +87,14 @@ async function probeAdmission(kind) {
   const python = compilePython(verified);
   const javascriptCode = javascript.outcome === 'failure' ? javascript.code : 'admitted';
   const pythonCode = python.outcome === 'failure' ? python.code : 'admitted';
-  assert.equal(javascriptCode, pythonCode, `both targets share one linker; ${kind} diverged`);
-  return javascriptCode;
+  const link = linkVerifiedKernKirProgram(verified, ENTRY, LIMITS);
+  return assertPythonLegAdmission({
+    javascriptCode,
+    label: kind,
+    linkedProgram: link.outcome === 'success' ? link.program : undefined,
+    python,
+    pythonCode,
+  });
 }
 
 async function recompute() {

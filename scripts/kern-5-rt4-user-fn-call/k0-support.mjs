@@ -25,6 +25,7 @@ import {
   runtimeRequest,
   threeLegs,
 } from '../kern-5-rt2-boolean-if/k0-support.mjs';
+import { assertPythonLegAdmission } from '../kern-5-parity-ledger/support.mjs';
 
 export {
   ENTRY,
@@ -138,12 +139,36 @@ export async function admission(source) {
   };
 }
 
+// The one place the Python leg's admission is judged, for every admission golden in the rt family.
+// It returns the linker's decision, which is target neutral, so a golden that records this column
+// never has to fork per leg: a deferral is asserted here and changes no recorded byte.
+export function pythonLegAdmissionColumn(row, label) {
+  const link = linkVerifiedKernKirProgram(row.verified, ENTRY, LIMITS);
+  const linkedProgram = link.outcome === 'success' ? link.program : undefined;
+  if (row.rt1 === 'admitted') {
+    assert.ok(linkedProgram !== undefined, `${label}: an admitted row must link, or the parity gate is blind`);
+  }
+  return assertPythonLegAdmission({
+    javascriptCode: row.javascript,
+    label,
+    linkedProgram,
+    python: compilePython(row.verified),
+    pythonCode: row.python,
+  });
+}
+
+export function assertAdmissionRowAgreement(row, label) {
+  assert.equal(row.rt1, row.javascript, `RT-1 and the emitters share one linker; ${label} diverged`);
+  pythonLegAdmissionColumn(row, label);
+  return row.rt1;
+}
+
 export async function assertLinkRejected(source, label) {
   const row = await admission(source);
   assert.equal(row.projection, 'projected', `${label} must project so the negative is a link decision`);
   assert.equal(row.rt1, 'handler-entry-unsupported', label);
   assert.equal(row.javascript, 'handler-entry-unsupported', label);
-  assert.equal(row.python, 'handler-entry-unsupported', label);
+  pythonLegAdmissionColumn(row, label);
   return row;
 }
 

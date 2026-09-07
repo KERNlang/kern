@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { CONTROL_POSITIONS, POSITIONS, admission } from './k0-support.mjs';
+import { CONTROL_POSITIONS, POSITIONS, admission, assertAdmissionRowAgreement } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
@@ -72,9 +72,7 @@ function catalogSchema(kind) {
 async function admissionRow(name, source) {
   const row = await admission(source);
   if (row.projection === 'not-projected') return 'not-projected';
-  assert.equal(row.javascript, row.python, `both targets share one linker; ${name} diverged`);
-  assert.equal(row.rt1, row.javascript, `RT-1 and the emitters share one linker; ${name} diverged`);
-  return row.rt1;
+  return assertAdmissionRowAgreement(row, name);
 }
 
 async function recompute() {

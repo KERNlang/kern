@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { projectKernModules } from '../../packages/core/dist/frontend-projection.js';
-import { OPERATORS, compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
+import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import { assertPythonLegAdmission } from '../kern-5-parity-ledger/support.mjs';
+
+import { ENTRY, LIMITS, OPERATORS, compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
@@ -43,8 +46,14 @@ async function admissionCode(expression) {
   const python = compilePython(verified);
   const javascriptCode = javascript.outcome === 'failure' ? javascript.code : 'admitted';
   const pythonCode = python.outcome === 'failure' ? python.code : 'admitted';
-  assert.equal(javascriptCode, pythonCode, `both targets share one linker; ${expression} diverged`);
-  return javascriptCode;
+  const link = linkVerifiedKernKirProgram(verified, ENTRY, LIMITS);
+  return assertPythonLegAdmission({
+    javascriptCode,
+    label: expression,
+    linkedProgram: link.outcome === 'success' ? link.program : undefined,
+    python,
+    pythonCode,
+  });
 }
 
 async function forDiagnostics(statement) {

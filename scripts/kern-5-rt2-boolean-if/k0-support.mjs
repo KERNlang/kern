@@ -13,8 +13,10 @@ import {
   compileKernKirToPython,
 } from '../../packages/core/dist/compiler-kir-python.js';
 import { projectKernModules, verifyKernProjection } from '../../packages/core/dist/frontend-projection.js';
+import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import { KERN_KIR_RUNTIME_FORMAT, executeKernKir } from '../../packages/core/dist/runtime-kir.js';
 import { nativeExecute } from '../kern-5-c-py-1-contract/support.mjs';
+import { assertPythonLegCompiled } from '../kern-5-parity-ledger/support.mjs';
 
 export const LIMITS = Object.freeze({
   maxBytes: 100_000,
@@ -216,7 +218,11 @@ export async function threeLegs(source, request) {
   const javascript = compileJavaScript(verified);
   const python = compilePython(verified);
   assert.equal(javascript.outcome, 'success', `javascript compile failed: ${javascript.code}`);
-  assert.equal(python.outcome, 'success', `python compile failed: ${python.code}`);
+  const link = linkVerifiedKernKirProgram(verified, ENTRY, LIMITS);
+  assertPythonLegCompiled({
+    linkedProgram: link.outcome === 'success' ? link.program : undefined,
+    python,
+  });
   const directCalls = [];
   const direct = await executeKernKir(verified, request, provider(directCalls));
   const javascriptRun = await executeJavaScriptChild(javascript.artifact.bytes, request);
