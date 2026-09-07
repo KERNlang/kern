@@ -18,6 +18,7 @@ import {
   provider,
   runtimeRequest,
 } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
+import { KIR_PYTHON_LEG_DEFERRED, PARITY_LEDGER_FORMAT } from './support.mjs';
 
 export {
   ENTRY,
@@ -34,8 +35,8 @@ export {
 };
 
 export const LEDGER_URL = new URL('./parity-ledger.json', import.meta.url);
-export const LEDGER_FORMAT = 'kern.compiler.kir-python.parity-ledger.v1';
-export const DEFERRAL_LABEL = 'KIR_PYTHON_LEG_DEFERRED';
+export const LEDGER_FORMAT = PARITY_LEDGER_FORMAT;
+export const DEFERRAL_LABEL = KIR_PYTHON_LEG_DEFERRED;
 export const LEDGER_SHA256 = '2b372e6ee575231ebf6cf1e845353197a4c55aafc49bf4db7e0a0b40f0cb35fa';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
