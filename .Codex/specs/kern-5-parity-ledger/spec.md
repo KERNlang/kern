@@ -1,8 +1,15 @@
 # KERN 5 — Parity ledger + Python compile-entry deferral pass
 
-**Status:** SPEC — ORACLE LANDED RED
+**Status:** IMPLEMENTED
 **Date:** 2026-09-07
-**Confidence:** 0.91
+**Confidence:** 0.93
+**Commits:** `e23bc61f` (deferral seam pinned as production path), `07484f30`/`9b976c3e` (spec
+corrections), `cd801407` (production: exhaustive lowering tables, deferral walk, compile-entry
+refusal), `bf9f2c8d` (compiledCoreDigest re-pin for the production change), `20d3d097` (review
+round: union references the typed constant instead of repeating its literal; deferral walks
+rewritten as `never`-guarded exhaustive switches; digest re-pinned again), `d43f644b` (union-gap
+oracle updated to scrape for the typed reference), `ef89a53e` (parity-ledger format/label literals
+de-duplicated into one source module).
 
 ## Executive Summary
 
@@ -389,31 +396,33 @@ Each criterion is a test in `scripts/kern-5-parity-ledger/`. None rests on an AS
       equality of their own, while the target-neutral RT-1-versus-JavaScript half stays exact.
 - [x] The gate's node-kind walk reaches a loop inside a helper handler and a binary two levels under
       a record a `member` reads — it is an independent recomputation, not the compiler's answer.
-- [ ] **Exhaustiveness.** `KIR_PYTHON_STATEMENT_LOWERING` covers exactly the 7 statement kinds and
+- [x] **Exhaustiveness.** `KIR_PYTHON_STATEMENT_LOWERING` covers exactly the 7 statement kinds and
       `KIR_PYTHON_EXPRESSION_LOWERING` exactly the 9 expression kinds scraped from the linked
       contracts source, every value is `'lowered' | 'deferred'`, and `request.ts` carries both
       `satisfies Record<…['kind'], …>` clauses so a union member added without a mapping entry is a
-      `tsc` error.
+      `tsc` error. The deferral walks themselves are exhaustive `switch`es with a `never`-guarded
+      default, so an unhandled kind is a second, independent `tsc`/throw gate on top of the mapping
+      (Corrections Log, this round).
 - [x] The two kind sets are disjoint, so `nodeKind` alone is a valid primary key.
-- [ ] **Bidirectional staleness.** Every `'deferred'` mapping entry has a ledger row, every ledger row
+- [x] **Bidirectional staleness.** Every `'deferred'` mapping entry has a ledger row, every ledger row
       is `'deferred'` in the mapping for its surface, and every row's `label` equals
       `KIR_PYTHON_LEG_DEFERRED_CODE` — which is itself a member of the closed
       `KernKirPythonCompileFailureCode` union.
-- [ ] **The refusal.** For every ledger row, in every catalog-permitted position of its surface, the
+- [x] **The refusal.** For every ledger row, in every catalog-permitted position of its surface, the
       compile entry returns exactly `{code: 'KIR_PYTHON_LEG_DEFERRED', format, outcome: 'failure'}` —
       three keys, no `artifact`, no `manifest`.
-- [ ] **The harness fires.** With a synthetic table deferring `for` (statement) or `binary`
+- [x] **The harness fires.** With a synthetic table deferring `for` (statement) or `binary`
       (expression), production code refuses, and with the production table the same programs compile.
-- [ ] **The seam is the production path.** Called with two arguments it defaults to the production
+- [x] **The seam is the production path.** Called with two arguments it defaults to the production
       mapping and returns a result deep-equal to `compileKernKirToPython`'s for every one of the 18
       position fixtures, so it can never become a parallel branch.
-- [ ] **Negative probe.** A synthetic deferred statement refuses in all **5** statement positions
+- [x] **Negative probe.** A synthetic deferred statement refuses in all **5** statement positions
       (handler top level, `if` then, `if` else, `for` body, helper body) and a synthetic deferred
       expression in all **13** expression positions — including the three nesting paths a shallow walk
       would miss, `list-item`, `record-value` and `member-source-record`.
 - [x] The two positions a probe expression cannot reach today (`unary-argument`, refused at link;
       `capability-input`, not projected) stay unreachable, so the matrix cannot silently shrink.
-- [ ] The pass is wired **before** `emitPython` at the compile entry, and reports no deferral for a
+- [x] The pass is wired **before** `emitPython` at the compile entry, and reports no deferral for a
       program built only from lowered kinds.
 - [x] Link is target-neutral: the JavaScript manifest, the Python manifest and a direct link call
       agree on `linkedProgramSha256`.
@@ -599,3 +608,23 @@ Not this slice, and not blocking it — recorded so they are requested rather th
 | Six oracle suites could be re-verified concurrently to save wall clock | Every `test:kern-5-*` script begins with `pnpm --filter @kernlang/core build`, and eight of those racing on one `dist` tree died with `ENOTEMPTY: rmdir … frontend-projection-assets/…`. Six suites reported `exit=1` with no test output at all | Re-verified with one build followed by the suites' `node --test` invocations in sequence. Recorded because a concurrent re-verification looks like six real failures |
 | The rt5 probe matrix could keep recording the raw Python compile code in its `python` column | Under a deferred row the recomputed column would become `KIR_PYTHON_LEG_DEFERRED`, the committed `probe-matrix.json` would drift, and the `while` slice would have to rewrite a golden | The column is now the gate's return value — the linker's target-neutral decision. Byte-identical today (`ab87118b…`), stable under a deferred row, and the golden-row `python === rt1` assertion stays exact |
 | A blame digest gives the ledger provenance | Validated only as hex and compared against nothing; its own spec entry conceded it was caught "by review, not by the oracle" | Column deleted; provenance is `since` + `spec`, and the schema asserts the spec file exists (PL-O5 withdrawn) |
+| The failure-code union member and the deferral walks were oracle-clean as landed (`cd801407`) | Six-engine review found two real gaps: the union repeated the literal `'KIR_PYTHON_LEG_DEFERRED'` instead of referencing `KIR_PYTHON_LEG_DEFERRED_CODE` (so the two could drift), and `expressionDeferral`/`statementsDeferral` had no exhaustive-`never` guard — a future node kind added to the linked unions without a mapping entry would fall through to an implicit `undefined` (fail-open: silently treated as lowered) instead of a compile error or a refusal. A third finding — the parity-ledger format/label literal duplicated between `support.mjs` and `ledger-support.mjs` — was real but its claimed third duplicate, `PYTHON_COMPILER_FORMAT`, does not exist in `ledger-support.mjs` (it sources the real compiled-core constant instead) | Union now reads `typeof KIR_PYTHON_LEG_DEFERRED_CODE` (`20d3d097`). Both walks rewritten as `switch`es with a `default: { const exhaustive: never = node; throw … }` guard, so an unhandled kind is a `tsc` error today and a thrown refusal if the guard is ever bypassed at runtime (`20d3d097`); `statementsDeferral` split into a per-statement `statementDeferral` so a future `case 'while':` is a one-line addition. The union-gap oracle in `staleness.test.mjs` scraped for the literal it no longer contains and had to be updated to scrape for the typed reference instead (`d43f644b`) — a genuine consequence of the fix, not a new finding. `ledger-support.mjs` now imports `LEDGER_FORMAT`/`DEFERRAL_LABEL` from `support.mjs` instead of repeating the two literals (`ef89a53e`); `compiledCoreDigest` re-pinned to `5cfa299d…` and the coverage receipts regenerated |
+
+## Residual Risk
+
+- **Surviving mutant M4 (unresolved).** A facade bypass that swaps `compileKernKirToPython`'s
+  call to `compileKernKirToPythonWithLowering(projection, input)` for a hand-rolled table where every
+  kind is hardcoded `'lowered'` — bypassing `KIR_PYTHON_LOWERING` entirely — survives the current
+  oracle. With the shipped ledger and mapping both empty, "every kind lowered" is indistinguishable
+  from "the production table, consulted honestly": no fixture can tell the two apart because there is
+  no deferred kind for either one to defer. This is not a gap this slice can close: the injectable
+  seam exists precisely so a *synthetic* mapping can prove the wiring end to end (`refusal-golden.test.mjs`,
+  `parent-positions.test.mjs`), but nothing forces the production call site to route through the real
+  `KIR_PYTHON_LOWERING` constant rather than an equivalent-while-empty stand-in. The `while` slice's
+  first non-empty ledger row kills this mutant for free: a hardcoded all-lowered table would then
+  disagree with the ledger-aware gates (`support.mjs`'s `assertPythonLegCompiled`/`assertPythonLegAdmission`)
+  the moment any fixture exercises the deferred kind, and `staleness.test.mjs`'s bidirectional check
+  would catch the table's silence about the new ledger row independently. Left as accepted risk for
+  this slice rather than a blocker, since a same-slice fix would mean asserting identity against the
+  compiler's own answer — the "recomputed, not asked" invariant this spec already enforces elsewhere
+  (`ledger-support.mjs`'s `linkedKinds`/`linkedProgramKinds` walks) forbids exactly that shape of gate.
