@@ -5,8 +5,9 @@
 `071e5df9`, landed in eight commits: `aa335118` (harness, fixtures, pins), `72eac0b3` (the unmoved
 world), `8dd986d0` (linker gates), `de681969` (RT-1 walk, walkers, behaviour), `9388c5f9` (metering,
 fault carrier), `2c670ca4` (label registry, parity ledger), `75d80030` (gated finally, D-7f
-measurement), `a32ab9db` (evidence-family wiring), `349b661c` (harness cleanup). Sixteen spec corrections are
-recorded below.
+measurement), `a32ab9db` (evidence-family wiring), `349b661c` (harness cleanup), `52aecd92` (D-7f self-drive
+fixes). Sixteen spec corrections are recorded below. The D-7f self-drive was **executed**, not
+assumed: `D_MEASURE_ROWS=1 pnpm test:kern-5-d-linked-try` reports the mapping total, none stale.
 **D-7f measured:** D5 carries **39** rows against **177** across D1–D4, so the gate does **not**
 fire and `finally` stays in D.
 **Date:** 2026-09-08
