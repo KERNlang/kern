@@ -27,22 +27,30 @@ import {
 //
 // The hand count, statement by statement, from the RT-1 walk: `meter.step()` fires once per
 // statement boundary, once per entered loop trip (`enterTrip`), once when a loop's condition finally
-// fails, once more on a `break`, and -- new in D -- once per ENTERED block (try body, catch body,
-// finally body) on top of the `try` statement's own boundary charge.
+// fails, once more on a `break`, once per EVALUATED expression node (`evaluateExpression` charges on
+// entry), and -- new in D -- once per ENTERED block (try body, catch body, finally body) on top of
+// the `try` statement's own boundary charge.
+//
+// OQ-D2's promotion: every integer below was MEASURED against its twin in the same run on
+// 2026-09-08 and the two that moved carry their derivation. Both had assumed a leaf statement or a
+// record expression costs one charge; a leaf assign costs two (boundary + value expression) and a
+// record costs one per node.
 const TWIN_DELTAS = Object.freeze({
   // try boundary (1) + entered try body (1); the catch is never entered, so it charges nothing.
   'meter-try-leaf': { delta: 2, twin: 'twin-leaf' },
-  // try boundary (1) + entered try body (1) + throw boundary (1) + entered catch body (1) + the
-  // catch's own leaf (1) = 5, against the twin's `let` (1) + leaf (1) = 2. The payload record's
-  // charge cancels because the twin's `let` carries the same record.
-  //
-  // NOTE, and it is a correction: the spec predicts 4. Counting the twin's `let` boundary against
-  // the fixture's absent one gives 3, not 4 -- the spec double-counts the payload.
-  'meter-try-throw-catch-leaf': { delta: 3, twin: 'twin-let-and-leaf' },
+  // try boundary (1) + entered try body (1) + throw boundary (1) + entered catch body (1) = 4,
+  // against the twin's `let` boundary (1) -- and the payload does NOT cancel: D-1a1 has the linker
+  // insert `code: null`, so the fixture's two-entry record pays three `evaluateExpression` charges
+  // where the twin's written one-entry record pays two. 4 + 1 - 1 = 4, measured 13 against 9.
+  // The spec predicted 4, then its Corrections Log re-derived 3 on the cancellation that the
+  // inserted default breaks.
+  'meter-try-throw-catch-leaf': { delta: 4, twin: 'twin-let-and-leaf' },
   // Three trips, each paying the try boundary plus the entered try body: 3 x 2.
   'meter-for-3-try-leaf': { delta: 6, twin: 'twin-for-3-leaf' },
-  // entered finally body (1) + the finally's own leaf (1), against the finally-less try.
-  'meter-try-leaf-finally-leaf': { delta: 2, twin: 'twin-try-catch-leaf' },
+  // entered finally body (1) + the finally leaf's statement boundary (1) + that leaf's own value
+  // expression (1), against the finally-less try. The spec's 2 counted the leaf once; a leaf assign
+  // costs two. Measured 11 against 8.
+  'meter-try-leaf-finally-leaf': { delta: 3, twin: 'twin-try-catch-leaf' },
 });
 
 async function cost(table, name, requestId) {
@@ -130,7 +138,7 @@ test('a timeout inside a try produces execution-timeout with the catch body skip
   const source = TRY_POSITIONS['try-catch-caught-throw']();
   await assertTryAdmitted('try-catch-caught-throw', source);
   const verified = await project(source);
-  const request = { ...runtimeRequest('d-timeout', {}), control: { preCancelled: false, timeoutMs: 0 } };
+  const request = { ...runtimeRequest('d-timeout', {}), control: { preCancelled: false, timeoutMs: 1 } };
   const envelope = await executeKernKir(verified, request, provider([]));
   assert.equal(envelope.outcome, 'failure');
   assert.deepEqual(

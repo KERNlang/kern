@@ -116,7 +116,7 @@ test('rethrow is lexical only, and a payload record is not an admissible paramet
 // linker completes an omitted `code` with an explicit null literal, so every linked payload carries
 // both keys sorted `code` then `message` -- while a non-conforming payload stays a refusal.
 test('the absent code default is inserted, so every linked payload carries both keys sorted', async () => {
-  const program = await linkedProgram(TRY_POSITIONS['throw-uncaught']());
+  const { program } = await linkedProgram(TRY_POSITIONS['throw-uncaught']());
   const thrown = program.statements.find((statement) => statement.kind === 'throw');
   assert.ok(thrown !== undefined, 'D_THROW_ABSENT: the linked entry handler must carry a throw statement');
   assert.equal(thrown.value.kind, 'record', 'D_PAYLOAD_SHAPE: the linked payload must be a record expression');
@@ -135,7 +135,7 @@ test('the absent code default is inserted, so every linked payload carries both 
 
 test('an explicitly written code: null is admitted, because writing the default is not a refusal', async () => {
   await assertTryAdmitted('try-catch-null-code', TRY_POSITIONS['try-catch-null-code']());
-  const program = await linkedProgram(TRY_POSITIONS['try-catch-null-code']());
+  const { program } = await linkedProgram(TRY_POSITIONS['try-catch-null-code']());
   const outer = program.statements.find((statement) => statement.kind === 'try');
   assert.ok(outer !== undefined, 'D_TRY_ABSENT: the linked entry handler must carry a try statement');
   const thrown = outer.body.find((statement) => statement.kind === 'throw');

@@ -74,24 +74,19 @@ export const TRY_POSITIONS = Object.freeze({
   'try-catch-null-code': () => tryProgram([ACC, ...tryCatch([THROW_NULL_CODE], [SET2]), RET_ACC]),
   'try-catch-return-in-body': () => tryProgram([ACC, ...tryCatch(['return value="5"'], [SET2]), RET_ACC]),
   'try-catch-return-in-catch': () => tryProgram([ACC, ...tryCatch([THROW_BOOM], ['return value="6"']), RET_ACC]),
+  // Measured 2026-09-08: `assign target=out value="e.message"` is refused by RT-9's pre-existing
+  // KIR_ASSIGN_TYPE_MISMATCH gate, because `member` is untyped on both channels (D-1a2) while the
+  // target `let` records `text`. Returning the member straight out of the catch reads the payload
+  // with no typing change at all, which is exactly what D-1a2 pins; the unreachable trailing return
+  // is what D-4b already requires.
   'try-catch-reads-message': () =>
-    tryProgram(
-      [
-        'let name=out value="\\"ok\\""',
-        ...tryCatch([THROW_BOOM], ['assign target="out" value="e.message"']),
-        'return value="out"',
-      ],
-      { returns: 'string' },
-    ),
+    tryProgram([ACC, ...tryCatch([THROW_BOOM], ['return value="e.message"']), 'return value="\\"ok\\""'], {
+      returns: 'string',
+    }),
   'try-catch-reads-code': () =>
-    tryProgram(
-      [
-        'let name=out value="\\"ok\\""',
-        ...tryCatch([THROW_CODED], ['assign target="out" value="e.code"']),
-        'return value="out"',
-      ],
-      { returns: 'string' },
-    ),
+    tryProgram([ACC, ...tryCatch([THROW_CODED], ['return value="e.code"']), 'return value="\\"ok\\""'], {
+      returns: 'string',
+    }),
   // The default-insertion read: `code` is omitted at the throw site, so the linker completes it with
   // a null literal and `e.code` finds an entry rather than taking the missing-member path. The read
   // lands in a `let` and the handler returns an integer, so a null can never collide with the
@@ -99,14 +94,9 @@ export const TRY_POSITIONS = Object.freeze({
   'try-catch-reads-omitted-code': () =>
     tryProgram([ACC, ...tryCatch([THROW_BOOM], ['let name=c value="e.code"', SET2]), RET_ACC]),
   'try-catch-reads-missing': () =>
-    tryProgram(
-      [
-        'let name=out value="\\"ok\\""',
-        ...tryCatch([THROW_BOOM], ['assign target="out" value="e.missing"']),
-        'return value="out"',
-      ],
-      { returns: 'string' },
-    ),
+    tryProgram([ACC, ...tryCatch([THROW_BOOM], ['return value="e.missing"']), 'return value="\\"ok\\""'], {
+      returns: 'string',
+    }),
   'try-nested': () => tryProgram([ACC, ...tryCatch(tryCatch([SET1], [SET2], { binding: 'i' }), [SET3]), RET_ACC]),
   'try-rethrow': () => tryProgram([ACC, ...tryCatch([THROW_BOOM], [RETHROW]), RET_ACC]),
   'try-throw-in-catch': () => tryProgram([ACC, ...tryCatch([THROW_BOOM], [THROW_CODED]), RET_ACC]),
@@ -189,8 +179,18 @@ export const TRY_POSITIONS = Object.freeze({
   'neg-try-empty-body': () => tryProgram([ACC, 'try', 'catch name=e', ...indent([SET2]), RET_ACC]),
   'neg-try-empty-catch': () => tryProgram([ACC, 'try', ...indent([SET1]), 'catch name=e', RET_ACC]),
   'neg-try-named': () => tryProgram([ACC, 'try name=t', ...indent([SET1]), 'catch name=e', ...indent([SET2]), RET_ACC]),
+  // Measured 2026-09-08: F5 admits a clause BOTH as a child of the `try` and as its following
+  // sibling, and only the nested shape can carry a body statement after a clause -- as a sibling the
+  // statement is just the next statement of the enclosing block, which `try-catch` itself relies on.
   'neg-try-body-after-clause': () =>
-    tryProgram([ACC, 'try', ...indent([SET1]), 'catch name=e', ...indent([SET2]), 'assign target="acc" value="9"']),
+    tryProgram([
+      ACC,
+      'try',
+      ...indent([SET1]),
+      ...indent(['catch name=e', `  ${SET2}`]),
+      ...indent(['assign target="acc" value="9"']),
+      RET_ACC,
+    ]),
   'neg-catch-top-level': () => tryProgram([ACC, 'catch name=e', ...indent([SET1]), RET_ACC]),
   'neg-catch-in-for': () =>
     tryProgram([ACC, 'for name=i from="0" to="2"', ...indent(['catch name=e', `  ${SET1}`]), RET_ACC]),

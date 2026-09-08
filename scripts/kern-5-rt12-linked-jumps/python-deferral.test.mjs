@@ -65,10 +65,20 @@ test('both jump rows satisfy the parity ledger schema slice A defines', () => {
 // rather than the rows alone is what checks that.
 test('the parity ledger carries the break and continue rows, sorted before the while row', () => {
   validateLedger(LEDGER);
+  const kinds = LEDGER.rows.map((row) => row.nodeKind);
   assert.deepEqual(
-    LEDGER.rows.map((row) => row.nodeKind),
-    ['break', 'continue', 'while'],
-    'RT12J_LEDGER_ROW_MISSING: the ledger must carry three rows in nodeKind order',
+    [...kinds].sort(),
+    kinds,
+    'RT12J_LEDGER_ROW_MISSING: the ledger rows must stay in nodeKind order',
+  );
+  // Slice D appended `throw` and `try` between `continue` and `while`; what rt12 owns is that its
+  // own two rows are present, in order, and ahead of the `while` row they are blocked by.
+  for (const kind of ['break', 'continue', 'while']) {
+    assert.ok(kinds.includes(kind), `RT12J_LEDGER_ROW_MISSING: the ${kind} row is absent`);
+  }
+  assert.ok(
+    kinds.indexOf('break') < kinds.indexOf('continue') && kinds.indexOf('continue') < kinds.indexOf('while'),
+    'RT12J_LEDGER_ROW_MISSING: break and continue must sort before the while row they are blocked by',
   );
   for (const expected of LEDGER_JUMP_ROWS) {
     const row = LEDGER.rows.find((candidate) => candidate.nodeKind === expected.nodeKind);

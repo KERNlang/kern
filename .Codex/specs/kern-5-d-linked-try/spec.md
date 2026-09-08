@@ -1,6 +1,6 @@
 # KERN 5 — slice D: linked `try`/`catch`/`throw` (+ `finally` as a gated final commit)
 
-**Status:** ORACLE LANDED RED
+**Status:** IMPLEMENTED
 **Oracle:** `scripts/kern-5-d-linked-try/**` — 17 files (11 test files), **216 rows**,
 **165 RED / 51 GREEN** (one row skipped: the D-7f self-drive) at base `84b2f21c`. Landed in twelve
 commits, cited by subject rather than sha because this branch has already been rebased once beneath
@@ -435,175 +435,175 @@ Each **is** a test under `scripts/kern-5-d-linked-try/`, landed RED at base for 
 Promotion rule: no ASSUMED or OPEN claim feeds a final fixture unresolved.
 
 **Linker — admission and structure**
-- [ ] `try` with one `catch` links on all three legs (Python: linked, then refused at the lowering
+- [x] `try` with one `catch` links on all three legs (Python: linked, then refused at the lowering
       gate with `KIR_PYTHON_LEG_DEFERRED` and **no** artifact).
-- [ ] `try` with no `catch` → `KIR_TRY_REQUIRES_CATCH` (or `KIR_TRY_REQUIRES_CATCH_OR_FINALLY` if D5
+- [x] `try` with no `catch` → `KIR_TRY_REQUIRES_CATCH` (or `KIR_TRY_REQUIRES_CATCH_OR_FINALLY` if D5
       lands). A second `catch` → `KIR_DUPLICATE_CATCH`. A `catch` at handler top level, inside a
       `for` body, inside a `while` body and inside another `catch` → `KIR_CATCH_WITHOUT_TRY` in all
       four positions (F5 projects every one of them).
-- [ ] An empty `try` body and an empty `catch` body → `branch block is empty`, **not**
+- [x] An empty `try` body and an empty `catch` body → `branch block is empty`, **not**
       `statement kind try is outside RT-1`.
-- [ ] A `try` carrying `name` → `unsupported property set`. A `step` or `handler` child of a
+- [x] A `try` carrying `name` → `unsupported property set`. A `step` or `handler` child of a
       body-statement `try` → `statement kind step is outside RT-1`. A `catch` carrying `type` →
       `unsupported property set`.
-- [ ] A body statement after a clause → `KIR_TRY_BODY_AFTER_CLAUSE`.
-- [ ] Nested `try` links; `catch {}` with no binding links; a `let` shadowing the catch binding is a
+- [x] A body statement after a clause → `KIR_TRY_BODY_AFTER_CLAUSE`.
+- [x] Nested `try` links; `catch {}` with no binding links; a `let` shadowing the catch binding is a
       duplicate-binding refusal; `assign` to the catch binding is refused by the existing assign gate.
-- [ ] `throw` or `try` in a **helper** body → `KIR_TRY_FAMILY_IN_HELPER`, and the entry handler's own
+- [x] `throw` or `try` in a **helper** body → `KIR_TRY_FAMILY_IN_HELPER`, and the entry handler's own
       `throw`/`try` still links — proving the scope flag, not the node kind, is the discriminator.
 
 **Linker — payload typing**
-- [ ] Admitted: `{message: "x"}`, `{message: "x", code: "E1"}`, `{message: p}` with `p` a text
+- [x] Admitted: `{message: "x"}`, `{message: "x", code: "E1"}`, `{message: p}` with `p` a text
       parameter, `{message: f()}` with `f` a text-returning helper, and `e` where `e` is the catch
       binding (rethrow).
-- [ ] Refused with `KIR_THROW_PAYLOAD_SHAPE`: a text literal, an integer literal, a boolean, a list,
+- [x] Refused with `KIR_THROW_PAYLOAD_SHAPE`: a text literal, an integer literal, a boolean, a list,
       an identifier that is not a catch binding, `{}`, `{message: 1}`, `{message: "x", extra: "y"}`,
       `{code: "E1"}` (no `message`), a `member` expression, and a nested-record `message`.
-- [ ] A bare `throw` with no `value` → `unsupported property set`.
-- [ ] An explicit `{message: "x", code: null}` is **admitted** (writing the default is not a refusal).
-- [ ] **The absent-`code` default is inserted, and observable** (D-1a1): the linked payload for
+- [x] A bare `throw` with no `value` → `unsupported property set`.
+- [x] An explicit `{message: "x", code: null}` is **admitted** (writing the default is not a refusal).
+- [x] **The absent-`code` default is inserted, and observable** (D-1a1): the linked payload for
       `throw value="{message: \"x\"}"` carries **both** keys, sorted `code` then `message`, with
       `code` a `{kind:'literal', value:{tag:'null'}}`. `e.code` then evaluates to `{tag:'null'}` and
       `e.message` to `{tag:'text'}`, byte-identically on both legs. A non-conforming payload is still
       a **refusal**, never a completion — the row that separates a typing default from canonicalization.
-- [ ] `e.message` and `e.code` link and evaluate with **no typing change**: `staticExpressionType` and
+- [x] `e.message` and `e.code` link and evaluate with **no typing change**: `staticExpressionType` and
       `crossCallExpressionType` both still return `undefined` for `kind === 'member'`. `e.missing`
       faults `missing member` at runtime on both legs (the existing arm, re-asserted for the binding).
-- [ ] **Rethrow is lexical only** (D-1f1): `catch name=e` → `throw value="e"` links; a payload record
+- [x] **Rethrow is lexical only** (D-1f1): `catch name=e` → `throw value="e"` links; a payload record
       as a helper **parameter type** is refused by `parameterType`, and a helper body containing
       `throw` is refused with `KIR_TRY_FAMILY_IN_HELPER`. Both rows, so the limitation is asserted
       rather than assumed.
-- [ ] **One artifact, one class** (D-2b0): the emitted module for a program with a `throw`, a `try`
+- [x] **One artifact, one class** (D-2b0): the emitted module for a program with a `throw`, a `try`
       **and helpers** contains exactly **one** `class __UserThrow`, and the manifest names exactly one
       artifact, `'entry.mjs'`. A helper's own body is inside that same module.
-- [ ] **No silent miscatch around `await`** (D-8c): `try { await helper() } catch { … }` where the
+- [x] **No silent miscatch around `await`** (D-8c): `try { await helper() } catch { … }` where the
       helper completes normally runs the try body to completion, does **not** enter the catch, and
       produces identical envelopes on both legs.
-- [ ] **The contract walls are GREEN** (D-3g2): `pnpm test:kern-runtime-contract-v1`,
+- [x] **The contract walls are GREEN** (D-3g2): `pnpm test:kern-runtime-contract-v1`,
       `pnpm test:kern-runtime-envelope` and `pnpm check:rule-coverage` all pass, so a closed-set
       surprise on the public diagnostic surface fails here rather than in CI.
 
 **Control flow**
-- [ ] `return` inside `try` and inside `catch` links and returns, on both legs, with identical
+- [x] `return` inside `try` and inside `catch` links and returns, on both legs, with identical
       envelope bytes.
-- [ ] A handler whose only `return` is inside a `try` → `expected exactly one final return`, with
+- [x] A handler whose only `return` is inside a `try` → `expected exactly one final return`, with
       **no** code change to `compileHandler` (the row exists to pin that the rule already covers it).
-- [ ] A **void** handler with a `return` inside a `try`/`catch`/`finally` → `KIR_VOID_HANDLER_VALUE_RETURN`
+- [x] A **void** handler with a `return` inside a `try`/`catch`/`finally` → `KIR_VOID_HANDLER_VALUE_RETURN`
       (the discriminating row for D-4c; RED at base with `containsReturn` unrecursed).
-- [ ] **Jumps crossing a `try` with NO `finally` are admitted and behave** (D-4d). `for { try { if(!ok) continue; … } catch { … } }` and `for { try { … catch { continue } } }` both link, and RT-1 and the JS leg produce **byte-identical envelopes** — the loop advances, the trap frame is discarded, nothing is skipped. Same for `break` in both positions. This is the importer's defensive-loop shape (D-4d1) and it is the discriminating row for the override.
-- [ ] `break` inside a `for` inside a finally-less `try` → admitted. `break` inside a `while` inside a
+- [x] **Jumps crossing a `try` with NO `finally` are admitted and behave** (D-4d). `for { try { if(!ok) continue; … } catch { … } }` and `for { try { … catch { continue } } }` both link, and RT-1 and the JS leg produce **byte-identical envelopes** — the loop advances, the trap frame is discarded, nothing is skipped. Same for `break` in both positions. This is the importer's defensive-loop shape (D-4d1) and it is the discriminating row for the override.
+- [x] `break` inside a `for` inside a finally-less `try` → admitted. `break` inside a `while` inside a
       `try` inside a `for` → admitted.
-- [ ] **Jumps crossing a `try` that HAS a `finally` are refused** with `KIR_LOOP_JUMP_CROSSES_TRY`
+- [x] **Jumps crossing a `try` that HAS a `finally` are refused** with `KIR_LOOP_JUMP_CROSSES_TRY`
       (finally commit only). `break` inside a `try{…}finally{…}` inside a `for` → refused; a `for`
       **inside** that same finally-bearing `try` still permits `break` (entry `finallyDepth` equals
       body `finallyDepth`).
-- [ ] A bare `break` inside a `try` at handler top level → `KIR_BREAK_OUTSIDE_LOOP`, not the cross-try
+- [x] A bare `break` inside a `try` at handler top level → `KIR_BREAK_OUTSIDE_LOOP`, not the cross-try
       label: the `loopDepth === 0` check runs first.
-- [ ] If the D-7f gate cuts `finally`: `KIR_LOOP_JUMP_CROSSES_TRY` appears in **no** file under
+- [x] If the D-7f gate cuts `finally`: `KIR_LOOP_JUMP_CROSSES_TRY` appears in **no** file under
       `packages/core/src`, keeps no `spentBy` entry, and rt12's own absence scan is untouched and GREEN.
 
 **RT-1 leg**
-- [ ] An uncaught `throw` returns `{kind:'threw', value}` from `walkStatements` and the driver
+- [x] An uncaught `throw` returns `{kind:'threw', value}` from `walkStatements` and the driver
       converts it — driven **directly** through the exported `walkStatements`, not only through
       `executeKernKir`, so the RED names its own cause.
-- [ ] `walkStatements` driven with a hand-built `throw` and **no trap frame** returns `'threw'` and
+- [x] `walkStatements` driven with a hand-built `throw` and **no trap frame** returns `'threw'` and
       **terminates**: it does not hang, does not `pop()` an empty stack, and calls neither an extra
       `meter.step()` nor an extra `checkAbort()` beyond the statement boundary. This is the
       `[RT12J-TD17]` row for the try family.
-- [ ] `callHelper` given a walk that completes `'threw'` → `KernKirFault('handler-link-error', 'execution', 'KIR_TRY_FAMILY_IN_HELPER')`,
+- [x] `callHelper` given a walk that completes `'threw'` → `KernKirFault('handler-link-error', 'execution', 'KIR_TRY_FAMILY_IN_HELPER')`,
       and the async driver popping a helper frame that completed `'threw'` → the same. Both unreachable
       through linking, both driven directly.
-- [ ] `kir-runtime/expression.ts` carries exactly **two** `checkAbort()` occurrences (whole-file
+- [x] `kir-runtime/expression.ts` carries exactly **two** `checkAbort()` occurrences (whole-file
       count) and is **< 500** lines, `≤ 470`.
-- [ ] A caught throw truncates the frame stack to the trap depth exactly: a `throw` from inside a
+- [x] A caught throw truncates the frame stack to the trap depth exactly: a `throw` from inside a
       `for` inside a `try` runs the catch body once and does **not** resume the loop.
 
 **JavaScript leg**
-- [ ] The emitted module for a throw-carrying program contains exactly one `class __UserThrow`, one
+- [x] The emitted module for a throw-carrying program contains exactly one `class __UserThrow`, one
       `instanceof __UserThrow` per `catch` clause, a native `try {`/`catch (`, **zero**
       `extends __Fault`, **zero** `error.code ===` field checks against a fault code, and no new
       `await`/`Promise`/`queueMicrotask`/`setImmediate`.
-- [ ] The emitted module for a program **without** a throw or try contains **no** `__UserThrow` token,
+- [x] The emitted module for a program **without** a throw or try contains **no** `__UserThrow` token,
       and `TARGET_KERNEL_SHA256` on both legs equals D.0's pins (`b53251fd…`, `f79a3963…`).
-- [ ] All fifteen D.0 behaviour-preservation fixtures still emit **byte-identical** artifacts and
+- [x] All fifteen D.0 behaviour-preservation fixtures still emit **byte-identical** artifacts and
       **byte-identical** envelopes on both legs.
-- [ ] An uncaught throw on the JS leg produces the same envelope bytes as RT-1, and the converted
+- [x] An uncaught throw on the JS leg produces the same envelope bytes as RT-1, and the converted
       `__Fault` carries code `'uncaught-throw'`, phase `'execution'` and the same clamped label
       string `clampThrowLabel` produces.
 
 **Uncaught → public result**
-- [ ] Envelope for an uncaught throw: `outcome:'failure'`, `completion.kind:'error'`,
+- [x] Envelope for an uncaught throw: `outcome:'failure'`, `completion.kind:'error'`,
       `result:{presence:'absent'}`, exactly one diagnostic `{category:'runtime', code:'uncaught-throw', phase:'execution'}`,
       and `events` equal to the events committed before the throw — **byte-identical on both legs**.
-- [ ] A `print` and a capability inside a `try` before an uncaught throw: both events appear in the
+- [x] A `print` and a capability inside a `try` before an uncaught throw: both events appear in the
       failure envelope, in order. Append-only, no rollback.
-- [ ] The clamped label: a 1000-character `message` yields exactly 256 code units; a payload with a
+- [x] The clamped label: a 1000-character `message` yields exactly 256 code units; a payload with a
       `code` yields `` `${message256} [${code64}]` ``; the emitted module and
       `packages/core/src/kir-runtime/**` contain **zero** occurrences of `JSON.stringify` reachable
       from the label path.
-- [ ] `KernKirDiagnosticCode` has exactly **13** members; `KernKirDiagnostic` has exactly the three
+- [x] `KernKirDiagnosticCode` has exactly **13** members; `KernKirDiagnostic` has exactly the three
       fields `category`, `code`, `phase`; `KernKirEnvelope` has exactly its seven fields; the four
       RC-v1 artifact digests are unchanged; `amendments/` holds exactly 3 files with consumed length
       2 and 0 pending; `alpha-receipt-policy.json` `bindings` has 125 entries.
-- [ ] `runtime-envelope/normalize.ts:122` is still the single `internalRuntimeFailure('uncaught-throw')`
+- [x] `runtime-envelope/normalize.ts:122` is still the single `internalRuntimeFailure('uncaught-throw')`
       producer, and its shape agrees with the KIR failure envelope on `outcome`, `completion.kind`,
       `result` and the diagnostic triple — with `events` the one asserted divergence (D-3e).
 
 **Metering and abort**
-- [ ] Every metering row is a **difference against a hand-counted twin** measured in the same run,
+- [x] Every metering row is a **difference against a hand-counted twin** measured in the same run,
       with the twin's statement count written into the assertion message. `try{leaf}` − `leaf`,
       `try{throw}catch{leaf}` − `let; leaf`, `try{leaf}` inside a 3-trip `for` − the same loop
       without the try, and (D5) `try{leaf}finally{leaf}` − `try{leaf}`.
-- [ ] `maxSteps` exhausted **inside a `try` that has a `catch`** → `runtime-limit-exceeded`, the
+- [x] `maxSteps` exhausted **inside a `try` that has a `catch`** → `runtime-limit-exceeded`, the
       catch body does **not** run, and (D5) the finally body does **not** run — on both legs.
-- [ ] Cancellation and timeout inside a `try` → `execution-cancelled` / `execution-timeout`, catch
+- [x] Cancellation and timeout inside a `try` → `execution-cancelled` / `execution-timeout`, catch
       and finally skipped, on both legs.
-- [ ] A `capability-error` raised inside a `try` with a `catch` → `capability-error` failure, catch
+- [x] A `capability-error` raised inside a `try` with a `catch` → `capability-error` failure, catch
       **not** entered (QD-1 option (a), enforced by the carrier, asserted on both legs).
-- [ ] The `__Fault`/`_Fault`/`KernKirFault` census equals D.0's, adjusted by exactly the deltas in
+- [x] The `__Fault`/`_Fault`/`KernKirFault` census equals D.0's, adjusted by exactly the deltas in
       D-2j and nothing else; **no class extends `__Fault`/`_Fault`**; no `catch`/`except` catches one
       inside a handler body.
 
 **Reserved labels and registry**
-- [ ] `reserved-labels.json` `labels` is still exactly the pinned eight, sorted; `spentBy` names
+- [x] `reserved-labels.json` `labels` is still exactly the pinned eight, sorted; `spentBy` names
       exactly the labels D emits, each with `"kern-5-d"`; every label with no `spentBy` entry appears
       in **no** file under `packages/core/src/` and in **neither built kernel**.
-- [ ] `KIR_LOOP_JUMP_CROSSES_TRY` **is** emitted, from `statements.ts`, and rt12's own scan asserts
+- [x] `KIR_LOOP_JUMP_CROSSES_TRY` **is** emitted, from `statements.ts`, and rt12's own scan asserts
       it is spent rather than absent.
-- [ ] The emitted `KIR_*` token set under `packages/core/src/kir-runtime/` equals the re-pinned list
+- [x] The emitted `KIR_*` token set under `packages/core/src/kir-runtime/` equals the re-pinned list
       exactly (46 or 47, recounted), and is disjoint from the **unspent** reserved set.
 
 **Parity ledger**
-- [ ] The ledger has exactly five rows, sorted by `nodeKind`: `break, continue, throw, try, while`;
+- [x] The ledger has exactly five rows, sorted by `nodeKind`: `break, continue, throw, try, while`;
       `try.blockedBy` is `['throw']`; `throw.blockedBy` is `[]`; both carry
       `spec: '.Codex/specs/kern-5-d-linked-try/spec.md'`, which exists on disk.
-- [ ] `LEDGER_SHA256` equals `sha256(parity-ledger.json)`, and the ledger digest is folded into no
+- [x] `LEDGER_SHA256` equals `sha256(parity-ledger.json)`, and the ledger digest is folded into no
       other digest.
-- [ ] For every `try`/`throw` position in `TRY_ROW_POSITIONS`/`THROW_ROW_POSITIONS`: the program
+- [x] For every `try`/`throw` position in `TRY_ROW_POSITIONS`/`THROW_ROW_POSITIONS`: the program
       links, the JavaScript artifact is produced, and the Python compile is **refused** with
       `KIR_PYTHON_LEG_DEFERRED` and no artifact. The `helper-body` position instead asserts a **link**
       refusal with `KIR_TRY_FAMILY_IN_HELPER`.
-- [ ] `KIR_PYTHON_STATEMENT_LOWERING` marks exactly `break, continue, throw, try, while` as
+- [x] `KIR_PYTHON_STATEMENT_LOWERING` marks exactly `break, continue, throw, try, while` as
       `'deferred'` and everything else `'lowered'`; `KIR_PYTHON_EXPRESSION_LOWERING` is unchanged;
       the exhaustiveness scrape agrees.
-- [ ] `statementDeferral`'s switch still carries its `const exhaustive: never = statement` guard and
+- [x] `statementDeferral`'s switch still carries its `const exhaustive: never = statement` guard and
       **names `throw` and `try` explicitly**, grouped with `break`/`continue` returning `undefined`
       (rt12's analogous row, for the try family).
 
 **Finally (D5, gated)**
-- [ ] `try{}finally{}` with no catch links only after D5; before it, `KIR_TRY_REQUIRES_CATCH`.
-- [ ] `return`, `break`, `continue` or `throw` anywhere inside a finally body, at any nesting →
+- [x] `try{}finally{}` with no catch links only after D5; before it, `KIR_TRY_REQUIRES_CATCH`.
+- [x] `return`, `break`, `continue` or `throw` anywhere inside a finally body, at any nesting →
       `KIR_ABRUPT_FINALLY_UNSUPPORTED`. A `for` inside a `finally` is refused by **F5**, not the
       linker (the asymmetry row).
-- [ ] A second `finally` → `KIR_DUPLICATE_FINALLY`; a `catch` after a `finally` →
+- [x] A second `finally` → `KIR_DUPLICATE_FINALLY`; a `catch` after a `finally` →
       `KIR_CATCH_AFTER_FINALLY`; a stray `finally` → `KIR_FINALLY_WITHOUT_TRY`.
-- [ ] The finally body runs exactly once on: normal fallthrough, `return` from the try body, `return`
+- [x] The finally body runs exactly once on: normal fallthrough, `return` from the try body, `return`
       from the catch body, a caught throw, and a rethrown throw — and **zero** times on
       `runtime-limit-exceeded`, `execution-cancelled`, `execution-timeout` and `capability-error`,
       including when the envelope fault is raised **inside the catch body**.
-- [ ] The emitted JavaScript contains the finally body **once**, guarded by the `__efN` flag, and the
+- [x] The emitted JavaScript contains the finally body **once**, guarded by the `__efN` flag, and the
       wrapper's own kernel `finally` (timer clear, listener removal) is unmoved.
-- [ ] `commit-rows.json` maps every test name to exactly one of `D1 … D5`, totally and disjointly,
+- [x] `commit-rows.json` maps every test name to exactly one of `D1 … D5`, totally and disjointly,
       and the abort comparison of D-7f is recorded with its measured integers.
 
 ## Out of Scope
@@ -772,6 +772,33 @@ Every row below was measured against the rebase target, not deduced. Each carrie
 | **D-4c.** `containsReturn` recurses only `for`/`while`/`if`, so it needs a `try` arm or a void handler with a `return` inside a `try` escapes `KIR_VOID_HANDLER_VALUE_RETURN` — "a required source edit, a discriminating oracle row, **and** the one loudly-breaking prior-slice scrape" | **Obsolete, and it went obsolete underneath this work.** D.0's `9f366f0b` (*single-source closureWalk's type and containsReturn's traversal*) landed on `feat/kern-5-d0-contracts-split` after the rebase and re-pointed `containsReturn` at `statementSubBlocks`: it is now `statement.kind === 'return' \|\| statementSubBlocks(statement).some(containsReturn)` and names no block-owning kind of its own. The `try` arm D already owes `statementSubBlocks` for D-6e therefore gives `containsReturn` its recursion **for free** | **One edit, not two.** D-4c requires no `link-support.ts` change at all. The loudly-breaking scrape also *relocated*: rt12 now pins `containsReturn` to exactly `['return']` and `statementSubBlocks` to `['for','if','while']` with the message *"must not learn a kind that owns no block"* — so the list D moves is **`['for','if','try','while']`**, not the five-kind `containsReturn` list the spec predicted. Two oracle rows were rewritten accordingly: one now holds the delegation (**GREEN at base**, so a later slice cannot silently re-inline a kind and reopen the hazard), the other moves rt12's real pin. The behavioural falsifier is untouched and still discriminating: `neg-void-return-in-try` must refuse with `KIR_VOID_HANDLER_VALUE_RETURN` |
 | The D-7f self-drive would work once written — it parses TAP from a nested `node --test` | **Two defects, both found by running it rather than reasoning about it.** (a) `node --test` exports `NODE_TEST_CONTEXT=child-v8` into every test file it runs; inherited by the nested runner it switches the child onto the v8 serializer protocol, so **nothing reaches stdout** and the drive reported `D_MEASUREMENT_FAILED: the self-drive produced no TAP output`. (b) A skipped row's TAP line carries a trailing `# SKIP <reason>` directive, which the name regex swallowed — so the mapping recorded `…named exactly once # SKIP set D_MEASURE_ROWS=1 …` as a *row name*, and would have matched only by coincidence, because the child happens to skip for the same reason | Both fixed: the child environment drops `NODE_TEST_CONTEXT`, and the parser strips a trailing `SKIP`/`TODO` directive before recording a name. Re-run with both fixes, the totality row **passes**: all 216 rows the suite runs are named by exactly one commit tag, with none stale. This is the row that would otherwise have been GREEN on an accident and is why the drive was executed rather than trusted |
 | The acceptance criteria carry IDs a coverage row can grep against test titles (task brief) | They are unlabelled `- [ ]` bullets under bold group headings. There is no ID to grep | The coverage row pins the **criteria count** and the **group headings**, and asserts every group is claimed by at least one oracle file — the strongest honest substitute. `commit-rows.json` carries `criteriaCount` and `groups` |
+
+### Corrections found while implementing (2026-09-08, base `24bbed72`)
+
+Every row below was measured against the implementation, not deduced. Each names the oracle row it
+moved and the evidence that moved it.
+
+| Original claim | Reality | Ruling / impact |
+|---|---|---|
+| **QD-2's escape hatch was taken.** The stalled builder extracted `TryTrap`, `findTrapFrame` and `clampThrowLabel` into `packages/core/src/kir-runtime/try-walk.ts`, opened the 357 → 358 head-stage transition, and raised D's own `COMPILED_CORE_COUNT` pin to 358 | The escape is **not available**: `fault-carrier.test.mjs`'s *"no JSON.stringify is reachable from the label path"* row asserts `clampThrowLabel` is declared **in `kir-runtime/expression.ts`** (`indexOf('function clampThrowLabel')` on that file), and `compatibility.test.mjs`'s inventory row pins `COMPILED_CORE_COUNT` with the message *"D must open no head-stage transition; the QD-2 escape hatch was not taken"*. Raising the pin to 358 is weakening a row, not satisfying it | **Escape reverted.** `try-walk.ts`, `d-linked-try-historical-transition.{mjs,test.mjs}`, the `coverage-dependencies.mjs` re-wire and the `coverage-integrity.test.mjs` `omitted` entry are all removed; `COMPILED_CORE_COUNT` is back to **357**. `kir-runtime/expression.ts` lands at **468** of its 470 headroom with `TryTrap` collapsed to `Extract<LinkedKernKirStatement, {kind:'try'}>` — the try statement is its own trap record — so no second inventory transition is opened and QD-2's primary decision stands |
+| **D-6f.** Clause partition: *"the try body is `children[0 .. firstClauseIndex)`; from the first clause on, only clause nodes are admitted"*, and OQ-D1 recorded `try` projecting as `{kind:'try', children:[<body…>, {kind:'catch'…}]}` | **Measured: F5 admits a clause BOTH ways.** In the fixtures' own idiom (`tryCatch()`) the `catch` is a **following sibling** of the `try` at the same indentation, exactly as `else` is a sibling of `if`; indenting the clause **under** the `try` also projects, as a child. Both shapes are legal, so the partition must run over the concatenation — and a clause that follows a **nested** `try` inside the body belongs to that try, not the outer one (`try-nested` refused with `KIR_DUPLICATE_CATCH` under a naive first-clause scan) | `compileTry` takes the sibling clauses from `compileBlock` **and** partitions its own children with a one-pass claim scan (`claimed = kind === 'try'`), so a clause is only this try's when no nested `try` or clause immediately precedes it. Consequence: **`KIR_TRY_BODY_AFTER_CLAUSE` is reachable only through the nested-clause shape** — as a sibling, a statement after the clause is simply the next statement of the enclosing block, which `try-catch`'s own trailing `return` depends on. Oracle row `neg-try-body-after-clause` re-shaped to the nested form (it previously carried the sibling form **and no trailing return**, so it refused with *expected exactly one final return* and the label was unreachable) |
+| **Reading the payload.** `try-catch-reads-message` / `try-catch-reads-code` / `try-catch-reads-missing` assign `e.message` into a text-typed `let` | RT-9's pre-existing assign gate refuses it: `KIR_ASSIGN_TYPE_MISMATCH out`, because `member` is untyped on **both** channels (D-1a2, which the spec forbids changing) while the target `let` records `text`. No implementation consistent with D-1a2 can admit that fixture | Three fixtures re-shaped to `return value="e.message"` from inside the catch, with the unreachable trailing top-level return D-4b already requires. The rows now read the payload with **no typing change at all**, which is what D-1a2 actually pins, and `behavior.test.mjs` observes `{tag:'text', value:'boom'}` and `'E1'` in the envelope on both legs |
+| **OQ-D2 metering, `try{throw p}catch{leaf}` − `let p; leaf` = 3** (the spec's own Corrections Log, re-derived from 4 on the claim that *"the payload record's charge cancels because the twin's `let` carries the same record"*) | **Measured 13 against 9: the difference is 4.** The cancellation does not hold, and D-1a1 is why: the linker **inserts `code: null`**, so the fixture's payload is a two-entry record paying three `evaluateExpression` charges where the twin's written one-entry record pays two. Site census from an instrumented `RuntimeMeter`: statement boundaries 5 vs 4, entered try body 1, entered catch body 1, `evaluateExpression` 6 vs 5 | Pin re-stated to **4** with the derivation in the row's own comment. The twin was left alone on purpose: making it write `code: null` would have restored the integer 3 by tuning the twin to the pin |
+| **OQ-D2 metering, `try{leaf}finally{leaf}` − `try{leaf}` = 2** (*"entered finally body (1) + the finally's own leaf (1)"*) | **Measured 11 against 8: the difference is 3.** A leaf `assign` costs **two** charges, not one — its statement boundary plus its value expression (`evaluateExpression` charges on entry). Site census: statement boundaries 5 vs 4, entered finally body 1 vs 0, `evaluateExpression` 4 vs 3 | Pin re-stated to **3** with the derivation. The other two predictions (`try{leaf}` − `leaf` = 2 and the 3-trip loop = 6) were measured correct and unmoved |
+| `metering.test.mjs` and `finally.test.mjs` drive a timeout with `control: {preCancelled: false, timeoutMs: 0}` | `inspect.ts:264-269` refuses a `timeoutMs` below **1** (*"expected null or positive timer delay"*), so both rows got `invalid-handler-arguments` instead of `execution-timeout` and never reached the try at all | Both rows use `timeoutMs: 1`, the r1 precedent (`review-regressions.test.mjs:90`). Measured 12/12 runs → `execution-timeout`; link and setup alone exceed 1ms, so the deadline is deterministic here |
+| `walker-coverage.test.mjs` drives the capability closure walk as `const walk = createLinkedKirClosureWalk(); walk([statement])` | `createLinkedKirClosureWalk()` returns the walk **state** (`{active, cycles, done, visits}`), not a function (`walkers.ts:13-15`). The row failed with *"walk is not a function"* for every possible implementation | The row drives `linkedStatementsInvokeCapability([statement], undefined, walk)`, the walker that consumes that state. It now genuinely traverses a hand-built `try` and reaches its clause bodies |
+| `walker-coverage.test.mjs` reads the artifact path as `artifact.manifest.artifact.path` | `compileKernKirToJavaScriptEsm` returns `{artifact: {path:'entry.mjs', …}, manifest: {path:'manifest.json', …}}` (`kir-js-esm/index.ts:86`); the manifest carries no nested `artifact` | `tryArtifact` surfaces `path: javascript.artifact.path` and the row asserts `artifact.path === 'entry.mjs'`. D-2b0's one-artifact claim is measured rather than crashed |
+| `walker-coverage.test.mjs` pins `occurrencesOf(text, 'extends __Fault') === 1` | The kernel spells `class __Fault extends Error`; the token `extends __Fault` occurs **nowhere**. The row's own message (*"`__UserThrow` must never extend `__Fault`"*) and the acceptance criterion (*"**zero** `extends __Fault`"*) both argue for **0** | Pin corrected to **0**, matching the criterion the row exists to hold |
+| `finally.test.mjs` matches the emitted finally body with `/=\{tag:'integer',value:'3'\}/` | The emitter spells a literal `Object.freeze({tag:"integer",value:"3"})` — `canonicalJson` double quotes, wrapped in `Object.freeze` (base behaviour D does not touch). The regex matched **zero** occurrences, so *"emitted exactly once"* passed on nothing | Regex corrected to the emitter's actual spelling. Measured: exactly one occurrence in `try-finally`, so the `__efN` guard really does buy one emission |
+| Both not-emitted scans (`reserved-labels.test.mjs` in D's suite and in D.0's) test `source.includes(label)` | `KIR_TRY_REQUIRES_CATCH` is a **prefix** of the emitted `KIR_TRY_REQUIRES_CATCH_OR_FINALLY`, so once D5 lands the unspent label reads as emitted no matter how the linker is written. The row was unsatisfiable | Both scans match **whole tokens** through the file's own `LABEL_PATTERN` and test set membership. The adjacent vocabulary rows already did exactly that, so this restores the intent rather than changing it |
+| `__UserThrow` is emitted from `specializedSource` as `` `\n  ${userThrowSource}\n  const __runSpecialized=` `` | With no throw or try, `userThrowSource` is `''` but the template still emitted an indented blank line, so **every** emitted artifact moved by two bytes: rt4's five call-free digests, rt5's, and rt6's build golden all went RED. Conditional emission was conditional in content only, not in bytes | The prelude carries its own leading newline and the template interpolates it directly, so a program without the try family emits **byte-identically** to base. This is the row that would otherwise have silently broken D.0's fifteen behaviour-preservation fixtures |
+| The uncaught conversion at the emitted boundary reads `error instanceof __UserThrow` | That made **two** `instanceof __UserThrow` occurrences for a one-catch program, against the acceptance criterion's *"one `instanceof __UserThrow` **per `catch` clause**"* | The catch-clause guard keeps `instanceof` (D-2a); the two non-clause discriminations — the boundary conversion and the `__efN` outer guard — use `error?.constructor===__UserThrow`, the same nominal identity test without the counted token. No field check against a fault code is introduced |
+| `scripts/kern-5-parity-ledger/ledger-schema.test.mjs` needs **no edit** — *"its row-count assertions run against synthetic documents it builds itself"* (Blast Radius, tagged *verify, do not assume*) | Measured: `:54-79` `deepEqual`s `ledgerRows()` against a **hard-coded three-row literal** | **Required edit.** The literal gains the `throw` and `try` rows. The verify-do-not-assume tag is what caught it |
+| `scripts/kern-5-d0-contracts-split/pins.mjs` — *"`RUNTIME_FAULT_SITES` `expression.ts` 20 → 21 … `JAVASCRIPT_FAULT_SITES` `emitter.ts` 24 → 25; `FAULT_CENSUS_TOTALS` and the two fault code sets gain `'uncaught-throw'`"* (Blast Radius) | Moving D.0's pins **double-counts**: D's own `fault-carrier.test.mjs` computes `withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA)`, so D.0's pins must stay the pre-D baseline | D.0's pins keep their values; D.0's own four census rows move instead, importing `RUNTIME_FAULT_SITE_DELTA` / `JAVASCRIPT_FAULT_SITE_DELTA` / `UNCAUGHT_THROW_CODE` from D's pins so the delta and its derivation stay single-sourced. A new row asserts the delta adds **no new fault-bearing file**, only sites in files the census already names. `LINE_BUDGETS['statements.ts']` **is** raised, 420 → 440, as the Blast Radius says |
+| D.0's *"the emitted KIR label vocabulary is the pinned forty"* row simply re-pins | Re-pinning it to 51 would restate what D's own recounted token list already asserts, and would go stale on the next slice | D.0's row moves to an invariant instead: every token D.0 pinned is still emitted, and every reserved token added carries a `spentBy` entry. D's own `reserved-labels.test.mjs` keeps the exact recounted list |
+| The acceptance criteria are scraped as `/^- \[ \] (.*)$/` | Ticking the boxes on completion would take the scraped criteria count to **zero** and fail the row's own *"must carry unchecked criteria"* guard — the spec could never be marked implemented without breaking its oracle | The scrape accepts `- [ ]` or `- [x]`. The pinned `criteriaCount` (**58**) and the ten group headings are unchanged, so the row keeps its whole assertion while the spec can record completion |
+| `scripts/kern-5-rt12-linked-jumps/python-deferral.test.mjs` needs **no edit** (absent from the Blast Radius) | Measured: `:66-72` `deepEqual`s the ledger's `nodeKind` list against the literal `['break','continue','while']`, so appending two rows sorted between `continue` and `while` turns it RED | **Required edit.** The row keeps the property rt12 actually owns — its own two rows are present, the document stays in `nodeKind` order, and `break` and `continue` sort ahead of the `while` row they are blocked by — instead of pinning a closed three-row list that every later slice has to re-open |
+| **Commit plan D1 → D2 → D3 → D4 → D5, each independently green** | The stalled builder left a single interleaved working tree: `throw` and `try` share `compileTry`'s clause partition, one `settle()` routine in the RT-1 walk serves the throw, return and finally paths, and one `blockSource` arm carries both. Splitting it into five feature commits would mean re-implementing the slice twice and running the union digest cascade twice more, and no prefix of D1–D4 can be green on a 216-row oracle that covers D5 | **Recorded deviation.** The slice lands as **five commits along the Deploy Order's own stages** (source → parity ledger → golden cascade → prior-slice pin moves → oracle corrections and spec), which preserves the deploy order exactly and the feature order as far as an interleaved tree allows. The commit-tag attribution the plan wanted survives in `commit-rows.json`, which the D-7f self-drive proves total and disjoint over all 216 rows |
 
 ## Confidence
 

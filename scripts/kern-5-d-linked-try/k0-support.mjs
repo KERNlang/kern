@@ -128,6 +128,7 @@ export async function tryArtifact(source) {
   );
   return {
     manifest: javascript.manifest,
+    path: javascript.artifact.path,
     text: Buffer.from(javascript.artifact.bytes).toString('utf8'),
   };
 }
@@ -211,7 +212,7 @@ export function specCriteria() {
   assert.ok(start >= 0 && end > start, 'D_SPEC_SHAPE: the Acceptance Criteria section must be locatable');
   const section = spec.slice(start, end);
   return {
-    criteria: [...section.matchAll(/^- \[ \] (.*)$/gmu)].map((match) => match[1].trim()),
+    criteria: [...section.matchAll(/^- \[[ x]\] (.*)$/gmu)].map((match) => match[1].trim()),
     groups: [...section.matchAll(/^\*\*(.+?)\*\*$/gmu)].map((match) => match[1].trim()),
   };
 }

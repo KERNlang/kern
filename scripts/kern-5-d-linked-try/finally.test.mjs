@@ -149,7 +149,7 @@ test('the finally body runs zero times on cancellation and on timeout', async ()
   const verified = await project(source);
   for (const [control, code] of [
     [{ preCancelled: true, timeoutMs: null }, 'execution-cancelled'],
-    [{ preCancelled: false, timeoutMs: 0 }, 'execution-timeout'],
+    [{ preCancelled: false, timeoutMs: 1 }, 'execution-timeout'],
   ]) {
     const envelope = await executeKernKir(verified, { ...runtimeRequest('d-finally-abort', {}), control }, provider([]));
     assert.deepEqual(
@@ -178,7 +178,7 @@ test('the emitted lowering carries an outer guard, so a fault inside the catch b
 // edge, which is the difference between a lowering that scales and one that squares.
 test('the emitted finally body appears exactly once, not duplicated per exit edge', async () => {
   const artifact = await tryArtifact(TRY_POSITIONS['try-finally']());
-  const body = artifact.text.match(/=\{tag:'integer',value:'3'\}/gu) ?? [];
+  const body = artifact.text.match(/Object\.freeze\(\{tag:"integer",value:"3"\}\)/gu) ?? [];
   assert.equal(
     body.length,
     1,

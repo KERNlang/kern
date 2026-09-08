@@ -14,6 +14,7 @@ import {
   TRY_TWINS,
   createLinkedKirClosureWalk,
   linkedStatementsCallDepth,
+  linkedStatementsInvokeCapability,
   linkedThrowStatement,
   linkedTryStatement,
   occurrencesOf,
@@ -262,7 +263,7 @@ test('both semantic walkers traverse a hand-built try without throwing and reach
   assert.equal(depth, 0, 'D_WALKER_HOLE: a try carrying no call must measure zero');
   const walk = createLinkedKirClosureWalk();
   try {
-    walk([statement]);
+    linkedStatementsInvokeCapability([statement], undefined, walk);
   } catch (error) {
     assert.fail(
       `D_WALKER_HOLE: the capability closure walk walked a hole on a try instead of traversing it: ${error.message}`,
@@ -291,7 +292,7 @@ test('the emitted module for a throw, a try and helpers declares exactly one __U
     `D_CLASS_IDENTITY: exactly one ${USER_THROW_CLASS} class must exist per artifact, or instanceof is unsound`,
   );
   assert.equal(
-    artifact.manifest.artifact.path,
+    artifact.path,
     'entry.mjs',
     'D_ARTIFACT_SPLIT: the manifest must name exactly one artifact, so there is no cross-artifact realm',
   );
@@ -306,10 +307,12 @@ test('the JavaScript block dispatcher emits a native try and a nominal guard rat
     1,
     `D_LOWERING_SHAPE: each catch clause must guard with instanceof ${USER_THROW_CLASS}, never a field check`,
   );
+  // Zero, per the acceptance criterion: the kernel spells `class __Fault extends Error`, so the token
+  // `extends __Fault` occurs nowhere at all -- which is the property the row exists to hold.
   assert.equal(
     occurrencesOf(artifact.text, `extends __Fault`),
-    1,
-    'D_CARRIER_CONFUSED: __Fault is the only class extending Error, and __UserThrow must never extend __Fault',
+    0,
+    'D_CARRIER_CONFUSED: __Fault is the only class extending Error, and nothing may extend __Fault',
   );
   assert.equal(
     artifact.text.includes(`${USER_THROW_CLASS} extends`),

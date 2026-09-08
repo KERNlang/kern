@@ -82,15 +82,17 @@ test('the KIR_TRY_REQUIRES_CATCH key is deleted once the finally commit lands, n
   );
 });
 
+// Whole tokens, never substrings: `KIR_TRY_REQUIRES_CATCH` is a prefix of the emitted
+// `KIR_TRY_REQUIRES_CATCH_OR_FINALLY`, so an `includes` scan reports the unspent label as emitted no
+// matter what the implementation does.
 test('every label with no spentBy entry appears in no file under packages/core/src', () => {
-  const unspent = unspentLabels(registry());
+  const unspent = new Set(unspentLabels(registry()));
   for (const path of sourceFilesUnder('packages/core/src')) {
-    const source = readRepositoryText(path);
-    for (const label of unspent) {
+    for (const match of readRepositoryText(path).matchAll(LABEL_PATTERN)) {
       assert.equal(
-        source.includes(label),
+        unspent.has(match[0]),
         false,
-        `D_LABEL_SPENT: ${path} names the reserved label ${label}, which spentBy does not exempt`,
+        `D_LABEL_SPENT: ${path} names the reserved label ${match[0]}, which spentBy does not exempt`,
       );
     }
   }
@@ -102,10 +104,11 @@ test('every label with no spentBy entry appears in neither built kernel', () => 
     (path) => path.startsWith('compiler/kir-js-esm/') || path.startsWith('compiler/kir-python/'),
   );
   assert.ok(kernels.length > 0, 'D_KERNEL_SCAN_EMPTY: the built kernel inventory must not be empty');
+  const tokens = new Set(unspent);
   for (const path of kernels) {
     const source = readRepositoryText(`packages/core/dist/${path}`);
-    for (const label of unspent) {
-      assert.equal(source.includes(label), false, `D_LABEL_SPENT: built ${path} names unspent ${label}`);
+    for (const match of source.matchAll(LABEL_PATTERN)) {
+      assert.equal(tokens.has(match[0]), false, `D_LABEL_SPENT: built ${path} names unspent ${match[0]}`);
     }
   }
 });
