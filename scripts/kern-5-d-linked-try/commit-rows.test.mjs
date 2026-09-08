@@ -39,8 +39,13 @@ function tapNames() {
       encoding: 'utf8',
       env: { ...process.env, [CHILD_FLAG]: '1' },
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 30 * 60 * 1000,
+      timeout: 90 * 60 * 1000,
     },
+  );
+  assert.equal(
+    child.signal,
+    null,
+    `D_MEASUREMENT_FAILED: the self-drive was killed with ${child.signal}, so its row list is truncated`,
   );
   assert.ok(child.stdout.length > 0, 'D_MEASUREMENT_FAILED: the self-drive produced no TAP output');
   const names = new Set();

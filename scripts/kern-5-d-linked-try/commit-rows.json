@@ -2,8 +2,8 @@
   "format": "kern.oracle.d-linked-try.commit-rows.v1",
   "abortCriterion": {
     "cut": false,
-    "gated": 38,
-    "preceding": 176
+    "gated": 39,
+    "preceding": 177
   },
   "criteriaCount": 58,
   "groups": {
@@ -104,7 +104,8 @@
       "spentBy names exactly the labels D emits, each attributed to this slice",
       "statementSubExpressions gains exactly one arm, for try and not for throw",
       "the CI tier contract names the evidence leaf, so test:ci-contract cannot go red on it",
-      "the D-7f abort comparison is recorded with the integers the mapping carries # SKIP",
+      "the D-7f abort comparison is recorded with the integers the mapping carries",
+      "the D.0 aggregate row has been moved from last to before its declared successors",
       "the D.0 diagnostics rows that D moves have actually been moved, not left stale",
       "the D.0 lands-unspent row has been moved, because D spends into it",
       "the F5 projection policy digest does not move, because all four nodes already project",
@@ -140,7 +141,7 @@
       "the ledger-aware gate rows move from three to five, for both the rows and the kinds",
       "the linked expression union gains no member, because the payload rides the record kind",
       "the linked statement union carries throw and try and no other new kind",
-      "the mapping is total: every row the suite actually runs is named exactly once # SKIP",
+      "the mapping is total: every row the suite actually runs is named exactly once # SKIP set D_MEASURE_ROWS=1 to run the D-7f self-drive",
       "the probe matrix is canonically serialized, so a hand edit is visible in the diff",
       "the reserved label set is still exactly the pinned eight, sorted",
       "the three neighbour goldens D scrapes nothing from do not move",
@@ -256,6 +257,7 @@
       "the emitted finally body appears exactly once, not duplicated per exit edge",
       "the emitted lowering carries an outer guard, so a fault inside the catch body also skips the finally",
       "the emitted try region introduces no suspension point the finally-less twin does not have",
+      "the finally body runs on a rethrown exit, and the throw still escapes as uncaught",
       "the finally body runs zero times on an exhausted step budget, even with a catch present",
       "the finally body runs zero times on cancellation and on timeout",
       "the importer defensive-loop shape behaves byte-identically on both legs with no finally",
