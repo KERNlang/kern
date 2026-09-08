@@ -304,7 +304,67 @@ export const BASE_COMPILED_CORE_DIGEST =
 
 export const M4145_HISTORICAL_COUNT = 317;
 
-export const BASE_OMITTED_PATH_COUNT = 50;
+// live(354) - M4.145-historical(305) = 49, not the 50 the spec estimated. After the split it is 52.
+export const BASE_OMITTED_PATHS = Object.freeze([
+  'compiler-kir-js-esm.js',
+  'compiler-kir-python.js',
+  'compiler/kir-js-esm/contracts.js',
+  'compiler/kir-js-esm/emitter.js',
+  'compiler/kir-js-esm/index.js',
+  'compiler/kir-js-esm/request.js',
+  'compiler/kir-js-esm/target-base.js',
+  'compiler/kir-js-esm/target-execution.js',
+  'compiler/kir-js-esm/target-hash.js',
+  'compiler/kir-js-esm/target-json.js',
+  'compiler/kir-python/contracts.js',
+  'compiler/kir-python/emitter.js',
+  'compiler/kir-python/index.js',
+  'compiler/kir-python/request.js',
+  'compiler/kir-python/target-base.js',
+  'compiler/kir-python/target-execution.js',
+  'compiler/kir-python/target-json.js',
+  'each-collection-reference.js',
+  'frontend-projection.js',
+  'frontend-projection/assets.js',
+  'frontend-projection/contracts.js',
+  'frontend-projection/integrity.js',
+  'frontend-projection/verified-brand.js',
+  'ir/semantics/internal-effect-machine-deferred-binding.js',
+  'ir/semantics/internal-effect-machine-text-splice.js',
+  'ir/semantics/internal-text-code-point-cache.js',
+  'ir/semantics/runner-call-cache.js',
+  'kir-runtime/capability.js',
+  'kir-runtime/contracts.js',
+  'kir-runtime/deadline.js',
+  'kir-runtime/digest.js',
+  'kir-runtime/envelope.js',
+  'kir-runtime/execute.js',
+  'kir-runtime/expression.js',
+  'kir-runtime/inspect.js',
+  'kir-runtime/json.js',
+  'kir-runtime/linked-kir-program/contracts.js',
+  'kir-runtime/linked-kir-program/expression.js',
+  'kir-runtime/linked-kir-program/index.js',
+  'kir-runtime/linked-kir-program/link.js',
+  'kir-structural/branch-path-value.js',
+  'kir-structural/each-collection-reference.js',
+  'kir-structural/runtime-inflate.js',
+  'kir-v1/canonical.js',
+  'kir-v1/types.js',
+  'mutable-node-type-registry-snapshot.js',
+  'parser-hint-snapshot.js',
+  'runtime-envelope/kir-handler.js',
+  'runtime-kir.js',
+]);
+
+export const BASE_OMITTED_PATH_COUNT = 49;
+
+export const C_PY_1_TRANSITION_SHA256 =
+  '357b74f7b14ba5390422b50d215de64fe4defa75be2052a75d99c71a9af317ed';
+
+export const M4145_CHAIN_INPUT_COUNT = 317;
+
+export const M4145_HISTORICAL_PATH_COUNT = 305;
 
 export const RC_V1_AMENDMENT_COUNT = 3;
 
