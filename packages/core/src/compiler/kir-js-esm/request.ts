@@ -1,6 +1,7 @@
 import { KernKirFault, type KernKirLimits, type KernKirValue } from '../../kir-runtime/contracts.js';
 import { canonicalJson } from '../../kir-runtime/digest.js';
 import { RuntimeMeter } from '../../kir-runtime/inspect.js';
+import type { LinkedKernKirParameterType } from '../../kir-runtime/linked-kir-program/index.js';
 import { KERN_KIR_JS_ESM_COMPILER_FORMAT, type KernKirJavaScriptEsmCompileRequest } from './contracts.js';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
@@ -36,6 +37,12 @@ export function valueSource(value: KernKirValue): string {
   return `Object.freeze({tag:'record',value:Object.freeze([${value.value
     .map((entry) => `Object.freeze({key:${jsString(entry.key)},value:${valueSource(entry.value)}})`)
     .join(',')}])})`;
+}
+
+export function typeSource(type: LinkedKernKirParameterType): string {
+  return type.kind === 'list'
+    ? `Object.freeze({kind:'list',element:${jsString(type.element)}})`
+    : `Object.freeze({kind:${jsString(type.kind)}})`;
 }
 
 export function dataSource(value: unknown): string {

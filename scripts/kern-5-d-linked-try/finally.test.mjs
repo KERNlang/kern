@@ -3,10 +3,14 @@ import test from 'node:test';
 
 import { GATED_COMMIT_TAG, USER_THROW_CLASS } from './pins.mjs';
 import {
+  CLEANUP_TEXT,
+  LIMITS,
   TRY_POSITIONS,
   TRY_TABLE_ROWS,
   assertLinkLabel,
   assertTryAdmitted,
+  compileJavaScript,
+  executeJavaScriptChild,
   executeKernKir,
   integerSlot,
   loopStepBudget,
@@ -197,5 +201,88 @@ test('the kernel-owned wrapper finally is unmoved, so the user finally is a sepa
   assert.ok(
     artifact.text.includes(USER_THROW_CLASS),
     `D_UNCONDITIONAL_EMISSION: a finally-carrying program still carries ${USER_THROW_CLASS}`,
+  );
+});
+
+// D-7b's return-through-finally exit, and the one the deferred-envelope blocker lives in: RT-1 runs
+// the finally, appends its event and only then builds the envelope, so the JavaScript leg must not
+// build the success envelope at the return site. It froze the event array and charged maxBytes
+// before the cleanup ran, so a finally that printed made the leg fail where RT-1 succeeded.
+test('a return crossing a finally builds the envelope after the cleanup, with the cleanup event kept', async () => {
+  const source = TRY_POSITIONS['try-finally-print-return']();
+  await assertTryAdmitted('try-finally-print-return', source);
+  const { legs } = await tryTwoLegBytes(source, runtimeRequest('d-finally-print-return', {}));
+  assert.equal(
+    legs.direct.envelope.outcome,
+    'success',
+    'D_FINALLY_ENVELOPE_ORDER: a return crossing a finally that commits an event must still succeed',
+  );
+  assert.deepEqual(legs.direct.envelope.result, integerSlot('5'));
+  assert.deepEqual(
+    legs.direct.envelope.events,
+    [{ op: 'stdout', text: CLEANUP_TEXT }],
+    'D_FINALLY_ENVELOPE_ORDER: the event the finally committed must appear in the success envelope',
+  );
+});
+
+// The byte half of the same property, measured against a twin in the same run rather than pinned to
+// a magic limit: the print-bearing fixture needs a strictly larger budget than its print-free twin,
+// and at the twin's own threshold it must fail with runtime-limit-exceeded on BOTH legs. A leg that
+// charged maxBytes before the cleanup would let the finally's event escape the limit.
+test('a finally event is charged against maxBytes on both legs, not emitted past it', async () => {
+  const budget = async (name) => {
+    const source = TRY_POSITIONS[name]();
+    const verified = await project(source);
+    const javascript = compileJavaScript(verified);
+    assert.equal(javascript.outcome, 'success', `D_LINK_REFUSED: ${name} must emit an artifact`);
+    const runs = async (maxBytes) => {
+      const request = { ...runtimeRequest(`d-bytes-${name}-${maxBytes}`, {}), limits: { ...LIMITS, maxBytes } };
+      const direct = await executeKernKir(verified, request, provider([]));
+      const emitted = await executeJavaScriptChild(javascript.artifact.bytes, request);
+      assert.equal(
+        direct.outcome,
+        emitted.envelope.outcome,
+        `D_LEG_DIVERGENCE: ${name} disagreed across legs at maxBytes ${maxBytes}`,
+      );
+      return { codes: direct.diagnostics.map((diagnostic) => diagnostic.code), ok: direct.outcome === 'success' };
+    };
+    let low = 1;
+    let high = 4000;
+    assert.equal((await runs(high)).ok, true, `${name} must succeed inside the scanned byte range`);
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if ((await runs(mid)).ok) high = mid;
+      else low = mid + 1;
+    }
+    return { runs, threshold: low };
+  };
+  const twin = await budget('try-finally-return-in-body');
+  const printing = await budget('try-finally-print-return');
+  assert.ok(
+    printing.threshold > twin.threshold,
+    `D_FINALLY_BYTES_UNCHARGED: the finally's event must widen the budget; measured ${printing.threshold} against the twin's ${twin.threshold}`,
+  );
+  assert.deepEqual(
+    (await printing.runs(twin.threshold)).codes,
+    ['runtime-limit-exceeded'],
+    `D_FINALLY_BYTES_UNCHARGED: at the twin's threshold ${twin.threshold} the finally's own event must exceed maxBytes`,
+  );
+  assert.equal((await twin.runs(twin.threshold)).ok, true);
+});
+
+// Nested finally-bearing trys compose: the inner try's post-cleanup return is lowered through the
+// outer try's own deferral, so both cleanups run in order and only then is the envelope built.
+test('a return from the innermost body runs both finally bodies in order before the envelope', async () => {
+  const source = TRY_POSITIONS['try-finally-nested-print-return']();
+  await assertTryAdmitted('try-finally-nested-print-return', source);
+  const { legs } = await tryTwoLegBytes(source, runtimeRequest('d-finally-nested', {}));
+  assert.deepEqual(legs.direct.envelope.result, integerSlot('7'));
+  assert.deepEqual(
+    legs.direct.envelope.events,
+    [
+      { op: 'stdout', text: 'inner' },
+      { op: 'stdout', text: 'outer' },
+    ],
+    'D_FINALLY_ENVELOPE_ORDER: both cleanups must run, innermost first, before the envelope is built',
   );
 });

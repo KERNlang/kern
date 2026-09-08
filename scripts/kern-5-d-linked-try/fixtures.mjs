@@ -15,6 +15,20 @@ const THROW_CODED = 'throw value="{message: \\"boom\\", code: \\"E1\\"}"';
 const THROW_NULL_CODE = 'throw value="{message: \\"boom\\", code: null}"';
 const RETHROW = 'throw value="e"';
 
+export const CLEANUP_TEXT = 'cleanup'.repeat(20);
+
+const CLEANUP_PRINT = Object.freeze(['if cond="true"', `  print value="\\"${CLEANUP_TEXT}\\""`]);
+
+const INNER_PRINT = Object.freeze(['if cond="true"', '  print value="\\"inner\\""']);
+
+const OUTER_PRINT = Object.freeze(['if cond="true"', '  print value="\\"outer\\""']);
+
+const GUARDED_CAPABILITY = Object.freeze([
+  'if cond="true"',
+  '  capability namespace=fixture operation=resolve name=reply',
+  '  assign target="acc" value="1"',
+]);
+
 export function tryProgram(body, { helpers = [], parameters = [], returns = 'integer' } = {}) {
   return moduleSource([...helpers, { body, exported: 'true', name: ENTRY.handlerName, parameters, returns }]);
 }
@@ -164,6 +178,44 @@ export const TRY_POSITIONS = Object.freeze({
     ]),
   'try-finally-return-in-body': () =>
     tryProgram([ACC, ...tryCatch(['return value="5"'], [SET2], { finallyLines: [SET3] }), RET_ACC]),
+  // A return crossing a finally, with an event committed BY the finally: the envelope must be built
+  // after the cleanup, or the JavaScript leg pushes onto a frozen array and the event escapes the
+  // byte limit the envelope charges.
+  'try-finally-print-return': () =>
+    tryProgram([ACC, ...tryCatch(['return value="5"'], [SET2], { finallyLines: CLEANUP_PRINT }), RET_ACC]),
+  // Nested finally-bearing trys compose because the inner try's post-cleanup return is lowered
+  // through the OUTER try's own deferral, so both cleanups run, in order, before the envelope.
+  'try-finally-nested-print-return': () =>
+    tryProgram([
+      ACC,
+      'try',
+      ...indent(tryCatch(['return value="7"'], [SET2], { binding: 'i', finallyLines: INNER_PRINT })),
+      'catch name=o',
+      ...indent([SET3]),
+      'finally',
+      ...indent(OUTER_PRINT),
+      RET_ACC,
+    ]),
+  // Measured 2026-09-08: F5's `try` allowedChildren excludes `capability`, so a bare capability in a
+  // try body is projection-rejected and only the if-wrapped shape reaches the linker -- OQ-D1's
+  // print hazard in a third place.
+  'try-catch-capability': () =>
+    tryProgram([ACC, ...tryCatch(GUARDED_CAPABILITY, [SET2]), RET_ACC]),
+  'try-finally-capability': () =>
+    tryProgram([ACC, ...tryCatch(GUARDED_CAPABILITY, [SET2], { finallyLines: CLEANUP_PRINT }), RET_ACC]),
+  'throw-uncaught-after-print-and-capability': () =>
+    tryProgram([
+      ACC,
+      'print value="\\"first\\""',
+      'capability namespace=fixture operation=resolve name=reply',
+      THROW_BOOM,
+      RET_ACC,
+    ]),
+  // The timeout row needs a try whose body outlives a 1ms deadline on BOTH legs: RT-1 creates its
+  // deadline before linking, the emitted module creates its own inside `execute()`, so a leaf-sized
+  // body finishes inside the window on the emitted leg and only RT-1 would ever fail.
+  'try-catch-slow-loop': () =>
+    tryProgram([ACC, ...tryCatch(['for name=i from="0" to="20000"', `  ${BUMP}`], [SET2]), RET_ACC]),
   'try-finally-while': () =>
     tryProgram([
       ACC,
@@ -224,6 +276,10 @@ export const TRY_POSITIONS = Object.freeze({
   'neg-throw-extra-key': () =>
     tryProgram([ACC, 'throw value="{message: \\"x\\", extra: \\"y\\"}"', RET_ACC]),
   'neg-throw-no-message': () => tryProgram([ACC, 'throw value="{code: \\"E1\\"}"', RET_ACC]),
+  // `code` may be the null the linker inserts; `message` may not. Without this row the RT-1 clamp
+  // returns an empty label while the emitted __throwLabel reads `.value` off undefined and crashes
+  // the host out of the envelope entirely.
+  'neg-throw-null-message': () => tryProgram([ACC, 'throw value="{message: null}"', RET_ACC]),
   'neg-throw-member': () =>
     tryProgram([ACC, 'let name=r value="{message: \\"x\\"}"', 'throw value="r.message"', RET_ACC]),
   'neg-throw-nested-record-message': () =>

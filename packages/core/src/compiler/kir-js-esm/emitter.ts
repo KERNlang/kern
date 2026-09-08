@@ -14,7 +14,7 @@ import {
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
 } from '../../kir-runtime/linked-kir-program/index.js';
-import { dataSource, encodedText, jsString, valueSource } from './request.js';
+import { dataSource, encodedText, jsString, typeSource, valueSource } from './request.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_HASH_SOURCE } from './target-hash.js';
@@ -137,12 +137,6 @@ function statementValueSource(
   if (helper === undefined) throw new Error('linked expression references a missing helper');
   const args = expression.arguments.map((argument) => expressionSource(argument, bindings, calls)).join(',');
   return `(__meter.step(),await ${helper}(${args}))`;
-}
-
-function typeSource(type: LinkedKernKirParameterType): string {
-  return type.kind === 'list'
-    ? `Object.freeze({kind:'list',element:${jsString(type.element)}})`
-    : `Object.freeze({kind:${jsString(type.kind)}})`;
 }
 
 function capabilitySource(
@@ -289,26 +283,40 @@ function blockSource(
       if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'while') return whileSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'try') {
-        const body = blockSource(statement.body, new Map(scope), calls, nextLocal, returnSource);
+        const cleanup = statement.finallyBody;
         const catchScope = new Map(scope);
         const catchLocal = nextLocal();
         if (statement.binding !== undefined) catchScope.set(statement.binding, catchLocal);
-        const catchBody = blockSource(statement.catchBody, catchScope, calls, nextLocal, returnSource);
+        const [faultFlag, slot, held] =
+          cleanup === undefined ? ['', '', ''] : [nextLocal('__ef'), nextLocal('__r'), nextLocal('__h')];
+        const exit = `__t${held.slice(3)}`;
+        // A return crossing a finally must not build the success envelope before the cleanup runs:
+        // the envelope freezes the event array and charges maxBytes, so a finally that commits an
+        // event would throw on the frozen array and escape the byte limit. The return breaks a
+        // labeled block, the native finally runs on the way out, and the real return follows it.
+        let deferred = false;
+        const defer = (value: string): string => {
+          deferred = true;
+          return `\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
+        };
+        const bodyReturn = cleanup === undefined ? returnSource : defer;
+        const body = blockSource(statement.body, new Map(scope), calls, nextLocal, bodyReturn);
+        const catchBody = blockSource(statement.catchBody, catchScope, calls, nextLocal, bodyReturn);
         const caught =
           statement.catchBody.length === 0
             ? `${body}`
             : `try {${body}
       } catch(__e) { if(!(__e instanceof __UserThrow))throw __e;
       __meter.step(); __checkAbort();${statement.binding === undefined ? '' : `${catchLocal}=__e.value;`}${catchBody}}`;
-        if (statement.finallyBody === undefined) {
+        if (cleanup === undefined) {
           return `\n      __meter.step(); __checkAbort(); __meter.step(); __checkAbort();${caught}`;
         }
-        const faultFlag = nextLocal('__ef');
-        const finallyBody = blockSource(statement.finallyBody, new Map(scope), calls, nextLocal, returnSource);
-        return `\n      __meter.step(); __checkAbort(); ${faultFlag}=false;
-      try { try { __meter.step(); __checkAbort();${caught} }
+        const finallyBody = blockSource(cleanup, new Map(scope), calls, nextLocal, returnSource);
+        const tail = deferred ? `\n      if(${held}){${returnSource(slot)}}` : '';
+        return `\n      __meter.step(); __checkAbort(); ${faultFlag}=false; ${held}=false;
+      ${exit}: { try { try { __meter.step(); __checkAbort();${caught} }
       catch(__e2){if(__e2?.constructor!==__UserThrow)${faultFlag}=true;throw __e2;}
-      } finally {if(!${faultFlag}){__meter.step(); __checkAbort();${finallyBody}}}`;
+      } finally {if(!${faultFlag}){__meter.step(); __checkAbort();${finallyBody}}} }${tail}`;
       }
       if (statement.kind === 'break' || statement.kind === 'continue') {
         return `\n      __meter.step(); __checkAbort();\n      ${statement.kind};`;
@@ -422,7 +430,7 @@ function specializedSource(linked: LinkedKernKirProgram): string {
   const userThrowSource = hasUserThrow
     ? `
   class __UserThrow{constructor(value){this.value=value;}}
-  const __throwLabel=(value)=>{const message=value.value.find((entry)=>entry.key==='message').value;const code=value.value.find((entry)=>entry.key==='code').value;const label=message.value.slice(0,256);return code.tag==='text'?label+' ['+code.value.slice(0,64)+']':label;};`
+  const __throwLabel=(value)=>{const __at=(key)=>value.value.find((entry)=>entry.key===key)?.value;const message=__at('message');const code=__at('code');if(message?.tag!=='text')return '';const label=message.value.slice(0,256);return code?.tag==='text'?label+' ['+code.value.slice(0,64)+']':label;};`
     : '';
   const catchSource = hasUserThrow
     ? `if(error?.constructor===__UserThrow)error=new __Fault('uncaught-throw','execution',__throwLabel(error.value));return __failureEnvelope(__requestId,error,__events);`

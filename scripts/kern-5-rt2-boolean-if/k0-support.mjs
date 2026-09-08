@@ -87,6 +87,17 @@ export function provider(calls) {
   };
 }
 
+// The RT-1 mirror of `capabilityFails`: a provider that throws a plain error, which `execute.ts`
+// converts into `capability-error` without it ever re-entering the walk.
+export function failingProvider(calls) {
+  return {
+    invoke: async (call) => {
+      calls.push(call);
+      throw new Error('capability provider failed');
+    },
+  };
+}
+
 export function normalizeEnvelope(envelope) {
   assert.ok(envelope && typeof envelope === 'object' && !Array.isArray(envelope));
   assert.deepEqual(Object.keys(envelope).sort(), ENVELOPE_KEYS.slice().sort());
@@ -111,7 +122,10 @@ export function envelopeBytes(envelope) {
   return encoder.encode(canonicalJson(normalizeEnvelope(envelope)));
 }
 
-function javascriptDriver(abortAfterMicrotasks) {
+// `capabilityFails` is what makes a capability fault reachable on the emitted leg: the emitted
+// invoke wraps the provider call in its own try/catch and converts any non-fault throw into
+// `capability-error`, exactly as the RT-1 driver does. Default off, so no existing row moves.
+function javascriptDriver(abortAfterMicrotasks, capabilityFails = false) {
   return [
     "import { readFile, writeFile } from 'node:fs/promises';",
     'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
@@ -121,6 +135,7 @@ function javascriptDriver(abortAfterMicrotasks) {
     'const options = {',
     '  invoke: async (call) => {',
     '    calls.push({ namespace: call.namespace, operation: call.operation });',
+    ...(capabilityFails ? ['    throw new Error("capability provider failed");'] : []),
     '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
     '  },',
     '};',
@@ -166,7 +181,7 @@ export async function executeJavaScriptChild(bytes, request, options = {}) {
     const output = join(directory, 'output.json');
     await Promise.all([
       writeFile(entry, bytes),
-      writeFile(driver, javascriptDriver(options.abortAfterMicrotasks)),
+      writeFile(driver, javascriptDriver(options.abortAfterMicrotasks, options.capabilityFails)),
       writeFile(input, JSON.stringify(request)),
     ]);
     const node22 = process.env.KERN_NODE22 ?? process.execPath;
