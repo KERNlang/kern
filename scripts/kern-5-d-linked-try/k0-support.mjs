@@ -168,14 +168,6 @@ export function runtimeEvaluator() {
   return require('../../packages/core/dist/kir-runtime/expression.js');
 }
 
-export function runtimeContracts() {
-  return require('../../packages/core/dist/kir-runtime/contracts.js');
-}
-
-export function linkedContracts() {
-  return require('../../packages/core/dist/kir-runtime/linked-kir-program/index.js');
-}
-
 // Hand-built linked statements, so the walk and the two semantic walkers can be asked about a
 // `throw`/`try` with no linker involvement. Every path unreachable through linking still needs a
 // fail-closed row, and only a direct drive can reach one.
