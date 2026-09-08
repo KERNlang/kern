@@ -43,17 +43,21 @@ test('the D.0 leaf builds core and runs every oracle file exactly once', () => {
   assert.equal(new Set(invoked).size, invoked.length, 'D0_LEAF_SHAPE: an oracle file runs twice');
 });
 
-test('the evidence aggregate appends the D.0 leaf exactly once, last', () => {
+// Moved by slice D, the first leaf that legitimately runs after D.0. The invariant was never "last"
+// but "after every prior slice", and only a declared successor may follow it.
+const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-d-linked-try']);
+
+test('the evidence aggregate appends the D.0 leaf exactly once, before its declared successors only', () => {
   const family = segments(scripts()['test:kern-5-script-family']);
   assert.equal(
     family.filter((segment) => segment === `pnpm ${EVIDENCE_LEAF}`).length,
     1,
     'D0_AGGREGATE: the D.0 leaf must appear exactly once in the evidence family',
   );
-  assert.equal(
-    family.at(-1),
-    `pnpm ${EVIDENCE_LEAF}`,
-    'D0_AGGREGATE: D.0 depends on every prior slice, so it runs last',
+  assert.deepEqual(
+    family.slice(family.indexOf(`pnpm ${EVIDENCE_LEAF}`) + 1),
+    SUCCESSOR_LEAVES.map((leaf) => `pnpm ${leaf}`),
+    'D0_AGGREGATE: D.0 depends on every prior slice, so only a declared successor may follow it',
   );
 });
 
