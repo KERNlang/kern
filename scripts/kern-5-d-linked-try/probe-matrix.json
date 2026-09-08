@@ -194,6 +194,10 @@
         "diagnostics": [],
         "status": "projected"
       },
+      "neg-throw-null-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
       "neg-throw-shadowed-binding": {
         "diagnostics": [],
         "status": "projected"
@@ -254,6 +258,10 @@
         "diagnostics": [],
         "status": "projected"
       },
+      "throw-uncaught-after-print-and-capability": {
+        "diagnostics": [],
+        "status": "projected"
+      },
       "throw-uncaught-coded": {
         "diagnostics": [],
         "status": "projected"
@@ -267,6 +275,10 @@
         "status": "projected"
       },
       "try-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-capability": {
         "diagnostics": [],
         "status": "projected"
       },
@@ -310,7 +322,15 @@
         "diagnostics": [],
         "status": "projected"
       },
+      "try-catch-slow-loop": {
+        "diagnostics": [],
+        "status": "projected"
+      },
       "try-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-capability": {
         "diagnostics": [],
         "status": "projected"
       },
@@ -318,7 +338,15 @@
         "diagnostics": [],
         "status": "projected"
       },
+      "try-finally-nested-print-return": {
+        "diagnostics": [],
+        "status": "projected"
+      },
       "try-finally-no-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-print-return": {
         "diagnostics": [],
         "status": "projected"
       },
