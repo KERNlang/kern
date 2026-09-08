@@ -11,6 +11,11 @@ import {
   PYTHON_FAULT_SITES,
   RUNTIME_FAULT_SITES,
 } from './pins.mjs';
+import {
+  JAVASCRIPT_FAULT_SITE_DELTA,
+  RUNTIME_FAULT_SITE_DELTA,
+  UNCAUGHT_THROW_CODE,
+} from '../kern-5-d-linked-try/pins.mjs';
 import { KIR_RUNTIME_DIR, occurrences, readRepositoryText, sourceFilesUnder } from './support.mjs';
 
 function census(constructor) {
@@ -35,25 +40,34 @@ function total(sites) {
   return Object.values(sites).reduce((sum, count) => sum + count, 0);
 }
 
+// Slice D spends D.0's thirteenth diagnostic code and adds fault sites for it. The deltas and their
+// derivation live in D's own pins, so these rows move by importing them rather than by restating a
+// second copy of the arithmetic that could drift from the one the spender asserts.
+function withDelta(base, delta) {
+  const rows = { ...base };
+  for (const [path, added] of Object.entries(delta)) rows[path] = (rows[path] ?? 0) + added;
+  return rows;
+}
+
 test('claim D0-F1 states the rule the census enforces', () => {
   assert.match(FAULT_MODEL_RULE, /VM-invariant collapse only/u);
   assert.match(FAULT_MODEL_RULE, /consciously extend this census/u);
 });
 
-test('the JavaScript kernel constructs __Fault at exactly the pinned sites', () => {
+test('the JavaScript kernel constructs __Fault at exactly the pinned sites plus slice D delta', () => {
   assert.deepEqual(
     census('new __Fault('),
-    { ...JAVASCRIPT_FAULT_SITES },
-    'D0_FAULT_CENSUS: the new __Fault( construction sites moved',
+    withDelta(JAVASCRIPT_FAULT_SITES, JAVASCRIPT_FAULT_SITE_DELTA),
+    'D0_FAULT_CENSUS: the new __Fault( construction sites moved beyond the declared slice D delta',
   );
   assert.equal(total(JAVASCRIPT_FAULT_SITES), FAULT_CENSUS_TOTALS.javascript);
 });
 
-test('the JavaScript kernel constructs __Fault over exactly ten codes', () => {
+test('the JavaScript kernel constructs __Fault over the pinned ten codes plus uncaught-throw', () => {
   assert.deepEqual(
     codes('new __Fault(', /new __Fault\('([a-z-]+)'/gu),
-    [...JAVASCRIPT_FAULT_CODES],
-    'D0_FAULT_CODES: the __Fault code set moved',
+    [...JAVASCRIPT_FAULT_CODES, UNCAUGHT_THROW_CODE].sort(),
+    'D0_FAULT_CODES: the __Fault code set moved beyond the thirteenth diagnostic code slice D spends',
   );
   assert.equal(JAVASCRIPT_FAULT_CODES.length, 10);
 });
@@ -82,14 +96,19 @@ test('the Python kernel raises _Fault over exactly nine codes', () => {
   );
 });
 
-test('the TypeScript runtime constructs KernKirFault at exactly the pinned ten files', () => {
+test('the TypeScript runtime constructs KernKirFault at the pinned ten files plus slice D delta', () => {
   assert.deepEqual(
     census('new KernKirFault('),
-    { ...RUNTIME_FAULT_SITES },
-    'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved',
+    withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA),
+    'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved beyond the declared slice D delta',
   );
   assert.equal(total(RUNTIME_FAULT_SITES), FAULT_CENSUS_TOTALS.runtime);
   assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 10);
+  assert.deepEqual(
+    Object.keys(RUNTIME_FAULT_SITE_DELTA).filter((path) => !Object.hasOwn(RUNTIME_FAULT_SITES, path)),
+    [],
+    'D0_FAULT_CENSUS: slice D must add no new fault-bearing file, only sites in files the census names',
+  );
 });
 
 test('the split redistributes KernKirFault sites without changing their total', () => {
@@ -100,7 +119,7 @@ test('the split redistributes KernKirFault sites without changing their total', 
     5,
     'D0_FAULT_CENSUS: the linked-kir-program directory must keep exactly five KernKirFault sites',
   );
-  assert.equal(total(rows), FAULT_CENSUS_TOTALS.runtime);
+  assert.equal(total(rows), FAULT_CENSUS_TOTALS.runtime + total(RUNTIME_FAULT_SITE_DELTA));
 });
 
 test('no class extends a kernel fault type', () => {

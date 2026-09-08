@@ -153,18 +153,22 @@ test('every statement kind still outside the linked union stays outside it', asy
   }
 });
 
-// The reserved label is written into the spec and into no source file. Pinning its absence is what
-// stops it being quietly spent on some other refusal before the try/catch slice can claim it.
-test('the reserved cross-try label is spent nowhere in the source tree', async () => {
+// Retired rather than widened: this scan already walked every `.ts` file under `kir-runtime/`
+// recursively, `statements.ts` included, so it broke loudly the moment slice D spent the label. The
+// absence assertion is replaced by the spend assertion -- the label is raised by the linker's own
+// cross-try refusal, in `statements.ts`, and by kern-5-d.
+test('the reserved cross-try label is spent by kern-5-d, in the linker statement visitors', async () => {
   const entries = await readdir(KIR_RUNTIME_URL, { recursive: true, withFileTypes: true });
+  const spenders = [];
   for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith('.ts'))) {
     const text = await readFile(`${entry.parentPath}/${entry.name}`, 'utf8');
-    assert.equal(
-      text.includes(RESERVED_LABEL),
-      false,
-      `RT12J_LABEL_SPENT: ${RESERVED_LABEL} is reserved for the try slice and must not be emitted yet`,
-    );
+    if (text.includes(RESERVED_LABEL)) spenders.push(entry.name);
   }
+  assert.deepEqual(
+    spenders,
+    ['statements.ts'],
+    `RT12J_LABEL_SPENT: ${RESERVED_LABEL} is spent by kern-5-d and must be raised from statements.ts alone`,
+  );
 });
 
 test('the request limits and the diagnostic code union are byte-stable in shape', async () => {

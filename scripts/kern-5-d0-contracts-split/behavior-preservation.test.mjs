@@ -43,11 +43,14 @@ test('both kernels are byte-identical to the rt12 pins', () => {
   assert.equal(PYTHON_KERNEL, PYTHON_KERNEL_SHA256, 'D0_KERNEL_TOUCH: the Python kernel moved');
 });
 
-test('neither linked union gains or loses a kind', () => {
+// Moved by slice D, which admits `throw` and `try`. D.0 itself moved neither union; what the row
+// holds now is that the statement union is D.0's ten kinds plus exactly those two, and that the
+// expression union is still untouched -- the payload rides the `record` kind that already existed.
+test('the linked statement union gains only the try family, and the expression union gains nothing', () => {
   assert.deepEqual(
     unionKinds('export type LinkedKernKirStatement ='),
-    [...BASE_STATEMENT_KINDS],
-    'D0_UNION_DRIFT: the linked statement union moved',
+    [...BASE_STATEMENT_KINDS, 'throw', 'try'].sort(),
+    'D0_UNION_DRIFT: the linked statement union moved beyond slice D two kinds',
   );
   assert.deepEqual(
     unionKinds('export type LinkedKernKirExpression ='),

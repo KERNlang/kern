@@ -21,7 +21,9 @@ export const LINE_BUDGETS = Object.freeze({
   'index.ts': 60,
   'link-support.ts': 200,
   'link.ts': 420,
-  'statements.ts': 420,
+  // Raised by slice D, which lands compileThrow, compileTry, compileCatch, compileFinally, the
+  // payload gate and the clause partition here (kern-5-d spec, Blast Radius).
+  'statements.ts': 440,
   'walkers.ts': 220,
 });
 

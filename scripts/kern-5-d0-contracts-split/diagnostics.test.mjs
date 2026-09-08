@@ -84,33 +84,40 @@ test('the three prior-slice code pins agree with the union rather than a literal
   }
 });
 
-test('no fault construction site anywhere in core carries uncaught-throw', () => {
+// Moved by slice D, which spends the reservation: the code now has real fault producers, and the
+// property worth holding is that they are exactly the three D declares -- the RT-1 driver's uncaught
+// conversion, and the emitter's conversion in emitted module text.
+test('every fault construction site carrying uncaught-throw is one slice D declares', () => {
+  const spenders = [];
   for (const path of sourceFilesUnder('packages/core/src')) {
     const source = readRepositoryText(path);
     for (const constructor of FAULT_CONSTRUCTORS) {
       let at = source.indexOf(constructor);
       while (at >= 0) {
-        const head = source.slice(at, at + constructor.length + 32);
-        assert.ok(
-          !head.includes(THIRTEENTH_DIAGNOSTIC_CODE),
-          `D0_CODE_SPENT: ${path} constructs a fault carrying ${THIRTEENTH_DIAGNOSTIC_CODE}`,
-        );
+        if (source.slice(at, at + constructor.length + 32).includes(THIRTEENTH_DIAGNOSTIC_CODE)) spenders.push(path);
         at = source.indexOf(constructor, at + 1);
       }
     }
   }
+  assert.deepEqual(
+    [...new Set(spenders)].sort(),
+    ['packages/core/src/compiler/kir-js-esm/emitter.ts', 'packages/core/src/kir-runtime/execute.ts'],
+    `D0_CODE_SPENT: only slice D's declared sites may construct a fault carrying ${THIRTEENTH_DIAGNOSTIC_CODE}`,
+  );
 });
 
 // The code is not dormant repo-wide: runtime-envelope/normalize.ts already emits it for a throwing
-// trace. What D.0 reserves is the KIR-runtime member, which must have no producer at all.
-test('the kir-runtime tree names uncaught-throw exactly once, in the union declaration', () => {
+// trace. D.0 reserved the KIR-runtime member with no producer at all; slice D spends it, so the row
+// moves from "declaration only" to "the declaration plus the one driver that converts an uncaught
+// walk completion", and the declaration itself still names it exactly once.
+test('the kir-runtime tree names uncaught-throw in the union declaration and in the driver alone', () => {
   const hits = sourceFilesUnder(KIR_RUNTIME_DIR).filter((path) =>
     readRepositoryText(path).includes(THIRTEENTH_DIAGNOSTIC_CODE),
   );
   assert.deepEqual(
     hits,
-    [RUNTIME_CONTRACTS],
-    `D0_CODE_LEAK: ${THIRTEENTH_DIAGNOSTIC_CODE} must appear only in the kir-runtime union declaration`,
+    [RUNTIME_CONTRACTS, 'packages/core/src/kir-runtime/execute.ts'].sort(),
+    `D0_CODE_LEAK: ${THIRTEENTH_DIAGNOSTIC_CODE} must appear only in the kir-runtime union and its driver`,
   );
   assert.equal(
     occurrences(readRepositoryText(RUNTIME_CONTRACTS), THIRTEENTH_DIAGNOSTIC_CODE),

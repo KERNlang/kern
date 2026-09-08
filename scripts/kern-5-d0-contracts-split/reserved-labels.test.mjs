@@ -54,12 +54,22 @@ test('the registry holds exactly the eight try-family labels, sorted', () => {
   );
 });
 
-// D.0 lands with nothing spent. Slice D moves this row as it spends each label (QD-3), which is
-// what keeps the not-emitted scan below honest instead of silently narrowing.
-test('the registry lands with every label unspent', () => {
+// D.0 landed with nothing spent; slice D moved this row as QD-3 said it would. What survives the
+// move is the interlock, not the emptiness: every key is a reserved label attributed to a slice, and
+// the unspent remainder is exactly the registry minus the spent set, which is what keeps the
+// not-emitted scan below honest instead of silently narrowing.
+test('the registry spends only reserved labels, and the unspent remainder is the complement', () => {
   const value = registry();
-  assert.deepEqual(value.spentBy, {}, 'D0_REGISTRY_SPENT: D.0 must land with spentBy empty');
-  assert.deepEqual(unspentLabels(value), [...RESERVED_LABELS]);
+  const spent = Object.keys(value.spentBy).sort();
+  assert.deepEqual(
+    spent.filter((label) => !RESERVED_LABELS.includes(label)),
+    [],
+    'D0_REGISTRY_SPENT: spentBy may only name a reserved label',
+  );
+  assert.deepEqual(
+    unspentLabels(value),
+    RESERVED_LABELS.filter((label) => !spent.includes(label)),
+  );
 });
 
 // The forward interlock for slice D: a label it emits must gain a spentBy entry in the same commit,
@@ -83,15 +93,17 @@ test('spentBy may only name a reserved label, and only with a slice name', () =>
   }
 });
 
+// Whole tokens, never substrings: `KIR_TRY_REQUIRES_CATCH` is a prefix of the spent
+// `KIR_TRY_REQUIRES_CATCH_OR_FINALLY`, so an `includes` scan reports the unspent label as emitted
+// however the linker is written.
 test('no unspent reserved label appears anywhere under packages/core/src', () => {
-  const unspent = unspentLabels(registry());
+  const unspent = new Set(unspentLabels(registry()));
   for (const path of sourceFilesUnder('packages/core/src')) {
-    const source = readRepositoryText(path);
-    for (const label of unspent) {
+    for (const match of readRepositoryText(path).matchAll(LABEL_PATTERN)) {
       assert.equal(
-        source.includes(label),
+        unspent.has(match[0]),
         false,
-        `D0_LABEL_SPENT: ${path} names the reserved label ${label}, which spentBy does not exempt`,
+        `D0_LABEL_SPENT: ${path} names the reserved label ${match[0]}, which spentBy does not exempt`,
       );
     }
   }
@@ -128,24 +140,28 @@ test('unspentLabels exempts a spent label from the absence scan and keeps enforc
   );
 });
 
-test('the emitted KIR label vocabulary is the pinned forty and is disjoint from the reserved set', () => {
+// Moved by slice D, which spends into the reservation. D.0's own forty stay the floor: every token
+// it pinned is still emitted, every token added is attributed to a spentBy entry or is an
+// emitted-only label the registry never held, and no UNSPENT reserved label is emitted.
+test('the emitted KIR label vocabulary keeps D.0 forty and adds only labels a spend accounts for', () => {
+  const value = registry();
   const emitted = kirTokensUnder(KIR_RUNTIME_DIR);
-  const expected = [...BASE_KIR_TOKENS];
-  const missing = expected.filter((token) => !emitted.includes(token));
-  const extra = emitted.filter((token) => !expected.includes(token));
-  assert.deepEqual(
-    emitted,
-    expected,
-    'D0_LABEL_VOCABULARY: the KIR_* token set under kir-runtime moved' +
-      (missing.length > 0 ? ` — missing: ${missing.join(', ')}` : '') +
-      (extra.length > 0 ? ` — extra: ${extra.join(', ')}` : ''),
-  );
+  const missing = [...BASE_KIR_TOKENS].filter((token) => !emitted.includes(token));
+  assert.deepEqual(missing, [], `D0_LABEL_VOCABULARY: D.0 pinned tokens went missing: ${missing.join(', ')}`);
   const reserved = new Set(RESERVED_LABELS);
+  const unaccounted = emitted.filter(
+    (token) => !BASE_KIR_TOKENS.includes(token) && reserved.has(token) && !Object.hasOwn(value.spentBy, token),
+  );
+  assert.deepEqual(
+    unaccounted,
+    [],
+    `D0_LABEL_SPENT: emitted reserved labels with no spentBy entry: ${unaccounted.join(', ')}`,
+  );
   for (const token of emitted) {
     assert.equal(
-      reserved.has(token),
+      reserved.has(token) && !Object.hasOwn(value.spentBy, token),
       false,
-      `D0_LABEL_SPENT: ${token} is both emitted and reserved`,
+      `D0_LABEL_SPENT: ${token} is both emitted and unspent`,
     );
   }
 });
@@ -159,6 +175,6 @@ test('the rt12 reservation of KIR_LOOP_JUMP_CROSSES_TRY is re-homed, not contrad
   const rt12 = readRepositoryText('scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs');
   assert.ok(
     rt12.includes('KIR_LOOP_JUMP_CROSSES_TRY'),
-    'D0_RT12_PIN_LOST: rt12 must keep asserting its own label is unspent',
+    'D0_RT12_PIN_LOST: rt12 must keep asserting where its own label stands',
   );
 });
