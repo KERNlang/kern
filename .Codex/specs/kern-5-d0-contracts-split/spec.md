@@ -155,13 +155,14 @@ leaves `contracts.ts`).**
 | `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs:142-143` | same | `function statementSubBlocks` |
 | `scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs:197-198` | same | `function statementSubBlocks` |
 
-**`link.ts` scrapes (rt12 only).** `compatibility.test.mjs:159` — negative scan: `KIR_LOOP_JUMP_CROSSES_TRY`
+**`link.ts` scrapes (rt12 only).** `compatibility.test.mjs:157-158` — negative scan: `KIR_LOOP_JUMP_CROSSES_TRY`
 absent from `link.ts`, `linked-kir-program/contracts.ts`, `kir-runtime/contracts.ts`.
-`walker-coverage.test.mjs:237-238` — `link.indexOf('function containsReturn')` →
+`walker-coverage.test.mjs:357-370` — `link.indexOf('function containsReturn')` →
 `link.indexOf('function assertLeaf')`, then asserts the sliced body names exactly
-`['for','if','return','while']`. **These two functions must stay adjacent, in that order, in one
-file**, and this scrape breaks *loudly* (extra kinds leak in) rather than vacuously if they separate
-— so it is the one scrape that must be re-pointed explicitly.
+`['for','if','return','while']`, in the test titled *"containsReturn keeps exactly its four
+block-owning arms and gains none for a jump"*. **These two functions must stay adjacent, in that
+order, in one file**, and this scrape breaks *loudly* (extra kinds leak in) rather than vacuously if
+they separate — so it is the one scrape that must be re-pointed explicitly.
 
 Not scraped, therefore free to move: `expressionInvokesCapability`, `statementsInvokeCapability`,
 `linkedStatementsInvokeCapability`, `expressionCallDepth`, `calleeDepth`, `statementsCallDepth`,
@@ -414,6 +415,21 @@ spec must answer explicitly rather than inherit by silence.
 - **QD-3 — the label registry's `spentBy`.** Each label D spends must gain a `spentBy` entry in
   `scripts/kern-5-d0-contracts-split/reserved-labels.json` in the same commit that emits it;
   otherwise D.0's not-emitted row goes RED, which is the intended interlock.
+- **QD-4 — rt12's own absence scan has no `spentBy` concept, D.0's file-scope widening does not fix
+  that.** rt12 owns a second, independent assertion of the same reservation
+  (`scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs:157-158`, "the reserved cross-try label
+  is spent nowhere in the source tree") that reads three files by path — `link.ts`,
+  `linked-kir-program/contracts.ts`, `kir-runtime/contracts.ts` — and asserts `RESERVED_LABEL` is
+  absent from all three, unconditionally. The Blast Radius already widens this to a directory scan
+  as part of D.0 (so it also reaches the new `linked-kir-program/statements.ts`, where slice D will
+  actually spend the label), but that widening only fixes file *coverage*; the assertion itself has
+  no `spentBy` awareness — unlike D.0's own oracle
+  (`scripts/kern-5-d0-contracts-split/reserved-labels.test.mjs`), which reads
+  `reserved-labels.json` and exempts exactly the labels QD-3's `spentBy` names. A wider-but-still-
+  unconditional rt12 scan goes RED the moment slice D legitimately spends
+  `KIR_LOOP_JUMP_CROSSES_TRY`, for a reason that is not a regression. Slice D must edit or retire
+  rt12's assertion (make it read `spentBy`, or drop it now that D.0's directory-wide oracle owns the
+  invariant) in the same commit that spends the label.
 
 ## Blast Radius
 
@@ -457,10 +473,26 @@ Suites that must be green: `test:kern-5-rt2-boolean-if`, `rt3`, `rt4`, `rt5`, `r
 create; `pnpm test:ci-contract` is green (19/19) and `pnpm lint` is clean. Base pins live in
 `pins.mjs`, the marker table in `markers.mjs`, the fixture digests in `fixtures.mjs`.
 
+**Re-verified at this branch's tip `87ca7874`, post oracle-defect fixes (D0-TD1…D0-TD5): 73 rows
+across eight files, 32 RED and 41 GREEN.** Per file (RED/GREEN): `layout` 6/4, `marker-locality`
+7/3, `behavior-preservation` 0/6, `diagnostics` 3/7, `reserved-labels` 7/2 (9 rows — one added,
+D0-TD2's synthetic exemption proof), `fault-census` 0/11, `inventory` 9/3, `wiring` 0/5. The `2c6f4abd`
+baseline above is one ancestor commit stale: `e1d94060` (D0-TD1) lands on this tip and moves three
+pins outside the five reported defects (`RUNTIME_FAULT_SITES`, `FAULT_CENSUS_TOTALS.runtime`,
+`BASE_COMPILED_CORE_DIGEST`), which is why the RED/GREEN split moves even though the row *count*
+per file mostly does not: `reserved-labels` gains a row and two of its previously-vacuous GREEN rows
+correctly become RED-pending-registry (D0-TD2); `fault-census` loses the two REDs that were really
+`e1d94060` drift, not a D.0 artifact gap; `inventory`'s compiled-core-digest row flips from a
+vacuous GREEN to an honest RED-pending-the-split. Every RED row still has exactly one cause, and
+every cause is still either an artifact D.0 must create or (fault-census, now) nothing at all.
+
 **Size and shape**
 - [ ] Every `.ts` under `packages/core/src/kir-runtime/linked-kir-program/` is `< 500` lines, and
-      `contracts.ts ≤ 420`, `link.ts ≤ 420`, `statements.ts ≤ 340`, `walkers.ts ≤ 220`,
-      `link-support.ts ≤ 200` (headroom rows, not just the rule).
+      `contracts.ts ≤ 420`, `link.ts ≤ 420`, `statements.ts ≤ 420`, `walkers.ts ≤ 220`,
+      `link-support.ts ≤ 200` (headroom rows, not just the rule). `statements.ts`'s budget is `420`,
+      not its own ~285-line D.0 landing estimate, so it also clears slice D's ~415-line projection
+      (`compileTry`/`compileCatch`/`compileFinally`, see *Slice D headroom after D.0*) — the same
+      pattern `contracts.ts` and `link.ts` already follow for their own post-D.0 growth (D0-TD2).
 - [ ] The directory contains exactly seven `.ts` files — the sorted set `contracts`, `expression`,
       `index`, `link`, `link-support`, `statements`, `walkers` and nothing else.
 - [ ] Import-graph row: no cycle among those files (parse `from './x.js'` specifiers, assert the
@@ -508,8 +540,9 @@ create; `pnpm test:ci-contract` is green (19/19) and `pnpm lint` is clean. Base 
 - [ ] For every label with no `spentBy` entry: the string occurs in **no** file under
       `packages/core/src/` (directory-wide scan, superseding rt12's three-file scan).
 - [ ] Cross-check: every `KIR_[A-Z_0-9]+` literal reachable in a `fault(...)` message under
-      `packages/core/src/kir-runtime/` is disjoint from the unspent reserved set (39 emitted labels
-      at base; assert the emitted set too, so a rename is caught).
+      `packages/core/src/kir-runtime/` is disjoint from the unspent reserved set (40 emitted labels
+      at base — `KIR_JUMP_WITHOUT_LOOP_FRAME` is live from `e1d94060`, D0-TD1 — assert the emitted
+      set too, so a rename is caught).
 
 **Fault census (claim D0-F1)**
 - [ ] `new __Fault(` sites: `kir-js-esm/emitter.ts` 24, `target-base.ts` 6, `target-json.ts` 5,
@@ -618,6 +651,11 @@ Steps 4-5 cannot be authored before step 3's build exists.
 | **STEP-0-m.** INV-1's marker order is `LinkedKernKirExpression`, `LinkedKernKirUnaryOperator`, `LinkedKernKirStatement`, then the three primitives | Source order is `LinkedKernKirUnaryOperator` (`contracts.ts:101`), `LinkedKernKirExpression` (`:174`), `LinkedKernKirStatement` (`:250`), `statementSubBlocks` (`:284`), `statementSubExpressions` (`:292`), `expressionVariantUnhandled` (`:302`) | Order corrected in the oracle's INV-1 pin. Found by the row itself going RED at base for a reason that was mine, not the code's |
 | **STEP-0-n.** The `contracts.ts` scrape surface is thirteen marker pairs | Thirteen *files*, **22** marker pairs over four files: 15 into `linked-kir-program/contracts.ts`, 6 into `kir-runtime/contracts.ts` (the `KernKirLimits` and `KernKirDiagnosticCode` regions the three rt compatibility suites also slice), and 1 into `link.ts`. Twenty-one stay put; exactly one — rt12's `containsReturn`/`assertLeaf` pair — must be re-pointed | The marker table carries all 22 rows with a `readsAfter` column, so the single licensed re-point is RED at base and the other 21 are GREEN and must stay GREEN |
 | **STEP-0-o.** OQ-4, `successorCommit` chicken-and-egg | Still **OPEN by construction**: `c-py-1-lowering-historical-transition.mjs:8-9` carries two real 40-char SHAs, and D.0's own merge commit cannot exist when the record is authored. The oracle asserts only the *shape* (`/^[0-9a-f]{40}$/` on both fields), leaving the choice of value to the implementer — a placeholder SHA finalized in a follow-up commit is the pattern the five precedents imply | No oracle row blocks on it. It cannot change the split or the pin list |
+| **D0-TD1.** `BASE_KIR_TOKENS` holds the pinned thirty-nine `KIR_*` tokens under `kir-runtime` (re-verified at `2c6f4abd`) | This branch's tip (`87ca7874`) carries one more ancestor commit than the checkout the oracle was last verified against: `e1d94060` ("fail closed when a jump has no enclosing loop frame") adds `KIR_JUMP_WITHOUT_LOOP_FRAME` at `kir-runtime/expression.ts:233,241`. The live vocabulary under `kir-runtime/` is **forty**, sorted, with the new token between `KIR_IF_COND_NOT_BOOLEAN` and `KIR_LOOP_ZERO_STEP`. The same commit adds two `new KernKirFault(` sites in that file (**22**, not 20), moving `RUNTIME_FAULT_SITES['.../kir-runtime/expression.ts']` and pushing `FAULT_CENSUS_TOTALS.runtime` to **55**; rebuilding `expression.ts` also moves the live `compiledCoreDigest` off the `2c6f4abd` value STEP-0-a pinned, to `101269453b409ac45693d861c7e917bf4e3bd01fdb8ac7702f4838926413f397` | `BASE_KIR_TOKENS` re-pinned to forty (test title and failure message updated to name any future missing/extra token by name, not just fail a bare `deepEqual`); `RUNTIME_FAULT_SITES`, `FAULT_CENSUS_TOTALS.runtime` and `BASE_COMPILED_CORE_DIGEST` re-pinned alongside it — all four are the same root-cause drift, not four independent findings. Net effect on the RED/GREEN ledger: the vocabulary row (reserved-labels) flips RED→GREEN, the two fault-census rows flip RED→GREEN (they were RED for `e1d94060`'s drift, not for anything D.0 must create), and the compiled-core-digest row (inventory) flips GREEN→RED (it was vacuously GREEN off the stale base value, for a reason unrelated to D.0's own split having happened; re-pinned it is honestly RED pending the split, like every other inventory row) |
+| **D0-TD2.** `reserved-labels.test.mjs`'s two "not emitted" scans (`packages/core/src`, both built kernels) iterate `RESERVED_LABELS` | They must iterate `unspentLabels(value)` — the registry's `spentBy`-filtered set — or the QD-3 forward interlock is unsatisfiable: the moment slice D spends a label (adds a `spentBy` entry and emits the string), these scans would still demand its absence and go RED for a change that is not a regression | Both scans rewired to read the registry and filter through `unspentLabels`; a new synthetic-row test (`unspentLabels exempts a spent label from the absence scan and keeps enforcing the rest`) proves the exemption is exact — one spent label drops out, every other reserved label stays enforced — without depending on the (not-yet-created) registry file. Side effect: these two rows, previously vacuously GREEN against the static `RESERVED_LABELS` import, now correctly depend on `reserved-labels.json` existing and go RED alongside the other registry rows until D.0 creates it |
+| **D0-TD3.** `LINE_BUDGETS['statements.ts']` is `340` | The Implementation Plan's own *"Slice D headroom after D.0"* note projects `statements.ts` growing to **~415** lines when slice D adds `compileTry`/`compileCatch`/`compileFinally` — inconsistent with a `340` gate the same file will blow through one slice later. `contracts.ts` (420 budget vs. ~407 projected) and `link-support.ts` (200 vs. ~143) already carry headroom past their own D.0-landing estimate for exactly this reason; `statements.ts` was the one budget that didn't | `LINE_BUDGETS['statements.ts']` raised to `420`, matching the pattern the other two growing files already use (comfortably under `FILE_LINE_CEILING` = 500, comfortably over the ~415 projection). Acceptance Criteria's size-and-shape bullet corrected to match, with the reasoning inlined so a future reader does not mistake `420` for `statements.ts`'s own D.0-landing size (~285) |
+| **D0-TD4.** C-13's `link.ts` scrape citation, `walker-coverage.test.mjs:237-238` (`containsReturn`/`assertLeaf`) | The test is `containsReturn keeps exactly its four block-owning arms and gains none for a jump` at `scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs:357-370` (the two `indexOf` calls sit at `:360-361`); `:237-238` is stale past even STEP-0-c's correction. The marker strings themselves — `'function containsReturn'` / `'function assertLeaf'` — are unchanged and correctly carried in `markers.mjs`'s `SCRAPE_TABLE` row `rt12-linked-jumps/leaf-pair`, which keys on the strings, not a line number, so no oracle behaviour was affected | Citation corrected in the C-13 section (and the `compatibility.test.mjs` label-absence citation, `:159` → `:157-158`, alongside it). No plan or oracle change — this is a second citation-only drift, same class as STEP-0-c, found on the same file after it drifted further |
+| **D0-TD5.** rt12's own `KIR_LOOP_JUMP_CROSSES_TRY` absence scan (`compatibility.test.mjs:157-158`) has no forward plan once slice D spends the label | The Blast Radius already widens this scan's file coverage from three named files to a directory scan as part of D.0, so it reaches the new `linked-kir-program/statements.ts`. That fixes coverage, not the underlying problem: the assertion is unconditional (no `spentBy` concept), unlike D.0's own `reserved-labels.test.mjs`. A wider-but-still-unconditional rt12 scan still goes RED the instant slice D legitimately spends the label | Recorded as **QD-4** in *Queued for slice D*: slice D must edit or retire rt12's assertion (teach it `spentBy`, or drop it in favour of D.0's directory-wide, `spentBy`-aware oracle) in the same commit that spends the label |
 
 ## Confidence
 
