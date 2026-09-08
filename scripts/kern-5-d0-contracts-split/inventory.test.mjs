@@ -20,6 +20,7 @@ import {
   exists,
   hashPathInventory,
   readRepositoryText,
+  repositoryPath,
 } from './support.mjs';
 
 const C_PY_1_PATH = 'scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs';
