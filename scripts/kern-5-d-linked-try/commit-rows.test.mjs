@@ -25,6 +25,11 @@ function oracleFiles() {
 // D-7f prescribes `node --test scripts/kern-5-d-linked-try/`. Node 22 resolves a bare directory as
 // a module path and dies with MODULE_NOT_FOUND, so the measurement passes the files explicitly --
 // same rows, a command that runs.
+function childEnvironment() {
+  const { NODE_TEST_CONTEXT: _context, ...rest } = process.env;
+  return rest;
+}
+
 function tapNames() {
   const child = spawnSync(
     process.execPath,
@@ -37,7 +42,10 @@ function tapNames() {
     {
       cwd: new URL('../../', import.meta.url),
       encoding: 'utf8',
-      env: { ...process.env, [CHILD_FLAG]: '1' },
+      // node --test exports NODE_TEST_CONTEXT to every test file it runs. Inherited by a nested
+      // runner it switches the child onto the v8 serializer protocol, so nothing reaches stdout and
+      // the drive reports "no TAP output" rather than a row list.
+      env: { ...childEnvironment(), [CHILD_FLAG]: '1' },
       maxBuffer: 64 * 1024 * 1024,
       timeout: 90 * 60 * 1000,
     },
@@ -50,7 +58,9 @@ function tapNames() {
   assert.ok(child.stdout.length > 0, 'D_MEASUREMENT_FAILED: the self-drive produced no TAP output');
   const names = new Set();
   for (const match of child.stdout.matchAll(/^(?:not )?ok \d+ - (.+)$/gmu)) {
-    const name = match[1].trim();
+    // A skipped or todo row carries a trailing TAP directive. Left on, it becomes part of the name
+    // and the mapping only matches by coincidence -- the child happens to skip for the same reason.
+    const name = match[1].replace(/\s+#\s+(?:SKIP|TODO)\b.*$/iu, '').trim();
     if (name.startsWith(SUITE_DIRECTORY) || name.endsWith('.test.mjs')) continue;
     names.add(name);
   }

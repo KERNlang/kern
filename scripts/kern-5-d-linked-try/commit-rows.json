@@ -141,7 +141,7 @@
       "the ledger-aware gate rows move from three to five, for both the rows and the kinds",
       "the linked expression union gains no member, because the payload rides the record kind",
       "the linked statement union carries throw and try and no other new kind",
-      "the mapping is total: every row the suite actually runs is named exactly once # SKIP set D_MEASURE_ROWS=1 to run the D-7f self-drive",
+      "the mapping is total: every row the suite actually runs is named exactly once",
       "the probe matrix is canonically serialized, so a hand edit is visible in the diff",
       "the reserved label set is still exactly the pinned eight, sorted",
       "the three neighbour goldens D scrapes nothing from do not move",
