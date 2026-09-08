@@ -84,3 +84,15 @@ export function occurrences(source, needle) {
 export function importSpecifiers(source) {
   return [...source.matchAll(/from\s+'(\.\/[A-Za-z0-9._-]+\.js)'/gu)].map((match) => match[1]);
 }
+
+export function reExportBlocks(source) {
+  const blocks = new Map();
+  for (const match of source.matchAll(/export\s*\{([^}]*)\}\s*from\s*'([^']+)';/gu)) {
+    const names = match[1]
+      .split(',')
+      .map((entry) => entry.trim().replace(/^type\s+/u, ''))
+      .filter((entry) => entry.length > 0);
+    blocks.set(match[2], Object.freeze(names.sort()));
+  }
+  return blocks;
+}

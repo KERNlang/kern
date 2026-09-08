@@ -29,14 +29,14 @@ export const BASE_LINE_COUNTS = Object.freeze({
 
 export const FILE_LINE_CEILING = 500;
 
-// walkers.ts -> contracts.ts, link.ts -> {statements.ts, link-support.ts}, statements.ts ->
-// link-support.ts, contracts.ts -> nothing inside the directory (INV-2).
+// INV-2. link.ts sheds ./expression.js entirely: every one of its thirteen expression-module call
+// sites sits inside a function that moves to statements.ts.
 export const EXPECTED_IMPORT_EDGES = Object.freeze({
   'contracts.ts': Object.freeze([]),
   'expression.ts': Object.freeze(['contracts.js']),
   'index.ts': Object.freeze(['contracts.js', 'expression.js', 'link.js', 'walkers.js']),
   'link-support.ts': Object.freeze(['contracts.js']),
-  'link.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js', 'statements.js']),
+  'link.ts': Object.freeze(['contracts.js', 'link-support.js', 'statements.js']),
   'statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js']),
   'walkers.ts': Object.freeze(['contracts.js']),
 });
