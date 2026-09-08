@@ -32,11 +32,9 @@ export {
   linkedProgramHelpers,
 } from './contracts.js';
 export { containsAsyncCall } from './expression.js';
-export {
-  authenticateLinkedKernKirProjectionOrThrow,
+export { authenticateLinkedKernKirProjectionOrThrow,
   linkVerifiedKernKirProgram,
-  linkVerifiedKernKirProgramOrThrow,
-} from './link.js';
+  linkVerifiedKernKirProgramOrThrow } from './link.js';
 export {
   createLinkedKirClosureWalk,
   type LinkedKernKirClosureWalk,

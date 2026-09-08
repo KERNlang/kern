@@ -665,9 +665,9 @@ edge assertion rejects every existing relative import. The implementation leaves
 failing rather than editing the D.0 oracle, as required by the task brief.
 
 Implementation correction, 2026-09-08: the layout oracle also demands that `index.ts` remain 43
-lines, while this spec's split table correctly predicts 45 after the required second re-export
-block is formatted. The 39-name source surface and 18-name runtime surface both remain exact; the
-stale physical-line row is left failing.
+lines. The initial conventional formatting occupied 45 lines, but compacting the three-name
+`link.js` re-export restores the base line count without changing the 39-name source surface or
+18-name runtime surface. This row is therefore satisfied.
 
 Implementation correction, 2026-09-08: `link.ts` necessarily calls the extracted public closure
 walker to classify reachable helper capabilities and accepts `LinkedKernKirClosureWalk` in its
