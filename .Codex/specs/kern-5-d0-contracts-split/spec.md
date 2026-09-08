@@ -1,8 +1,15 @@
 # KERN 5 — D.0 `linked-kir-program` split, c-py-1 inventory transition, try-family reservations
 
-**Status:** SPEC — ORACLE LANDED RED
+**Status:** IMPLEMENTED
 **Date:** 2026-09-08
 **Confidence:** 0.91
+
+**Landed commits** (`feat/kern-5-d0-contracts-split`, base `87ca7874`): oracle-defect fixes
+`97379e86`, `e75a2a96`, `c3ba4b45` (D0-TD1…D0-TD5); implementation `8ff4e84f`, `6448309c`,
+`f14ab583`, `219b6217`, `6abe614b`, `d954c576`, `1c71c4a8`, `4041f6f6`; merge-lane fixes
+`e545a90a` (D0-TD7, D0-TD8), `ea50a924`, `4f1c2a5a`. Gate: `test:kern-5-d0-contracts-split` 73/73,
+`test:kern-canonicalizer` 874/874, `test:infra:contracts`, `test:ci-contract` 19/19, `pnpm lint`
+clean, all sixteen named rt/r1/r2/c-py-1/parity-ledger/kern-runtime-contract-v1 suites green.
 
 **Ratified by the coordinator, 2026-09-08:** OQ-2 — the 13th diagnostic code is `'uncaught-throw'`
 and **no** RC-v1 amendment record is created. OQ-3 — the inventory transition stays **354 → 357**;
@@ -486,86 +493,95 @@ correctly become RED-pending-registry (D0-TD2); `fault-census` loses the two RED
 vacuous GREEN to an honest RED-pending-the-split. Every RED row still has exactly one cause, and
 every cause is still either an artifact D.0 must create or (fault-census, now) nothing at all.
 
+**Landed and merged, 2026-09-08: 73/73 rows GREEN.** The builder lane's implementation
+(`8ff4e84f`…`4041f6f6`) merged onto the oracle-fix lane resolved 3 of the builder's 4 reported
+contradictions outright; the fourth (INV-2's edge map, three sub-defects) is D0-TD7, verified
+against the landed code and fixed in the pins, not the implementation. D0-TD8 (index.ts's line
+pin vs. the required `pnpm lint` gate) surfaced during the merge's own gate run. Full sixteen-suite
+gate green; five mutants (public-surface export, inventory head wiring, marker-locality rename,
+diagnostics union member, stray fault site) each killed by the row they target.
+
 **Size and shape**
-- [ ] Every `.ts` under `packages/core/src/kir-runtime/linked-kir-program/` is `< 500` lines, and
+- [x] Every `.ts` under `packages/core/src/kir-runtime/linked-kir-program/` is `< 500` lines, and
       `contracts.ts ≤ 420`, `link.ts ≤ 420`, `statements.ts ≤ 420`, `walkers.ts ≤ 220`,
       `link-support.ts ≤ 200` (headroom rows, not just the rule). `statements.ts`'s budget is `420`,
       not its own ~285-line D.0 landing estimate, so it also clears slice D's ~415-line projection
       (`compileTry`/`compileCatch`/`compileFinally`, see *Slice D headroom after D.0*) — the same
       pattern `contracts.ts` and `link.ts` already follow for their own post-D.0 growth (D0-TD2).
-- [ ] The directory contains exactly seven `.ts` files — the sorted set `contracts`, `expression`,
+- [x] The directory contains exactly seven `.ts` files — the sorted set `contracts`, `expression`,
       `index`, `link`, `link-support`, `statements`, `walkers` and nothing else.
-- [ ] Import-graph row: no cycle among those files (parse `from './x.js'` specifiers, assert the
+- [x] Import-graph row: no cycle among those files (parse `from './x.js'` specifiers, assert the
       DAG matches INV-2 exactly).
 
 **Behaviour preservation**
-- [ ] The sorted runtime export set of `dist/kir-runtime/linked-kir-program/index.js` equals the
+- [x] The sorted runtime export set of `dist/kir-runtime/linked-kir-program/index.js` equals the
       pinned **18**-name list captured at base `2c6f4abd`, the sorted source-level re-export set of
       `index.ts` equals the pinned **39**-name list (STEP-0-b), and `dist/.../contracts.js` still
       exports `LINKED_KIR_TYPE_ADMISSION`.
-- [ ] `TARGET_KERNEL_SHA256` for both legs equals the rt12 pins
+- [x] `TARGET_KERNEL_SHA256` for both legs equals the rt12 pins
       (`b53251fd…`, `f79a3963…`); the F5 policy digest equals `0f62f6c9…`; the census total is 240
       with zero link-stage rows.
-- [ ] Every `k0-golden.json` under `scripts/kern-5-rt*/` is byte-identical to base.
-- [ ] Both `LinkedKernKirStatement` and `LinkedKernKirExpression` carry exactly their base kind sets
+- [x] Every `k0-golden.json` under `scripts/kern-5-rt*/` is byte-identical to base.
+- [x] Both `LinkedKernKirStatement` and `LinkedKernKirExpression` carry exactly their base kind sets
       (10 and 9 members).
 
 **Marker locality (the anti-vacuity rows — these are the ones that catch the `e105f1da` failure)**
-- [ ] For each Family-2 marker (`function statementSubBlocks`, `function expressionVariantUnhandled`)
+- [x] For each Family-2 marker (`function statementSubBlocks`, `function expressionVariantUnhandled`)
       and each Family-1 anchor (the three `export type … =` declarations): the marker occurs in
       `contracts.ts`, exactly once, **after** the corresponding union start.
-- [ ] Re-run of every Family-1/Family-2 scrape returns a slice **shorter than the remainder of the
+- [x] Re-run of every Family-1/Family-2 scrape returns a slice **shorter than the remainder of the
       file** — i.e. `indexOf(endMarker) > start`, never `-1`. A row that asserts the scrapes are
       still *bounded*, not merely still passing.
-- [ ] `containsReturn` and `assertLeaf` occur in the same file, `containsReturn` first, with no
+- [x] `containsReturn` and `assertLeaf` occur in the same file, `containsReturn` first, with no
       other `function ` declaration between them.
-- [ ] Every extraction in D.0's **own** oracle goes through `between` from
+- [x] Every extraction in D.0's **own** oracle goes through `between` from
       `scripts/kern-5-rt6-void-fallthrough/k0-support.mjs` (C-16), never raw `indexOf` — the helper
       whose absence from the thirteen `contracts.ts` scrapes is what makes them vacuum-prone.
 
 **Diagnostic code**
-- [ ] `KernKirDiagnosticCode` has exactly 13 members, sorted, ending
+- [x] `KernKirDiagnosticCode` has exactly 13 members, sorted, ending
       `runtime-limit-exceeded | uncaught-throw | unsupported-runtime-input`.
-- [ ] `uncaught-throw` is emitted by **no** code path: it appears in no `new KernKirFault(`,
+- [x] `uncaught-throw` is emitted by **no** code path: it appears in no `new KernKirFault(`,
       `new __Fault(`, `raise _Fault(` argument anywhere in `packages/core/src`.
-- [ ] `uncaught-throw` ∈ `scripts/runtime-contract-v1/constitution.json` `diagnostics.codes`
+- [x] `uncaught-throw` ∈ `scripts/runtime-contract-v1/constitution.json` `diagnostics.codes`
       (already true) — the convergence row that says the KIR union did not fork a new spelling.
-- [ ] The four RC-v1 artifact digests are **unchanged** from base, `amendments/` still holds exactly
+- [x] The four RC-v1 artifact digests are **unchanged** from base, `amendments/` still holds exactly
       3 files, `verifyRuntimeContractAmendmentChain()` reports consumed length 2 and 0 pending, and
       `alpha-receipt-policy.json` `bindings` still has 125 entries.
 
 **Reserved labels**
-- [ ] `reserved-labels.json` parses, is frozen-shaped, and its `labels` array is exactly the eight
+- [x] `reserved-labels.json` parses, is frozen-shaped, and its `labels` array is exactly the eight
       strings above, sorted, with `spentBy` empty.
-- [ ] For every label with no `spentBy` entry: the string occurs in **no** file under
+- [x] For every label with no `spentBy` entry: the string occurs in **no** file under
       `packages/core/src/` (directory-wide scan, superseding rt12's three-file scan).
-- [ ] Cross-check: every `KIR_[A-Z_0-9]+` literal reachable in a `fault(...)` message under
+- [x] Cross-check: every `KIR_[A-Z_0-9]+` literal reachable in a `fault(...)` message under
       `packages/core/src/kir-runtime/` is disjoint from the unspent reserved set (40 emitted labels
       at base — `KIR_JUMP_WITHOUT_LOOP_FRAME` is live from `e1d94060`, D0-TD1 — assert the emitted
       set too, so a rename is caught).
 
 **Fault census (claim D0-F1)**
-- [ ] `new __Fault(` sites: `kir-js-esm/emitter.ts` 24, `target-base.ts` 6, `target-json.ts` 5,
+- [x] `new __Fault(` sites: `kir-js-esm/emitter.ts` 24, `target-base.ts` 6, `target-json.ts` 5,
       `target-execution.ts` 4 — and nowhere else; the distinct code set is exactly the ten in C-10.
-- [ ] `raise _Fault(` sites: `kir-python/emitter.ts` 21, `target-base.ts` 7, `target-json.ts` 6,
+- [x] `raise _Fault(` sites: `kir-python/emitter.ts` 21, `target-base.ts` 7, `target-json.ts` 6,
       `target-execution.ts` 6 — and nowhere else.
-- [ ] `new KernKirFault(` sites: the nine-file distribution in C-10, total 53.
-- [ ] No `class` in either kernel extends `__Fault`/`_Fault`, and no `catch`/`except` inside a
+- [x] `new KernKirFault(` sites: the ten-file distribution in `RUNTIME_FAULT_SITES` (D0-TD7 splits
+      `link.ts`'s pre-split two into `link.ts` 1 / `link-support.ts` 1), total 55 (D0-TD1).
+- [x] No `class` in either kernel extends `__Fault`/`_Fault`, and no `catch`/`except` inside a
       handler body catches one (`kir-runtime/execute.ts` and the emitter's outer boundary are the
       only two).
 
 **Inventory transition**
-- [ ] The live dist inventory is 357 paths; `reconstructD0ContractsSplitCompiledCoreJavaScriptPaths`
+- [x] The live dist inventory is 357 paths; `reconstructD0ContractsSplitCompiledCoreJavaScriptPaths`
       returns exactly 354 paths hashing to `78ab887d…`; the c-py-1 module's own literals are
       unchanged from base (byte-compare the file).
-- [ ] `addedPaths` is exactly the three new `.js` paths, each present in the live inventory.
-- [ ] `validateD0ContractsSplitHistoricalTransition` rejects any mutation of the frozen record
+- [x] `addedPaths` is exactly the three new `.js` paths, each present in the live inventory.
+- [x] `validateD0ContractsSplitHistoricalTransition` rejects any mutation of the frozen record
       (mirror c-py-1's immutability row), and rejects an inventory with an extra, missing,
       duplicated, escaping or backslashed path (mirror `coverage-integrity.test.mjs:536-551`).
-- [ ] `reconstructM4145CompiledCoreJavaScriptPaths` still receives exactly 317 paths through the
+- [x] `reconstructM4145CompiledCoreJavaScriptPaths` still receives exactly 317 paths through the
       composite chain, and the `omitted` set is exactly the base 50 entries **plus** the three new
       paths (C-14) — no fourth path leaked into the compiled core.
-- [ ] Full-gate row: `pnpm test:kern-canonicalizer` and `pnpm test:infra:contracts` green.
+- [x] Full-gate row: `pnpm test:kern-canonicalizer` and `pnpm test:infra:contracts` green.
 
 ## Out of Scope
 
