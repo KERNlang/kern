@@ -2,7 +2,12 @@
 
 **Status:** SPEC — ORACLE NOT YET WRITTEN
 **Date:** 2026-09-08
-**Confidence:** 0.87
+**Confidence:** 0.91
+
+**Ratified by the coordinator, 2026-09-08:** OQ-2 — the 13th diagnostic code is `'uncaught-throw'`
+and **no** RC-v1 amendment record is created. OQ-3 — the inventory transition stays **354 → 357**;
+`kir-runtime/expression.ts` has no clean cut today (analysis under *OQ-3, decided*). OQ-1 is closed
+and VERIFIED, with a finding that adds one required edit to the Blast Radius.
 
 **Depends on slice C landing at commit `1ef72e0d`** — `feat/kern-5-rt12-linked-jumps`
 @ `1ef72e0d07c749f29963164876af3d5bdc495d53` (`test(kern5): register jump Python deferrals`). This
@@ -111,6 +116,9 @@ The root cause of the withdrawal in `e105f1da` is **two** independent gates, not
 | C-10 | `__Fault`/`_Fault`/`KernKirFault` construction sites, by file (2026-09-08) | JS kernel **39**: `kir-js-esm/emitter.ts` 24, `target-base.ts` 6, `target-json.ts` 5, `target-execution.ts` 4, across **10** distinct codes. Python kernel **40**: `kir-python/emitter.ts` 21, `target-base.ts` 7, `target-json.ts` 6, `target-execution.ts` 6. TS runtime `new KernKirFault(` **53**: `kir-runtime/expression.ts` 20, `inspect.ts` 12, `execute.ts` 11, `json.ts` 3, `linked-kir-program/expression.ts` 2, `link.ts` 2, `deadline.ts` 1, `envelope.ts` 1, `linked-kir-program/contracts.ts` 1 | VERIFIED |
 | C-11 | **`capability-error` is raised as a `__Fault` today**, so the tribunal's phrasing "capability/host failures never raise `__Fault`" is not a description of the present code | `kir-js-esm/emitter.ts:187,421`; `kir-python/emitter.ts:180,415` | VERIFIED |
 | C-12 | Nothing catches a `KernKirFault` and resumes handler execution; the only catch is the request boundary | `kir-runtime/execute.ts:234-247`; mirrored in the JS emitter at `emitter.ts:434-445` | VERIFIED (facts pack §4, re-checked) |
+| C-14 | **`coverage-integrity.test.mjs` has a second exact-inventory assertion that D.0 must edit.** The list at `:336-392` is a pure *sensitivity fixture* (each named path's bytes are perturbed and the digest asserted to move) and is unaffected by new files. The list at `:404-454` is **not**: `omitted = currentPaths.filter(p => !historicalPaths.includes(p))` is `deepEqual`'d against a hard-coded 50-entry list, so each new dist path lands in `omitted` and fails it | `coverage-integrity.test.mjs:336-392` vs `:394-404` + the 50-entry literal at `:404-454`. `POST_M4145_COMPILED_CORE_PATHS` (`coverage-dependencies.mjs:97-107`) does **not** need them: it filters the already-stripped 317-path set (`reconstructM4145CompiledCoreJavaScriptPaths` gates its input on `M4145_SUCCESSOR_COMPILED_CORE_INVENTORY` = `{317, …}` at `:280-286,93-95`) | VERIFIED |
+| C-15 | There is **one** head insertion point for both apparent chains. `reconstructRunnerCallCacheCompiledCoreJavaScriptPaths` is itself the composite that runs c-py-1 → r2-js → r1-runtime-owner → frontend-projection internally, so the test's chain and the coverage chain share the same first call | `coverage-dependencies.mjs:336-346` — the function body's first statement is `reconstructCPy1LoweringCompiledCoreJavaScriptPaths(paths)` at `:337` | VERIFIED |
+| C-16 | The repo already owns a fail-loud extraction helper, built for exactly the vacuity trap in C-13 | `scripts/kern-5-rt6-void-fallthrough/k0-support.mjs:86-96` `between(source, start, end, label)` — asserts both markers present and the slice non-empty; its own comment names the `indexOf` `-1` tautology. Used by rt10-pre and rt12 tick-discipline; **not** used by any of the 13 `contracts.ts` scrapes | VERIFIED |
 
 ### C-13 — the complete `contracts.ts` / `link.ts` text-scrape surface
 
@@ -207,10 +215,31 @@ it here is three new dist paths instead of one, in one transition.
 **Rejected alternative:** split `contracts.ts` only (`walkers.ts`, N=1, 354→355). Cheaper diff,
 but it re-opens the pin in D. Rejected on the tribunal's own reasoning.
 
-**Out of D.0, flagged:** `packages/core/src/kir-runtime/expression.ts` (RT-1 executor) is 402 lines
-and slice D adds walk-completion handling for `__UserThrow` to it. If the D designer's estimate
-pushes it past ~470, that file's split must be folded into **this** transition before D.0 merges.
-See Open Question OQ-3.
+### OQ-3, decided: `kir-runtime/expression.ts` is **not** split, transition stays 354 → 357
+
+The ruling was: fold the RT-1 executor's split in if a clean behaviour-preserving cut exists now,
+since the transition is once-only. Decided from the code — **no clean cut exists.** Three candidates,
+all blocked:
+
+| Candidate | Lines | Blocker |
+|---|---|---|
+| Leaf operand/evaluator layer — `operandFault`, `booleanOperand`, `integerOperand`, `operandsEqual`, `booleanValue`, `integerValue`, `BINARY_EVALUATORS`, `UNARY_EVALUATORS` | `68-125`, ~58 | **The only acyclic cut, and it is marker-blocked.** `scripts/kern-5-rt10-pre-linked-arithmetic/tick-discipline.test.mjs:124-127` does `between(source, 'const BINARY_EVALUATORS = Object.freeze({', 'export function calleeBindings', …)`, and `between` **asserts** both markers are present in the same text (C-16). `calleeBindings` cannot follow the tables out — it is called by `callHelper`, which is inside the walk cycle. Extracting the tables makes rt10-pre RED |
+| `evaluateExpression` (± `callHelper`) | `310-402`, ~93 | **Cycle.** `walkStatements` → `evaluateExpression` → `callHelper` → `walkStatements` (`expression.ts:207,263,282,317,352`). Any boundary drawn here is a runtime import cycle |
+| Loop/frame machinery — `ForLoopState`, `WhileLoopState`, `LoopState`, `WalkFrame`, `loopContinues` | `159-183`, ~25 | Type-only and acyclic, but 25 lines does not justify a dist path, and `loopContinues` is called from inside `walkStatements` |
+
+Two further whole-file pins narrow it further: `source.split('checkAbort()').length - 1 === 2`
+(`rt10-pre:141-144`) and the same census in `rt12/tick-discipline.test.mjs:51-57` are **whole-file**
+counts, so any extraction that carried a `checkAbort()` site out would move them.
+
+So the file stays at **402 lines with ~98 lines of headroom**, and the transition stays at three
+added paths, **354 → 357**.
+
+**Constraint handed to slice D:** `kir-runtime/expression.ts` must finish slice D under 500 lines.
+If D's RT-1 arms (a try frame in `WalkFrame`, a `__UserThrow` walk-completion variant on
+`StatementWalkResult`, the `catch` dispatch) exceed ~95 lines, D must open its own second head-stage
+transition — and the honest cut is then the operand layer *plus* a licensed re-pointing of
+rt10-pre's `between` end marker. That cost belongs to D, not to D.0: paying it here would buy 58
+lines of headroom on top of 98 already-free lines, at the price of a prior-slice test edit.
 
 ### The c-py-1 inventory transition: 354 → 357
 
@@ -258,7 +287,8 @@ member, no emitted string and no scraped kind list moves. This is what makes D.0
 and `unsupported-runtime-input`. Nothing emits it in D.0; slice D spends it on the uncaught-user-throw
 envelope.
 
-This departs from the tribunal's literal `USER_THROW`. The reasoning, all from C-6/C-7/C-8:
+This departs from the tribunal's literal `USER_THROW`, and the departure is **ratified by the
+coordinator (2026-09-08)**. The reasoning, all from C-6/C-7/C-8:
 
 - The tribunal's mechanism — *"via RC-v1 amendment #4"* — **cannot be executed as stated**. RC-v1
   governs four artifacts, none of which contains the KIR code set (C-6), so adding any KIR member
@@ -276,8 +306,9 @@ This departs from the tribunal's literal `USER_THROW`. The reasoning, all from C
 `USER_THROW` therefore survives in this document and in slice D's spec as the *name of the
 reservation*; the string literal is `'uncaught-throw'`.
 
-**Amendment record design, for the record and for Option B.** If review overrides the above and
-insists on a governed record, the artifact is
+**Amendment record design — Option B, rejected, kept for the record.** Retained so a later slice
+does not re-derive it. If the ratification is ever reversed and a governed record is required, the
+artifact is
 `scripts/runtime-contract-v1/amendments/kern-5-user-throw-diagnostic-v1.json`:
 
 ```json
@@ -356,6 +387,29 @@ description of today's code: `capability-error` is raised as a `__Fault` at four
 claim is therefore stated as a *catchability* invariant plus a census, not as a code-set exclusion,
 which is the only form of it that is true at base and falsifiable by a test.
 
+**The tribunal pin is not dropped — it is handed forward as an open design item.** D.0 pins the
+census; it does **not** decide what `catch` does about `capability-error`, because deciding that
+requires the catch semantics D introduces. Recorded in *Queued for slice D* as QD-1, which slice D's
+spec must answer explicitly rather than inherit by silence.
+
+## Queued for slice D
+
+- **QD-1 — `capability-error` catchability. OPEN, must be answered explicitly in slice D's spec.**
+  The tribunal pinned *"`__Fault` is reserved for VM-invariant collapse; capability failures surface
+  as result records or synthesized user throws, never `__Fault`"*, but the census proves
+  `capability-error` **is** a `__Fault` today at `kir-js-esm/emitter.ts:187,421` and
+  `kir-python/emitter.ts:180,415` (C-11), and no `__Fault` is catchable (C-12). So slice D must
+  choose, in writing, one of: (a) `capability-error` stays an uncatchable `__Fault` and the future
+  capability slice owes a result-record channel before `try { await api.get() } catch` can be
+  represented — the tribunal's stated intent, and the option that keeps D's diff smallest; (b) the
+  four sites are re-classified now, which is a capability-seam change and outside D. D.0's oracle
+  makes either choice observable by pinning the exact census, so option (b) cannot happen silently.
+- **QD-2 — `expression.ts` headroom.** See *OQ-3, decided*: D must land under 500 lines in
+  `kir-runtime/expression.ts` or open its own head-stage inventory transition.
+- **QD-3 — the label registry's `spentBy`.** Each label D spends must gain a `spentBy` entry in
+  `scripts/kern-5-d0-contracts-split/reserved-labels.json` in the same commit that emits it;
+  otherwise D.0's not-emitted row goes RED, which is the intended interlock.
+
 ## Blast Radius
 
 | File | Action | Reason |
@@ -372,7 +426,7 @@ which is the only form of it that is true at base and falsifiable by a test.
 | `scripts/kern-canonicalizer/coverage-dependencies.mjs` | edit | one import + one call at `:337`, new head |
 | `scripts/kern-canonicalizer/coverage-summary.json` | regenerate | `compiledCoreDigest`, `coverageImplementationDigest` |
 | `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` | edit | literal `compiledCoreDigest` at `:97` |
-| `scripts/kern-canonicalizer/coverage-integrity.test.mjs` | verify, maybe edit | the two hard-coded dist path lists at `:337-393` and `:412-475` are sensitivity fixtures, not full inventories; confirm they still pass unchanged (ASSUMED — see OQ-1) |
+| `scripts/kern-canonicalizer/coverage-integrity.test.mjs` | **edit (required)** | the `omitted` `deepEqual` at `:404-454` gains the three new dist paths, sorted (C-14). The other list, `:336-392`, is a sensitivity fixture and stays unchanged |
 | `scripts/kern-5-rt10-for/compatibility.test.mjs` | edit | `DIAGNOSTIC_CODES` 12 → 13; message `twelve` → `thirteen` |
 | `scripts/kern-5-rt11-linked-while/compatibility.test.mjs` | edit | same |
 | `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs` | edit | same; **and** three-file label scan → directory scan |
@@ -421,6 +475,9 @@ Oracle rows the next worker writes, at `scripts/kern-5-d0-contracts-split/`.
       still *bounded*, not merely still passing.
 - [ ] `containsReturn` and `assertLeaf` occur in the same file, `containsReturn` first, with no
       other `function ` declaration between them.
+- [ ] Every extraction in D.0's **own** oracle goes through `between` from
+      `scripts/kern-5-rt6-void-fallthrough/k0-support.mjs` (C-16), never raw `indexOf` — the helper
+      whose absence from the thirteen `contracts.ts` scrapes is what makes them vacuum-prone.
 
 **Diagnostic code**
 - [ ] `KernKirDiagnosticCode` has exactly 13 members, sorted, ending
@@ -458,7 +515,11 @@ Oracle rows the next worker writes, at `scripts/kern-5-d0-contracts-split/`.
       unchanged from base (byte-compare the file).
 - [ ] `addedPaths` is exactly the three new `.js` paths, each present in the live inventory.
 - [ ] `validateD0ContractsSplitHistoricalTransition` rejects any mutation of the frozen record
-      (mirror c-py-1's immutability row).
+      (mirror c-py-1's immutability row), and rejects an inventory with an extra, missing,
+      duplicated, escaping or backslashed path (mirror `coverage-integrity.test.mjs:536-551`).
+- [ ] `reconstructM4145CompiledCoreJavaScriptPaths` still receives exactly 317 paths through the
+      composite chain, and the `omitted` set is exactly the base 50 entries **plus** the three new
+      paths (C-14) — no fourth path leaked into the compiled core.
 - [ ] Full-gate row: `pnpm test:kern-canonicalizer` and `pnpm test:infra:contracts` green.
 
 ## Out of Scope
@@ -469,30 +530,32 @@ any new limit; the throw payload type; metering; the finally abort gate; Python 
 `KIR_LOOP_JUMP_CROSSES_TRY` refusal itself. All of that is slice D or D2.
 
 Also out of scope: splitting `packages/core/src/kir-runtime/expression.ts` (402) or
-`linked-kir-program/expression.ts` (358) — unless OQ-3 resolves otherwise before D.0 merges.
+`linked-kir-program/expression.ts` (358). Decided, not deferred: see *OQ-3, decided* — no clean cut
+exists, and the 500-line constraint passes to slice D as QD-2.
 
 ## Open Questions
 
-- **OQ-1 (technical, cheap to close).** `coverage-integrity.test.mjs:337-393` and `:412-475` hold
-  two hard-coded dist path lists inside sensitivity tests. I read them as *fixtures* (each name is
-  perturbed and the digest asserted to move), not as exact-inventory assertions — so three extra
-  dist files should not break them. **ASSUMED.** Closed by running
-  `node --test scripts/kern-canonicalizer/coverage-integrity.test.mjs` after the build. Blocks the
-  inventory row only.
-- **OQ-2 (product decision — needs the human).** The 13th code is specified as `'uncaught-throw'`,
-  not `'user-throw'`, and **no RC-v1 amendment record is created**. This contradicts the tribunal
-  ruling's literal text on both counts. The reasoning is C-6/C-7/C-8 and I hold it at ~0.9, but the
-  ruling is binding, so this needs explicit ratification (or an instruction to take Option B and
-  widen the public handler ABI). **OPEN.** This is the single item capping confidence below 0.90.
-- **OQ-3 (technical, needs slice D's estimate).** Will slice D push `kir-runtime/expression.ts`
-  (402) past ~470? If yes, its split must join **this** transition (354 → 358) rather than open a
-  second one. **OPEN** until the D designer reports the RT-1 arm size.
-- **OQ-4 (technical, low risk).** `predecessorCommit`/`successorCommit` in the new transition record
+- **OQ-1 — CLOSED, VERIFIED, and it was not benign.** My ASSUMED reading was half wrong. The list at
+  `coverage-integrity.test.mjs:336-392` *is* a pure sensitivity fixture and is unaffected; but the
+  one at `:404-454` is an exact `deepEqual` on `omitted = live − M4.145-historical`, so the three new
+  dist paths land in it and fail it. See C-14 and the new Blast Radius row. Closed by reading
+  `:394-454` against `reconstructM4145CompiledCoreJavaScriptPaths` (`coverage-dependencies.mjs:280-327`)
+  and `POST_M4145_COMPILED_CORE_PATHS` (`:97-107`), not by running the suite: `packages/core/dist`
+  does not exist in this worktree and the brief forbids a build. The intended command,
+  `node --test scripts/kern-canonicalizer/coverage-integrity.test.mjs`, must still be run by the
+  implementing worker after step 3 of the Deploy Order — it is the natural RED-at-base check for
+  this row.
+- **OQ-2 — CLOSED, RATIFIED.** `'uncaught-throw'`, no amendment record. Option B retained above as
+  the rejected alternative; the departure is logged in the Corrections Log.
+- **OQ-3 — CLOSED, DECIDED.** No clean cut of `kir-runtime/expression.ts` exists today; the
+  transition stays 354 → 357. Full analysis and the constraint handed to slice D are under
+  *OQ-3, decided*.
+- **OQ-4 (technical, low risk — still open).** `predecessorCommit`/`successorCommit` in the new transition record
   — the five precedents carry real 40-char SHAs. `successorCommit` cannot be known before D.0's own
   merge commit exists. Check how `r2-js-lowering` handled the same chicken-and-egg (likely: the
   field names the *predecessor* stage's successor, and the record is finalized in a follow-up
   commit). **ASSUMED** that the c-py-1 pattern is copyable verbatim.
-- **OQ-5 (technical).** Whether `check-kir-module-graph.mjs` (`pnpm test:kern-kir-module-graph`)
+- **OQ-5 (technical — still open).** Whether `check-kir-module-graph.mjs` (`pnpm test:kern-kir-module-graph`)
   enforces a module allowlist that must learn the three new paths. Not read. **OPEN**; cheap to
   close by running the suite.
 
@@ -521,12 +584,23 @@ Steps 4-5 cannot be authored before step 3's build exists.
 | A types-only module would be free of inventory cost | tsc emits a `.js` for it and it is a real inventory member (`ir/semantics/internal-effect-machine-types.js`) | Killed the "put the unions in a free types.ts" option; every new module costs one slot |
 | The union scrapes all bound on `'\nexport '` | Two families with different end markers and different failure modes; the `link.ts` `containsReturn` scrape fails *loudly*, the `contracts.ts` ones fail *vacuously* | Only one test edit is strictly forced (`rt12 walker-coverage`); the rest are protected by INV-1 |
 | A frozen exported const list is the natural label registry | Labels have never been TS constants — they are interpolated literals (C-13) — and a new `.ts` costs a slot plus a conflict with rt12's "no source file" wording | Registry is JSON under `scripts/`, with `spentBy` as the forward slot |
+| **Tribunal wording departure (ratified 2026-09-08).** The verdict says *"13th diagnostic code `USER_THROW` via RC-v1 amendment #4"* | Three source reads say that mechanism cannot be executed: (1) RC-v1's amendment chain governs `constitution.json`, `public-declaration-schema.json`, `goldens.json`, `proof-inventory.json` — **not** the KIR union, proven by the union already carrying `projection-authentication-error` and `runtime-limit-exceeded` which the constitution lacks (C-6); (2) a zero-drift record is structurally rejected — `resultDigests === parentDigests` self-cycles at `amendment-chain.mjs:88-97`, and a pending record with no drift fails at `amend.mjs:46-58` (C-7); (3) forcing drift through `constitution.json` would widen the **built public handler ABI**, because `runtime-handler-public-declaration.mjs:147-152` requires the two code sets to be equal (C-8) | The concept survives, the mechanism and the spelling change: 13th member is `'uncaught-throw'` — already a frozen RC-v1 public code with golden `failure-uncaught-throw` — and **no amendment record is created**. Coordinator ratified. Option B kept as the rejected alternative |
+| The two hard-coded dist path lists in `coverage-integrity.test.mjs` are both sensitivity fixtures (OQ-1, ASSUMED) | Only `:336-392` is. `:404-454` is an exact `deepEqual` on `live − M4.145-historical`, which every new dist path enters (C-14) | One more required edit in the Blast Radius; a worker who trusted the ASSUMED reading would have shipped a red `test:kern-canonicalizer` |
+| There are two independent inventory chains to teach (the coverage one and the test's) | One. `reconstructRunnerCallCacheCompiledCoreJavaScriptPaths` internally runs c-py-1 → r2-js → r1-runtime-owner → frontend-projection, so both share the single head call at `coverage-dependencies.mjs:337` (C-15) | Confirmed the one-line wiring; no second insertion point |
+| `kir-runtime/expression.ts` could join this transition if slice D needs the room (OQ-3) | No clean cut exists: the only acyclic candidate (the operand/evaluator layer) is the start marker of rt10-pre's `between(BINARY_EVALUATORS, calleeBindings)` scrape, and `between` **asserts** both markers share one file (C-16); everything else sits inside `walkStatements → evaluateExpression → callHelper → walkStatements` | Transition stays 354 → 357; the 500-line constraint is handed to slice D as QD-2 |
+| The tribunal's `__Fault`/capability pin can be settled inside D.0 | Settling it needs the catch semantics D introduces, and today's census contradicts the pin's wording (C-11) | Recorded as QD-1, an explicit OPEN item slice D must answer in writing; D.0's census makes a silent re-classification impossible |
 
 ## Confidence
 
-**0.87.** The split plan, the marker constraints, the inventory-transition pattern, the pin list and
-the fault census are all read from source and I hold them at ~0.95. The deduction is OQ-2: the spec
-knowingly departs from a binding tribunal ruling on the diagnostic code's name and mechanism. The
-departure is evidence-backed (C-6, C-7, C-8 are each a direct source read), but per the spec-skill
-rule an OPEN tag on the recommended path caps this below 0.90 until a human ratifies. OQ-1, OQ-4 and
-OQ-5 are cheap technical unknowns worth ~0.02 combined; none of them can change the split.
+**0.91**, up from 0.87. The three items that moved it: OQ-2 ratified, so the only OPEN tag on the
+recommended path is gone; OQ-3 decided from the code rather than deferred to a guess; OQ-1 promoted
+to VERIFIED — and it found a required edit I had tagged ASSUMED-benign, which is exactly the churn
+the tag exists to catch, so closing it is worth more than the row it corrected.
+
+The split plan, the marker constraints (C-13, C-16), the inventory-transition pattern and wiring
+point (C-15), the pin list and the fault census (C-10) are all read from source; I hold them at
+~0.95. The remaining deduction is OQ-4 and OQ-5 — the transition record's `successorCommit`
+chicken-and-egg and whether `check-kir-module-graph.mjs` keeps a module allowlist. Both are one
+command away from closed and neither can change the split or the pin list; they can only add a file
+to the Blast Radius. Nothing above 0.95 is claimable for a spec whose oracle has not been written
+and never run RED at base.
