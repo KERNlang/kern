@@ -15,13 +15,9 @@ function sourcePathFor(addedPath) {
   return `packages/core/src/${addedPath.replace(/\.js$/u, '.ts')}`;
 }
 
-function gitShowSucceeds(commit, path) {
-  try {
-    execFileSync('git', ['show', `${commit}:${path}`], { cwd: ROOT });
-    return true;
-  } catch {
-    return false;
-  }
+function treeEntry(commit, path) {
+  const listing = execFileSync('git', ['ls-tree', '--name-only', commit, '--', path], { cwd: ROOT, encoding: 'utf8' });
+  return listing.trim() === path ? 'present' : 'absent';
 }
 
 test('D.0 contracts split transition has immutable identity', () => {
@@ -43,11 +39,13 @@ test('D.0 contracts split reconstructor rejects malformed inventories', () => {
   );
 });
 
-test('D.0 contracts split successor commit actually contains the added modules', () => {
+test('D.0 contracts split successor commit is the exact commit that added the modules', () => {
   const transition = D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION;
+  const parent = `${transition.successorCommit}^`;
   for (const addedPath of transition.addedPaths) {
     const path = sourcePathFor(addedPath);
-    assert.equal(gitShowSucceeds(transition.successorCommit, path), true, path);
-    assert.equal(gitShowSucceeds(transition.predecessorCommit, path), false, path);
+    assert.equal(treeEntry(transition.successorCommit, path), 'present', path);
+    assert.equal(treeEntry(parent, path), 'absent', path);
+    assert.equal(treeEntry(transition.predecessorCommit, path), 'absent', path);
   }
 });
