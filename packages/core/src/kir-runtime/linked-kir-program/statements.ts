@@ -26,6 +26,10 @@ import {
 // retained KIR_CALL_CALLEE_CAPABILITY label still names why the position gate refused.
 const ASYNC_POSITION_LABEL = 'KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)';
 
+const ABRUPT_KINDS = Object.freeze(['break', 'continue', 'return', 'throw']);
+
+type LinkedKernKirTry = Extract<LinkedKernKirStatement, { readonly kind: 'try' }>;
+
 function assertAsyncCallPosition(
   value: LinkedKernKirExpression,
   scope: LinkScope,
@@ -37,6 +41,40 @@ function assertAsyncCallPosition(
       ? value.arguments.some((argument) => containsAsyncCall(argument, scope))
       : containsAsyncCall(value, scope);
   if (misplaced) fault('handler-entry-unsupported', `${label}: ${ASYNC_POSITION_LABEL}`);
+}
+
+function compileThrow(
+  properties: ReadonlyMap<string, CanonicalValue>,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirStatement {
+  if (!scope.tryFamily) fault('handler-entry-unsupported', `${label}: KIR_TRY_FAMILY_IN_HELPER`);
+  propertySet(properties, ['value'], ['trailingComment'], label);
+  const raw = properties.get('value') as CanonicalValue;
+  const value = compileLinkedExpression(raw, scope, meter, `${label}.value`);
+  assertAsyncCallPosition(value, scope, `${label}.value`, true);
+  if (value.kind === 'identifier' && scope.payloads.has(value.name)) {
+    return Object.freeze({ kind: 'throw' as const, value });
+  }
+  if (value.kind !== 'record') fault('handler-entry-unsupported', `${label}: KIR_THROW_PAYLOAD_SHAPE`);
+  const entries = new Map(value.entries.map((entry) => [entry.key, entry.value]));
+  const keys = [...entries.keys()].sort().join(',');
+  const message = entries.get('message');
+  const code = entries.get('code');
+  const typed = (candidate: LinkedKernKirExpression | undefined): boolean =>
+    candidate !== undefined &&
+    (crossCallExpressionType(candidate, scope) === 'text' ||
+      (candidate.kind === 'literal' && candidate.value.tag === 'null'));
+  if ((keys !== 'message' && keys !== 'code,message') || !typed(message) || (code !== undefined && !typed(code))) {
+    fault('handler-entry-unsupported', `${label}: KIR_THROW_PAYLOAD_SHAPE`);
+  }
+  const nullCode = { key: 'code', value: { kind: 'literal', value: { tag: 'null' } } } as const;
+  const completed = code === undefined ? [nullCode, ...value.entries] : value.entries;
+  return Object.freeze({
+    kind: 'throw' as const,
+    value: Object.freeze({ kind: 'record' as const, entries: Object.freeze(completed) }),
+  });
 }
 
 function compileStatement(
@@ -54,6 +92,9 @@ function compileStatement(
     if (scope.loopDepth === 0) {
       const reason = kind === 'break' ? 'KIR_BREAK_OUTSIDE_LOOP' : 'KIR_CONTINUE_OUTSIDE_LOOP';
       fault('handler-entry-unsupported', `${label}: ${reason}`);
+    }
+    if (scope.finallyDepth > scope.loopFinallyDepth) {
+      fault('handler-entry-unsupported', `${label}: KIR_LOOP_JUMP_CROSSES_TRY`);
     }
     return Object.freeze({ kind });
   }
@@ -125,6 +166,7 @@ function compileStatement(
     assertAsyncCallPosition(compiled.value, scope, `${label}.value`, true);
     return compiled;
   }
+  if (kind === 'throw') return compileThrow(properties, scope, meter, label);
   fault('handler-entry-unsupported', `${label}: statement kind ${kind} is outside RT-1`);
 }
 
@@ -137,6 +179,97 @@ function compileBranch(
   const children = nodeChildren(node, label);
   if (children.length === 0) fault('handler-entry-unsupported', `${label}: branch block is empty`);
   return compileBlock(children, branchScope(scope), meter, label);
+}
+
+function compileCatch(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): Pick<LinkedKernKirTry, 'binding' | 'catchBody'> {
+  const properties = nodeProperties(node, label);
+  propertySet(properties, [], ['name'], label);
+  const catchScope = branchScope(scope);
+  const binding = properties.has('name') ? propertyText(properties, 'name', label, meter) : undefined;
+  if (binding !== undefined) {
+    if (catchScope.bindings.has(binding)) fault('handler-entry-unsupported', `${label}: duplicate binding ${binding}`);
+    catchScope.bindings.add(binding);
+    catchScope.payloads.add(binding);
+  }
+  const catchBody = compileBranch(node, catchScope, meter, label);
+  return binding === undefined ? { catchBody } : { binding, catchBody };
+}
+
+function compileFinally(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): readonly LinkedKernKirStatement[] {
+  propertySet(nodeProperties(node, label), [], [], label);
+  const abrupt = (nodes: readonly StructuralKirNode[], at: string): boolean =>
+    nodes.some((child, index) => {
+      const childLabel = `${at}.children[${index}]`;
+      const kind = nodeKind(child, childLabel);
+      return ABRUPT_KINDS.includes(kind) || abrupt(nodeChildren(child, childLabel), childLabel);
+    });
+  const stray = `${label}: KIR_ABRUPT_FINALLY_UNSUPPORTED`;
+  if (abrupt(nodeChildren(node, label), label)) fault('handler-entry-unsupported', stray);
+  return compileBranch(node, scope, meter, label);
+}
+
+// F5 admits a clause both as a child of the `try` and as its following sibling, so the partition runs
+// over the concatenation -- and a clause that follows a NESTED try belongs to that try, not to this one.
+function compileTry(
+  node: StructuralKirNode,
+  siblings: readonly StructuralKirNode[],
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+): LinkedKernKirStatement {
+  if (!scope.tryFamily) fault('handler-entry-unsupported', `${label}: KIR_TRY_FAMILY_IN_HELPER`);
+  propertySet(nodeProperties(node, label), [], [], label);
+  const children = nodeChildren(node, label);
+  let claimed = false;
+  const clauseAt = children.findIndex((child, index) => {
+    const kind = nodeKind(child, `${label}.children[${index}]`);
+    if (kind === 'catch' || kind === 'finally') return !claimed;
+    claimed = kind === 'try';
+    return false;
+  });
+  const bodyNodes = clauseAt < 0 ? children : children.slice(0, clauseAt);
+  if (bodyNodes.length === 0) fault('handler-entry-unsupported', `${label}.body: branch block is empty`);
+  const clauses = [...(clauseAt < 0 ? [] : children.slice(clauseAt)), ...siblings];
+  let catchNode: StructuralKirNode | undefined;
+  let finallyNode: StructuralKirNode | undefined;
+  for (let index = 0; index < clauses.length; index += 1) {
+    const clauseLabel = `${label}.clauses[${index}]`;
+    const kind = nodeKind(clauses[index], clauseLabel);
+    if (kind === 'catch') {
+      if (finallyNode !== undefined) fault('handler-entry-unsupported', `${clauseLabel}: KIR_CATCH_AFTER_FINALLY`);
+      if (catchNode !== undefined) fault('handler-entry-unsupported', `${clauseLabel}: KIR_DUPLICATE_CATCH`);
+      catchNode = clauses[index];
+    } else if (kind === 'finally') {
+      if (finallyNode !== undefined) fault('handler-entry-unsupported', `${clauseLabel}: KIR_DUPLICATE_FINALLY`);
+      finallyNode = clauses[index];
+    } else {
+      fault('handler-entry-unsupported', `${clauseLabel}: KIR_TRY_BODY_AFTER_CLAUSE`);
+    }
+  }
+  const unclaused = `${label}: KIR_TRY_REQUIRES_CATCH_OR_FINALLY`;
+  if (catchNode === undefined && finallyNode === undefined) fault('handler-entry-unsupported', unclaused);
+  const guarded = { ...branchScope(scope), finallyDepth: scope.finallyDepth + (finallyNode === undefined ? 0 : 1) };
+  const body = compileBlock(bodyNodes, branchScope(guarded), meter, `${label}.body`);
+  const caught = catchNode === undefined ? undefined : compileCatch(catchNode, guarded, meter, `${label}.catch`);
+  const cleanup =
+    finallyNode === undefined ? undefined : compileFinally(finallyNode, guarded, meter, `${label}.finally`);
+  return Object.freeze({
+    body,
+    catchBody: Object.freeze([]),
+    ...caught,
+    ...(cleanup === undefined ? {} : { finallyBody: cleanup }),
+    kind: 'try' as const,
+  });
 }
 
 function compileIf(
@@ -215,7 +348,11 @@ function compileFor(
   }
   // The counter binds into the body scope and never into `assignable`, so RT-9's one gate refuses an
   // assignment to it and `counters` only selects which label that refusal carries.
-  const bodyScope = { ...branchScope(scope), loopDepth: scope.loopDepth + 1 };
+  const bodyScope = {
+    ...branchScope(scope),
+    loopDepth: scope.loopDepth + 1,
+    loopFinallyDepth: scope.finallyDepth,
+  };
   bindName(bodyScope, counter, 'integer', 'integer');
   bodyScope.counters.add(counter);
   return Object.freeze({
@@ -244,7 +381,11 @@ function compileWhile(
   if (staticExpressionType(condition, scope) !== 'boolean') {
     fault('handler-entry-unsupported', `${label}.cond: KIR_WHILE_COND_NOT_BOOLEAN`);
   }
-  const bodyScope = { ...branchScope(scope), loopDepth: scope.loopDepth + 1 };
+  const bodyScope = {
+    ...branchScope(scope),
+    loopDepth: scope.loopDepth + 1,
+    loopFinallyDepth: scope.finallyDepth,
+  };
   return Object.freeze({
     body: compileBranch(node, bodyScope, meter, `${label}.body`),
     condition,
@@ -271,6 +412,20 @@ export function compileBlock(
       statements.push(compileWhile(node, scope, meter, childLabel));
       continue;
     }
+    if (kind === 'try') {
+      const clauses: StructuralKirNode[] = [];
+      while (nodes[index + 1] !== undefined) {
+        const nextLabel = `${label}.children[${index + 1}]`;
+        const nextKind = nodeKind(nodes[index + 1], nextLabel);
+        if (nextKind !== 'catch' && nextKind !== 'finally') break;
+        clauses.push(nodes[index + 1]);
+        index += 1;
+      }
+      statements.push(compileTry(node, clauses, scope, meter, childLabel));
+      continue;
+    }
+    if (kind === 'catch') fault('handler-entry-unsupported', `${childLabel}: KIR_CATCH_WITHOUT_TRY`);
+    if (kind === 'finally') fault('handler-entry-unsupported', `${childLabel}: KIR_FINALLY_WITHOUT_TRY`);
     if (kind !== 'if') {
       statements.push(compileStatement(node, scope, meter, childLabel));
       continue;

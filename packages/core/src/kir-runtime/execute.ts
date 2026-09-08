@@ -15,6 +15,7 @@ import { createExecutionDeadline, type ExecutionDeadline } from './deadline.js';
 import { failureEnvelope, successEnvelopeBytes } from './envelope.js';
 import {
   calleeBindings,
+  clampThrowLabel,
   ENTRY_WALK_POLICY,
   type ExpressionRuntime,
   HELPER_WALK_POLICY,
@@ -150,6 +151,9 @@ async function run(
       if (step.done) {
         stack.pop();
         if (stack.length > 0) {
+          if (step.value.kind === 'threw') {
+            throw new KernKirFault('handler-link-error', 'execution', 'KIR_TRY_FAMILY_IN_HELPER');
+          }
           if (step.value.kind === 'drained') {
             throw new KernKirFault('handler-entry-unsupported', 'execution', 'helper did not return');
           }
@@ -158,6 +162,9 @@ async function run(
         }
         if (step.value.kind === 'returned') {
           return finish(Object.freeze({ presence: 'value', value: step.value.value }));
+        }
+        if (step.value.kind === 'threw') {
+          throw new KernKirFault('uncaught-throw', 'execution', clampThrowLabel(step.value.value));
         }
         if (returnType.kind === 'void') return finish(Object.freeze({ presence: 'absent' }));
         throw new KernKirFault('handler-entry-unsupported', 'execution', 'handler did not return');

@@ -1,4 +1,5 @@
-import { KernKirFault, type KernKirLimits } from '../../kir-runtime/contracts.js';
+import { KernKirFault, type KernKirLimits, type KernKirValue } from '../../kir-runtime/contracts.js';
+import { canonicalJson } from '../../kir-runtime/digest.js';
 import { RuntimeMeter } from '../../kir-runtime/inspect.js';
 import { KERN_KIR_JS_ESM_COMPILER_FORMAT, type KernKirJavaScriptEsmCompileRequest } from './contracts.js';
 
@@ -14,6 +15,39 @@ const LIMIT_KEYS = [
 ] as const;
 
 type UnknownRecord = Record<string, unknown>;
+
+export function jsString(value: string): string {
+  return canonicalJson(value);
+}
+
+export function encodedText(value: string): string {
+  return `__chars([${Array.from(value, (character) => character.codePointAt(0) as number).join(',')}])`;
+}
+
+export function valueSource(value: KernKirValue): string {
+  if (value.tag === 'null') return `Object.freeze({tag:'null'})`;
+  if (value.tag === 'boolean') return `Object.freeze({tag:'boolean',value:${String(value.value)}})`;
+  if (value.tag === 'text' || value.tag === 'integer' || value.tag === 'decimal') {
+    return `Object.freeze({tag:${jsString(value.tag)},value:${jsString(value.value)}})`;
+  }
+  if (value.tag === 'list') {
+    return `Object.freeze({tag:'list',value:Object.freeze([${value.value.map(valueSource).join(',')}])})`;
+  }
+  return `Object.freeze({tag:'record',value:Object.freeze([${value.value
+    .map((entry) => `Object.freeze({key:${jsString(entry.key)},value:${valueSource(entry.value)}})`)
+    .join(',')}])})`;
+}
+
+export function dataSource(value: unknown): string {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return String(value);
+  if (typeof value === 'string') return jsString(value);
+  if (Array.isArray(value)) return `[${value.map(dataSource).join(',')}]`;
+  const record = value as Readonly<Record<string, unknown>>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${jsString(key)}:${dataSource(record[key])}`)
+    .join(',')}}`;
+}
 
 function plain(value: unknown): UnknownRecord {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('expected plain data');

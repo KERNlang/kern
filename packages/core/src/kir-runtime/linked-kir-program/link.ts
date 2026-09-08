@@ -192,7 +192,11 @@ function compileHandler(
     calls: callScope(context),
     counters: new Set<string>(),
     crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
+    finallyDepth: 0,
     loopDepth: 0,
+    loopFinallyDepth: 0,
+    payloads: new Set<string>(),
+    tryFamily: requireExport,
     types: new Map<string, LinkedKernKirStaticType>(),
   };
   for (let index = 0; index < children.length; index += 1) {

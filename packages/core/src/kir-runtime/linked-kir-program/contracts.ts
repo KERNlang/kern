@@ -261,6 +261,14 @@ export type LinkedKernKirStatement =
     }
   | { readonly kind: 'print'; readonly value: LinkedKernKirExpression }
   | { readonly kind: 'return'; readonly value: LinkedKernKirExpression }
+  | { readonly kind: 'throw'; readonly value: LinkedKernKirExpression }
+  | {
+      readonly kind: 'try';
+      readonly body: readonly LinkedKernKirStatement[];
+      readonly binding?: string;
+      readonly catchBody: readonly LinkedKernKirStatement[];
+      readonly finallyBody?: readonly LinkedKernKirStatement[];
+    }
   | {
       readonly kind: 'if';
       readonly condition: LinkedKernKirExpression;
@@ -286,6 +294,11 @@ export function statementSubBlocks(statement: LinkedKernKirStatement): readonly 
     return statement.elseBranch === undefined ? [statement.thenBranch] : [statement.thenBranch, statement.elseBranch];
   }
   if (statement.kind === 'for' || statement.kind === 'while') return [statement.body];
+  if (statement.kind === 'try') {
+    return statement.finallyBody === undefined
+      ? [statement.body, statement.catchBody]
+      : [statement.body, statement.catchBody, statement.finallyBody];
+  }
   return [];
 }
 
@@ -293,7 +306,7 @@ export function statementSubExpressions(statement: LinkedKernKirStatement): read
   if (statement.kind === 'capability') return statement.input === undefined ? [] : [statement.input];
   if (statement.kind === 'if' || statement.kind === 'while') return [statement.condition];
   if (statement.kind === 'for') return [statement.from, statement.to, statement.step];
-  if (statement.kind === 'break' || statement.kind === 'continue') return [];
+  if (statement.kind === 'break' || statement.kind === 'continue' || statement.kind === 'try') return [];
   return [statement.value];
 }
 
