@@ -40,6 +40,7 @@ const PAYLOAD_REFUSALS = Object.freeze([
   'neg-throw-integer-message',
   'neg-throw-extra-key',
   'neg-throw-no-message',
+  'neg-throw-null-message',
   'neg-throw-member',
   'neg-throw-nested-record-message',
   'neg-throw-let-bound-payload',

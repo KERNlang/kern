@@ -153,16 +153,24 @@ test('an uncaught throw produces the frozen failure envelope byte-identically on
 });
 
 // D-3h. Catch is not a transaction: events already committed survive into the failure envelope, in
-// order. Append-only, no rollback on either leg.
+// order. Append-only, no rollback on either leg. Both event kinds are driven -- the row previously
+// claimed a capability and exercised only the print, so a capability event dropped on the failure
+// path would have gone unnoticed.
 test('a print and a capability committed before an uncaught throw both survive into the failure envelope', async () => {
-  const source = TRY_POSITIONS['throw-uncaught-after-print']();
-  await assertTryAdmitted('throw-uncaught-after-print', source);
+  const source = TRY_POSITIONS['throw-uncaught-after-print-and-capability']();
+  await assertTryAdmitted('throw-uncaught-after-print-and-capability', source);
   const { legs } = await tryTwoLegBytes(source, runtimeRequest('d-events-preserved', {}));
   assert.deepEqual(
-    legs.direct.envelope.events,
-    [{ op: 'stdout', text: 'first' }],
-    'D_EVENTS_ROLLED_BACK: events committed before the throw must be preserved, in order',
+    legs.direct.envelope.events.map((event) => event.op),
+    ['stdout', 'capability'],
+    'D_EVENTS_ROLLED_BACK: both event kinds committed before the throw must be preserved, in order',
   );
+  assert.equal(
+    legs.direct.envelope.events[0].text,
+    'first',
+    'D_EVENTS_ROLLED_BACK: the print committed before the throw must keep its text',
+  );
+  assert.equal(legs.direct.envelope.outcome, 'failure');
 });
 
 // D-3b/D-3c. The clamped label rides the fault message, never an envelope field, and the clamp is a
@@ -199,6 +207,28 @@ test('clampThrowLabel clamps the message to 256 code units and appends a 64-unit
     coded,
     `${'x'.repeat(CLAMP_MESSAGE_UNITS)} [${'y'.repeat(CLAMP_CODE_UNITS)}]`,
     'D_LABEL_SHAPE: a present code must render as the clamped message followed by the clamped code in brackets',
+  );
+});
+
+// The linker refuses a null `message` (D-1a), but both label helpers must fail closed anyway: RT-1's
+// clamp returns an empty label, and the emitted helper must too. Before this row the emitted helper
+// read `.value` off undefined and threw a raw TypeError, escaping the envelope and killing the host.
+test('both label helpers fail closed on a non-text message rather than reading through it', async () => {
+  const { clampThrowLabel } = runtimeEvaluator();
+  const nullMessage = {
+    tag: 'record',
+    value: [
+      { key: 'code', value: { tag: 'null' } },
+      { key: 'message', value: { tag: 'null' } },
+    ],
+  };
+  assert.equal(clampThrowLabel(nullMessage), '', 'D_LABEL_UNGUARDED: the RT-1 clamp must fail closed');
+  const artifact = await tryArtifact(TRY_POSITIONS['throw-uncaught-coded']());
+  const helper = artifact.text.slice(artifact.text.indexOf(`const ${THROW_LABEL_HELPER}=`));
+  const declaration = helper.slice(0, helper.indexOf('\n'));
+  assert.ok(
+    declaration.includes("?.tag!=='text'"),
+    `D_LABEL_UNGUARDED: the emitted ${THROW_LABEL_HELPER} must guard a non-text message the way the RT-1 clamp does`,
   );
 });
 

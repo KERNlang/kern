@@ -62,11 +62,11 @@ function compileThrow(
   const keys = [...entries.keys()].sort().join(',');
   const message = entries.get('message');
   const code = entries.get('code');
-  const typed = (candidate: LinkedKernKirExpression | undefined): boolean =>
-    candidate !== undefined &&
-    (crossCallExpressionType(candidate, scope) === 'text' ||
-      (candidate.kind === 'literal' && candidate.value.tag === 'null'));
-  if ((keys !== 'message' && keys !== 'code,message') || !typed(message) || (code !== undefined && !typed(code))) {
+  const text = (candidate: LinkedKernKirExpression | undefined): boolean =>
+    candidate !== undefined && crossCallExpressionType(candidate, scope) === 'text';
+  // Only `code` may carry the null the linker inserts; `message` is `text`, on both legs.
+  const coded = code === undefined || text(code) || (code.kind === 'literal' && code.value.tag === 'null');
+  if ((keys !== 'message' && keys !== 'code,message') || !text(message) || !coded) {
     fault('handler-entry-unsupported', `${label}: KIR_THROW_PAYLOAD_SHAPE`);
   }
   const nullCode = { key: 'code', value: { kind: 'literal', value: { tag: 'null' } } } as const;
