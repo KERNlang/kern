@@ -210,34 +210,40 @@ test('compileBlock dispatches try to a dedicated visitor rather than exempting i
   );
 });
 
-// D-4c, the discriminating row for the one loudly-breaking prior-slice scrape. `containsReturn`
-// gates the void-handler check and recurses only for/while/if today, so without a `try` arm a void
-// handler with a return inside a try escapes KIR_VOID_HANDLER_VALUE_RETURN.
-test('containsReturn gains a try arm and stays at five block-owning kinds, with none for throw', () => {
+// D-4c is OBSOLETE, and this row is what keeps it that way. D.0's `9f366f0b` single-sourced
+// `containsReturn`'s traversal onto `statementSubBlocks`, so the walker names no block-owning kind
+// of its own: the `try` arm D adds to `statementSubBlocks` for D-6e gives `containsReturn` its
+// recursion for free. One edit closes the void-handler hazard, not two -- and if a later slice
+// re-inlines a kind here, the hazard silently reopens on the next statement kind.
+test('containsReturn stays delegated to statementSubBlocks and re-learns no kind inline', () => {
   const source = repositoryText('packages/core/src/kir-runtime/linked-kir-program/link-support.ts');
   const walker = source.slice(source.indexOf('export function containsReturn'), source.indexOf('export function assertLeaf'));
   assert.ok(walker.length > 0, 'containsReturn must be locatable');
   const kinds = [...new Set([...walker.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]))].sort();
   assert.deepEqual(
     kinds,
-    ['for', 'if', 'return', 'try', 'while'],
-    'D_WALKER_HOLE: containsReturn must learn try, a genuinely block-owning kind, and must not learn throw',
+    ['return'],
+    'D_WALKER_RE_INLINED: containsReturn must delegate every block-owning kind to statementSubBlocks, or D owes it a try arm of its own',
   );
-  for (const field of ['catchBody', 'finallyBody']) {
-    assert.ok(walker.includes(field), `D_WALKER_HOLE: containsReturn must recurse into ${field}`);
-  }
+  assert.ok(
+    walker.includes('statementSubBlocks'),
+    'D_WALKER_RE_INLINED: the traversal must stay single-sourced, which is what makes the try arm free',
+  );
 });
 
-test('rt12 own containsReturn scrape is re-pinned to five kinds, so the prior slice breaks loudly and once', () => {
+// The loudly-breaking prior-slice scrape, relocated by the same refactor: rt12 now pins
+// `statementSubBlocks` to exactly ['for','if','while'] and asserts it "must not learn a kind that
+// owns no block". `try` owns three, so that list -- not the containsReturn one the spec predicted --
+// is the assertion D moves.
+test('rt12 own statementSubBlocks pin gains try, which is the scrape the refactor relocated', () => {
   const rt12 = repositoryText('scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs');
   assert.ok(
-    rt12.includes("['for', 'if', 'return', 'try', 'while']"),
-    'D_PRIOR_PIN_STALE: rt12 containsReturn kind list must gain try',
+    rt12.includes("['for', 'if', 'try', 'while']"),
+    'D_PRIOR_PIN_STALE: rt12 statementSubBlocks kind list must gain try, a genuinely block-owning kind',
   );
-  assert.equal(
-    rt12.includes('its four block-owning arms'),
-    false,
-    'D_PRIOR_PIN_STALE: the rt12 test title must move from four arms to five',
+  assert.ok(
+    rt12.includes("['return']"),
+    'D_PRIOR_PIN_STALE: rt12 must keep pinning containsReturn as delegated, which D does not change',
   );
 });
 
