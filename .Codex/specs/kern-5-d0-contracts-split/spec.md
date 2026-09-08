@@ -1,6 +1,6 @@
 # KERN 5 — D.0 `linked-kir-program` split, c-py-1 inventory transition, try-family reservations
 
-**Status:** SPEC — ORACLE NOT YET WRITTEN
+**Status:** SPEC — ORACLE LANDED RED
 **Date:** 2026-09-08
 **Confidence:** 0.91
 
@@ -450,7 +450,12 @@ Suites that must be green: `test:kern-5-rt2-boolean-if`, `rt3`, `rt4`, `rt5`, `r
 
 ## Acceptance Criteria
 
-Oracle rows the next worker writes, at `scripts/kern-5-d0-contracts-split/`.
+**Landed at `scripts/kern-5-d0-contracts-split/`, 2026-09-08: 72 rows across eight files, 30 RED and
+42 GREEN at base `2c6f4abd`.** Per file (RED/GREEN): `layout` 6/4, `marker-locality` 7/3,
+`behavior-preservation` 0/6, `diagnostics` 3/7, `reserved-labels` 5/3, `fault-census` 0/11,
+`inventory` 9/3, `wiring` 0/5. Every RED row has one cause and every cause is an artifact D.0 must
+create; `pnpm test:ci-contract` is green (19/19) and `pnpm lint` is clean. Base pins live in
+`pins.mjs`, the marker table in `markers.mjs`, the fixture digests in `fixtures.mjs`.
 
 **Size and shape**
 - [ ] Every `.ts` under `packages/core/src/kir-runtime/linked-kir-program/` is `< 500` lines, and
@@ -562,9 +567,11 @@ exists, and the 500-line constraint passes to slice D as QD-2.
   merge commit exists. Check how `r2-js-lowering` handled the same chicken-and-egg (likely: the
   field names the *predecessor* stage's successor, and the record is finalized in a follow-up
   commit). **ASSUMED** that the c-py-1 pattern is copyable verbatim.
-- **OQ-5 (technical — still open).** Whether `check-kir-module-graph.mjs` (`pnpm test:kern-kir-module-graph`)
-  enforces a module allowlist that must learn the three new paths. Not read. **OPEN**; cheap to
-  close by running the suite.
+- **OQ-5 — CLOSED, VERIFIED.** `check-kir-module-graph.mjs` keeps no allowlist. It walks reachable
+  `./` edges outward from `packages/core/src/kir-structural/module-canonical.ts`
+  (`check-kir-module-graph.mjs:9,19-35`) and `linked-kir-program` is not in that graph
+  (`grep -n 'linked-kir-program' scripts/check-kir-module-graph.mjs` → zero hits, 2026-09-08). No
+  Blast Radius addition; see STEP-0-f.
 
 ## Deploy Order
 
@@ -604,18 +611,31 @@ Steps 4-5 cannot be authored before step 3's build exists.
 | **STEP-0-f. OQ-5 CLOSED, VERIFIED.** Whether `check-kir-module-graph.mjs` keeps a module allowlist the three new paths must join | It keeps none. It walks reachable `./` edges outward from `packages/core/src/kir-structural/module-canonical.ts` (`check-kir-module-graph.mjs:9,19-35`) and `linked-kir-program` is not in that graph — `grep -n 'linked-kir-program' scripts/check-kir-module-graph.mjs` → zero hits, 2026-09-08 | No Blast Radius addition. `test:kern-kir-module-graph` needs no edit |
 | **STEP-0-g.** Appending the D.0 leaf to `test:kern-5-script-family` is a `package.json`-only edit | `scripts/ci/test-tier-contract.test.mjs:49-71` holds `kern5EvidenceCommands` and `deepEqual`s the script's segments against it (`:154-159`), so the leaf must be added in **both** places or `pnpm test:ci-contract` goes red | One Blast Radius row added. The oracle's wiring file asserts the two lists agree, so the coupling cannot be half-done |
 | **STEP-0-h.** Line counts and the inventory pin may have moved under slice C | Unchanged at `2c6f4abd`: `linked-kir-program/contracts.ts` **535**, `link.ts` **735**, `linked-kir-program/expression.ts` **358**, `index.ts` **43**, `kir-runtime/expression.ts` **402**, `kir-runtime/contracts.ts` **107**; live `packages/core/dist` JavaScript inventory **354**; `KernKirDiagnosticCode` **12** members; statement union **10** kinds, expression union **9** | The split plan, the 354 → 357 transition and every headroom estimate stand as written |
+| **STEP-0-i.** The `omitted` `deepEqual` at `coverage-integrity.test.mjs:404-454` is a **50**-entry list (C-14) | It is **49**: live 354 minus the M4.145 historical 305, both re-measured by running the composite chain at `2c6f4abd`. After the split it is 52 | The oracle pins the 49 base entries plus the three new paths and asserts the literal stays sorted. A worker who added three entries to a "50-entry" list would have shipped a red `test:kern-canonicalizer` |
+| **STEP-0-j.** `uncaught-throw` is a name D.0 introduces to the code, dormant everywhere else | It is already **live in `packages/core/src`** at three sites: the public handler ABI (`runtime-handler.ts:120`), the envelope union (`runtime-envelope/types.ts:67`), and one real producer — `runtime-envelope/normalize.ts:122` `internalRuntimeFailure('uncaught-throw')` for a throwing trace | The "emitted by no code path" criterion is true only in the spec's exact wording (no *fault construction* carries it). The oracle states the reservation as the narrower, checkable fact: the **kir-runtime tree** names it exactly once, in the union declaration, and has no producer; plus a separate GREEN row holding `normalize.ts` as its single existing producer |
+| **STEP-0-k.** *"Nothing catches a `KernKirFault`"* (C-12) | Four guarded catches do — `inspect.ts:117,143` and `execute.ts:195,203` — but each **re-throws on the same line**. `instanceof KernKirFault` appears at ten sites across eight files; the rest are classifiers at their own boundary (`envelope.ts:40`, `link.ts:723`, both compiler entries, both request predicates) | C-12 restated in the form that is true at base: every guarded catch inside `kir-runtime` re-throws, `execute.ts` holds the one `failureEnvelope(` conversion, and the ten-site classifier census is itself pinned. A blanket "no catch" row would have been RED at base for the wrong reason |
+| **STEP-0-l.** `link.ts` keeps importing `./expression.js` after the split | It does not. All thirteen of its expression-module call sites (`link.ts:294-295,338-513`) sit inside `assertAsyncCallPosition`, `compileStatement`, `compileIf`, `loopBound` and `compileWhile` — every one of which moves to `statements.ts`. `compileHandler`, `selectHandler` and `helperIsAsync` use none of them | INV-2's edge set is tighter than first written: `link.ts → {contracts.ts, link-support.ts, statements.ts}`. The oracle pins the whole seven-node edge map, so a stray import is RED |
+| **STEP-0-m.** INV-1's marker order is `LinkedKernKirExpression`, `LinkedKernKirUnaryOperator`, `LinkedKernKirStatement`, then the three primitives | Source order is `LinkedKernKirUnaryOperator` (`contracts.ts:101`), `LinkedKernKirExpression` (`:174`), `LinkedKernKirStatement` (`:250`), `statementSubBlocks` (`:284`), `statementSubExpressions` (`:292`), `expressionVariantUnhandled` (`:302`) | Order corrected in the oracle's INV-1 pin. Found by the row itself going RED at base for a reason that was mine, not the code's |
+| **STEP-0-n.** The `contracts.ts` scrape surface is thirteen marker pairs | Thirteen *files*, **22** marker pairs over four files: 15 into `linked-kir-program/contracts.ts`, 6 into `kir-runtime/contracts.ts` (the `KernKirLimits` and `KernKirDiagnosticCode` regions the three rt compatibility suites also slice), and 1 into `link.ts`. Twenty-one stay put; exactly one — rt12's `containsReturn`/`assertLeaf` pair — must be re-pointed | The marker table carries all 22 rows with a `readsAfter` column, so the single licensed re-point is RED at base and the other 21 are GREEN and must stay GREEN |
+| **STEP-0-o.** OQ-4, `successorCommit` chicken-and-egg | Still **OPEN by construction**: `c-py-1-lowering-historical-transition.mjs:8-9` carries two real 40-char SHAs, and D.0's own merge commit cannot exist when the record is authored. The oracle asserts only the *shape* (`/^[0-9a-f]{40}$/` on both fields), leaving the choice of value to the implementer — a placeholder SHA finalized in a follow-up commit is the pattern the five precedents imply | No oracle row blocks on it. It cannot change the split or the pin list |
 
 ## Confidence
 
-**0.91**, up from 0.87. The three items that moved it: OQ-2 ratified, so the only OPEN tag on the
-recommended path is gone; OQ-3 decided from the code rather than deferred to a guess; OQ-1 promoted
-to VERIFIED — and it found a required edit I had tagged ASSUMED-benign, which is exactly the churn
-the tag exists to catch, so closing it is worth more than the row it corrected.
+**0.94**, up from 0.91. What moved it: the oracle exists, ran at base `2c6f4abd`, and every one of
+its 30 RED rows fails for exactly one cause that is an artifact D.0 must create — no row is RED
+because the plan is wrong. The 42 GREEN rows are the ones that matter most, because a
+behaviour-preserving slice is judged by what stays still: fifteen fixtures pinned at three depths
+(linked program, emitted artifact, executed envelope), both kernel SHAs, both union kind sets, the
+whole fault census, the 21 settled marker scrapes, and the RC-v1 no-amendment fence.
 
-The split plan, the marker constraints (C-13, C-16), the inventory-transition pattern and wiring
-point (C-15), the pin list and the fault census (C-10) are all read from source; I hold them at
-~0.95. The remaining deduction is OQ-4 and OQ-5 — the transition record's `successorCommit`
-chicken-and-egg and whether `check-kir-module-graph.mjs` keeps a module allowlist. Both are one
-command away from closed and neither can change the split or the pin list; they can only add a file
-to the Blast Radius. Nothing above 0.95 is claimable for a spec whose oracle has not been written
-and never run RED at base.
+Seven base facts the oracle corrected while being written (STEP-0-i … STEP-0-o) are why the score
+is not higher earlier rather than lower now: the 49-entry omitted list, `uncaught-throw`'s live
+producer in `normalize.ts`, the four re-throwing guarded catches, `link.ts` shedding
+`./expression.js`, the INV-1 marker order, and the 22-pair marker surface behind the 13 files. Each
+would have produced either a vacuous row or a row RED for the wrong reason. Finding them is exactly
+what writing the oracle before the code is for.
+
+The remaining deduction is OQ-4 (STEP-0-o): the transition record's `successorCommit` cannot be
+known before D.0's merge commit, so the oracle pins its shape and not its value. That is the one
+place where a licensed judgement is left to the implementer. Nothing above 0.95 is claimable until
+the oracle has been seen to go GREEN on real code.
