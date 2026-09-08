@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   LIMITS,
+  abortingProvider,
   TRY_METER_POSITIONS,
   TRY_POSITIONS,
   TRY_THRESHOLD_POSITIONS,
@@ -127,17 +128,17 @@ test('maxSteps exhausted inside a try with a catch produces runtime-limit-exceed
 // Both legs, driven: these two rows claimed "on both legs" while executing RT-1 alone, so the
 // emitted leg's own abort path -- a different mechanism, `__deadline`/`AbortController` rather than
 // the walk's `checkAbort` -- was asserted by the title and by nothing else.
-async function abortLegs(name, control, requestId, limits) {
+async function abortLegs(name, requestId, { childOptions = {}, control, limits, runtime } = {}) {
   const source = TRY_POSITIONS[name]();
   await assertTryAdmitted(name, source);
   const verified = await project(source);
   const javascript = compileJavaScript(verified);
   assert.equal(javascript.outcome, 'success', `D_LINK_REFUSED: ${name} must emit an artifact`);
   const base = runtimeRequest(requestId, {});
-  const request = limits === undefined ? { ...base, control } : { ...base, control, limits };
+  const request = { ...base, ...(control === undefined ? {} : { control }), ...(limits === undefined ? {} : { limits }) };
   return {
-    direct: await executeKernKir(verified, request, provider([])),
-    emitted: (await executeJavaScriptChild(javascript.artifact.bytes, request)).envelope,
+    direct: await executeKernKir(verified, request, runtime ?? provider([])),
+    emitted: (await executeJavaScriptChild(javascript.artifact.bytes, request, childOptions)).envelope,
   };
 }
 
@@ -145,8 +146,15 @@ function abortCodes(envelope) {
   return envelope.diagnostics.map((diagnostic) => diagnostic.code);
 }
 
+// Driven from INSIDE the try, which is the only shape that proves anything: `preCancelled` is
+// rejected at the request boundary before the handler is entered, so the earlier version of this row
+// never reached a try body at all. The capability is the one statement that hands control back to
+// the host mid-body, so the provider aborts there -- after the try body has already printed.
 test('cancellation inside a try produces execution-cancelled with the catch body skipped, on both legs', async () => {
-  const legs = await abortLegs('try-catch-caught-throw', { preCancelled: true, timeoutMs: null }, 'd-cancelled');
+  const legs = await abortLegs('try-catch-cancel-in-body', 'd-cancelled', {
+    childOptions: { abortOnCapability: true },
+    runtime: abortingProvider([]),
+  });
   for (const [leg, envelope] of Object.entries(legs)) {
     assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on cancellation`);
     assert.deepEqual(
@@ -154,25 +162,39 @@ test('cancellation inside a try produces execution-cancelled with the catch body
       ['execution-cancelled'],
       `D_ENVELOPE_CATCHABLE: cancellation must bypass the catch entirely on the ${leg} leg`,
     );
-    assert.deepEqual(envelope.events, [], `D_ENVELOPE_CATCHABLE: ${leg} must commit no event`);
+    assert.deepEqual(
+      envelope.events.map((event) => event.op),
+      ['stdout'],
+      `D_ENVELOPE_CATCHABLE: the ${leg} leg must have entered the try body before the abort, so its print survives`,
+    );
+    assert.deepEqual(
+      envelope.result,
+      { presence: 'absent' },
+      `D_ENVELOPE_CATCHABLE: the ${leg} leg must carry no result, so the catch body never ran`,
+    );
   }
 });
 
 test('a timeout inside a try produces execution-timeout with the catch body skipped, on both legs', async () => {
   // maxSteps is raised so the deadline is the only limit that can fire; otherwise the row races the
-  // step budget and could report runtime-limit-exceeded on a fast host.
-  const legs = await abortLegs(
-    'try-catch-slow-loop',
-    { preCancelled: false, timeoutMs: 1 },
-    'd-timeout',
-    { ...LIMITS, maxSteps: 1_000_000 },
-  );
+  // step budget and could report runtime-limit-exceeded on a fast host. 20ms is the measured window:
+  // long enough that RT-1 -- whose deadline starts before linking -- still enters the try body and
+  // prints, short enough that the 20000-trip loop overruns it on both legs. 8/8 deterministic.
+  const legs = await abortLegs('try-catch-slow-loop', 'd-timeout', {
+    control: { preCancelled: false, timeoutMs: 20 },
+    limits: { ...LIMITS, maxSteps: 1_000_000 },
+  });
   for (const [leg, envelope] of Object.entries(legs)) {
     assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on a timeout`);
     assert.deepEqual(
       abortCodes(envelope),
       ['execution-timeout'],
       `D_ENVELOPE_CATCHABLE: a timeout must bypass the catch entirely on the ${leg} leg`,
+    );
+    assert.deepEqual(
+      envelope.events.map((event) => event.op),
+      ['stdout'],
+      `D_DEADLINE_BEFORE_ENTRY: the ${leg} leg must have entered the try body before the deadline expired`,
     );
   }
 });

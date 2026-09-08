@@ -23,6 +23,13 @@ const INNER_PRINT = Object.freeze(['if cond="true"', '  print value="\\"inner\\"
 
 const OUTER_PRINT = Object.freeze(['if cond="true"', '  print value="\\"outer\\""']);
 
+const GUARDED_CANCEL = Object.freeze([
+  'if cond="true"',
+  '  print value="\\"entered\\""',
+  '  capability namespace=fixture operation=resolve name=reply',
+  '  assign target="acc" value="1"',
+]);
+
 const GUARDED_CAPABILITY = Object.freeze([
   'if cond="true"',
   '  capability namespace=fixture operation=resolve name=reply',
@@ -71,6 +78,15 @@ export const TRY_HELPER = Object.freeze({
   name: 'trier',
   parameters: Object.freeze([]),
   returns: 'integer',
+});
+
+// Genuinely async, which means it carries a capability: `linkedProgramAsyncHelpers` reads the
+// `async` flag the linker sets from the callee closure, not a keyword in the source.
+export const ASYNC_TEXT_HELPER = Object.freeze({
+  body: Object.freeze(['capability namespace=fixture operation=resolve name=reply', 'return value="t"']),
+  name: 'slow',
+  parameters: TEXT_PARAM,
+  returns: 'string',
 });
 
 export const ASYNC_HELPER = Object.freeze({
@@ -213,9 +229,22 @@ export const TRY_POSITIONS = Object.freeze({
     ]),
   // The timeout row needs a try whose body outlives a 1ms deadline on BOTH legs: RT-1 creates its
   // deadline before linking, the emitted module creates its own inside `execute()`, so a leaf-sized
-  // body finishes inside the window on the emitted leg and only RT-1 would ever fail.
+  // body finishes inside the window on the emitted leg and only RT-1 would ever fail. The leading
+  // print is what proves the deadline expired AFTER the try body was entered.
   'try-catch-slow-loop': () =>
-    tryProgram([ACC, ...tryCatch(['for name=i from="0" to="20000"', `  ${BUMP}`], [SET2]), RET_ACC]),
+    tryProgram([
+      ACC,
+      ...tryCatch(
+        ['if cond="true"', '  print value="\\"entered\\""', `  ${SET1}`, 'for name=i from="0" to="20000"', `  ${BUMP}`],
+        [SET2],
+      ),
+      RET_ACC,
+    ]),
+  // Cancellation reached from INSIDE the try: `preCancelled` is rejected at the request boundary
+  // before the handler is entered, so it can never show that an in-try abort bypasses the catch.
+  // The capability is the only statement that hands control back to the host mid-body.
+  'try-catch-cancel-in-body': () =>
+    tryProgram([ACC, ...tryCatch(GUARDED_CANCEL, [SET2]), RET_ACC]),
   'try-finally-while': () =>
     tryProgram([
       ACC,
@@ -280,6 +309,17 @@ export const TRY_POSITIONS = Object.freeze({
   // returns an empty label while the emitted __throwLabel reads `.value` off undefined and crashes
   // the host out of the envelope entirely.
   'neg-throw-null-message': () => tryProgram([ACC, 'throw value="{message: null}"', RET_ACC]),
+  // The two halves of `assertAsyncCallPosition`'s statementValue flag, which a mutation survived
+  // because no row distinguished them. A bare async user-call AS the payload passes the position
+  // gate -- a statement value is a legal continuation position -- and is then refused by the payload
+  // gate; an async call NESTED in the payload record has no continuation and is refused by position.
+  'neg-throw-async-call': () =>
+    tryProgram([ACC, 'throw value="slow(t)"', RET_ACC], { helpers: [ASYNC_TEXT_HELPER], parameters: TEXT_PARAM }),
+  'neg-throw-async-in-payload': () =>
+    tryProgram([ACC, 'throw value="{message: slow(t)}"', RET_ACC], {
+      helpers: [ASYNC_TEXT_HELPER],
+      parameters: TEXT_PARAM,
+    }),
   'neg-throw-member': () =>
     tryProgram([ACC, 'let name=r value="{message: \\"x\\"}"', 'throw value="r.message"', RET_ACC]),
   'neg-throw-nested-record-message': () =>

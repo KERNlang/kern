@@ -87,6 +87,20 @@ export function provider(calls) {
   };
 }
 
+// The RT-1 mirror of `abortOnCapability`: a provider that aborts the signal it shares with the
+// driver, so the cancellation happens after the handler body has already committed an event.
+export function abortingProvider(calls) {
+  const controller = new AbortController();
+  return {
+    invoke: async (call) => {
+      calls.push(call);
+      controller.abort();
+      return { presence: 'value', value: { tag: 'text', value: 'reply-value' } };
+    },
+    signal: controller.signal,
+  };
+}
+
 // The RT-1 mirror of `capabilityFails`: a provider that throws a plain error, which `execute.ts`
 // converts into `capability-error` without it ever re-entering the walk.
 export function failingProvider(calls) {
@@ -125,20 +139,25 @@ export function envelopeBytes(envelope) {
 // `capabilityFails` is what makes a capability fault reachable on the emitted leg: the emitted
 // invoke wraps the provider call in its own try/catch and converts any non-fault throw into
 // `capability-error`, exactly as the RT-1 driver does. Default off, so no existing row moves.
-function javascriptDriver(abortAfterMicrotasks, capabilityFails = false) {
+// `abortOnCapability` cancels from INSIDE the handler body, which is the only way to reach an abort
+// that the request boundary has not already rejected: `preCancelled` never enters the handler at all.
+function javascriptDriver(abortAfterMicrotasks, capabilityFails = false, abortOnCapability = false) {
   return [
     "import { readFile, writeFile } from 'node:fs/promises';",
     'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
     'const module = await import(entryPath);',
     'const request = JSON.parse(await readFile(inputPath, "utf8"));',
     'const calls = [];',
+    ...(abortOnCapability ? ['const capabilityAbort = new AbortController();'] : []),
     'const options = {',
     '  invoke: async (call) => {',
     '    calls.push({ namespace: call.namespace, operation: call.operation });',
+    ...(abortOnCapability ? ['    capabilityAbort.abort();'] : []),
     ...(capabilityFails ? ['    throw new Error("capability provider failed");'] : []),
     '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
     '  },',
     '};',
+    ...(abortOnCapability ? ['options.signal = capabilityAbort.signal;'] : []),
     ...(abortAfterMicrotasks === undefined
       ? []
       : [
@@ -181,7 +200,10 @@ export async function executeJavaScriptChild(bytes, request, options = {}) {
     const output = join(directory, 'output.json');
     await Promise.all([
       writeFile(entry, bytes),
-      writeFile(driver, javascriptDriver(options.abortAfterMicrotasks, options.capabilityFails)),
+      writeFile(
+        driver,
+        javascriptDriver(options.abortAfterMicrotasks, options.capabilityFails, options.abortOnCapability),
+      ),
       writeFile(input, JSON.stringify(request)),
     ]);
     const node22 = process.env.KERN_NODE22 ?? process.execPath;
