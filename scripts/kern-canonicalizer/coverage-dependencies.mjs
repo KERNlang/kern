@@ -330,6 +330,7 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
 export {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
+  reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 };

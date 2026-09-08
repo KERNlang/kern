@@ -5,6 +5,7 @@ import test from 'node:test';
 import { TARGET_KERNEL_SHA256 as JAVASCRIPT_KERNEL } from '../../packages/core/dist/compiler/kir-js-esm/emitter.js';
 import { TARGET_KERNEL_SHA256 as PYTHON_KERNEL } from '../../packages/core/dist/compiler/kir-python/emitter.js';
 import { C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/c-py-1-lowering-historical-transition.mjs';
+import { D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/d0-contracts-split-historical-transition.mjs';
 
 import {
   EXPRESSION_POSITIONS,
@@ -27,7 +28,8 @@ const EMITTER_SHA256 = 'c37b5c0092dd712e30f49b07ae7bc0ba1bb26343bcc219e29c750457
 const FACADE_SHA256 = 'eade928a03649637cad48115a6e4023898765963739e27ca73aa5eca41ccdcf7';
 const JAVASCRIPT_KERNEL_SHA256 = 'b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6';
 const PYTHON_KERNEL_SHA256 = 'f79a39633f58475124eafdec3c62a9fd042ffa50b1de637509d0f66e0f0cd18e';
-const COMPILED_CORE_COUNT = 354;
+const COMPILED_CORE_COUNT = 357;
+const PY_LOWERING_PREDECESSOR_COUNT = 354;
 
 const KIR_PYTHON_FILES = Object.freeze([
   'contracts.ts',
@@ -82,8 +84,11 @@ test('both target kernels are unchanged', () => {
   assert.equal(PYTHON_KERNEL, PYTHON_KERNEL_SHA256, 'PARITY_LEDGER_KERNEL_TOUCH: the Python kernel moved');
 });
 
-test('the compiled-core inventory stays at the attested 354 files', () => {
-  assert.equal(C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, COMPILED_CORE_COUNT);
+test('the compiled-core inventory stays at the attested 357 files', () => {
+  // D.0's split heads the c-py-1 stage (unedited, still the 354-file predecessor) with a new
+  // 357-file stage; this suite predates D.0 and must follow the live head, not the frozen one.
+  assert.equal(C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, PY_LOWERING_PREDECESSOR_COUNT);
+  assert.equal(D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, COMPILED_CORE_COUNT);
   assert.equal(
     distJavaScriptCount(CORE_DIST),
     COMPILED_CORE_COUNT,

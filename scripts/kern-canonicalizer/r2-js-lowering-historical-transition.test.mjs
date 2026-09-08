@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
+  reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
@@ -51,7 +52,7 @@ function assertTypeError(callback, message) {
 }
 
 function cPy1SuccessorPaths() {
-  return reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  return reconstructCPy1LoweringCompiledCoreJavaScriptPaths(reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(compiledPaths()));
 }
 
 test('R2 JavaScript lowering authenticates the exact 346-to-332 inventory edge', () => {
