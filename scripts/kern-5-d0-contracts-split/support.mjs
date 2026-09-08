@@ -82,7 +82,7 @@ export function occurrences(source, needle) {
 }
 
 export function importSpecifiers(source) {
-  return [...source.matchAll(/from\s+'(\.\/[A-Za-z0-9._-]+\.js)'/gu)].map((match) => match[1]);
+  return [...source.matchAll(/from\s+'\.\/([A-Za-z0-9._-]+\.js)'/gu)].map((match) => match[1]);
 }
 
 export function reExportBlocks(source) {

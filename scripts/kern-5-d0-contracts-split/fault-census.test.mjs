@@ -82,14 +82,14 @@ test('the Python kernel raises _Fault over exactly nine codes', () => {
   );
 });
 
-test('the TypeScript runtime constructs KernKirFault at exactly the pinned nine files', () => {
+test('the TypeScript runtime constructs KernKirFault at exactly the pinned ten files', () => {
   assert.deepEqual(
     census('new KernKirFault('),
     { ...RUNTIME_FAULT_SITES },
     'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved',
   );
   assert.equal(total(RUNTIME_FAULT_SITES), FAULT_CENSUS_TOTALS.runtime);
-  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 9);
+  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 10);
 });
 
 test('the split redistributes KernKirFault sites without changing their total', () => {

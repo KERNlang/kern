@@ -25,23 +25,34 @@ export const LINE_BUDGETS = Object.freeze({
   'walkers.ts': 220,
 });
 
+// index.ts moves 43 -> 45 (D0-TD8), matching the Split table's own Now/After columns
+// (Implementation Plan, "index.ts | edit | ... | 43 | 45"): this pin never carried the plan's own
+// projected growth. pnpm lint is a required gate and the four-name re-source edit has no
+// biome-formatter-conformant 43-line rendering; the invariant this line count guards
+// (byte-equivalent export surface) is separately and exactly pinned by INV-3's 39/18-name lists.
 export const BASE_LINE_COUNTS = Object.freeze({
   'contracts.ts': 535,
   'expression.ts': 358,
-  'index.ts': 43,
+  'index.ts': 45,
   'link.ts': 735,
 });
 
 export const FILE_LINE_CEILING = 500;
 
 // INV-2. link.ts sheds ./expression.js entirely: every one of its thirteen expression-module call
-// sites sits inside a function that moves to statements.ts.
+// sites sits inside a function that moves to statements.ts. link.ts does keep an edge to
+// walkers.ts: helperIsAsync/callScope/selectHandler and the two linkVerifiedKernKirProgram{,OrThrow}
+// exports stay in link.ts (Implementation Plan's own file->contents assignment) and need
+// linkedStatementsInvokeCapability plus the LinkedKernKirClosureWalk type and its
+// createLinkedKirClosureWalk() default-parameter factory, all three of which move to walkers.ts —
+// this edge is forced by that assignment, not a deviation from it; INV-2's written edge map missed
+// it (D0-TD7).
 export const EXPECTED_IMPORT_EDGES = Object.freeze({
   'contracts.ts': Object.freeze([]),
   'expression.ts': Object.freeze(['contracts.js']),
   'index.ts': Object.freeze(['contracts.js', 'expression.js', 'link.js', 'walkers.js']),
   'link-support.ts': Object.freeze(['contracts.js']),
-  'link.ts': Object.freeze(['contracts.js', 'link-support.js', 'statements.js']),
+  'link.ts': Object.freeze(['contracts.js', 'link-support.js', 'statements.js', 'walkers.js']),
   'statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js']),
   'walkers.ts': Object.freeze(['contracts.js']),
 });
@@ -271,7 +282,10 @@ export const RUNTIME_FAULT_SITES = Object.freeze({
   'packages/core/src/kir-runtime/json.ts': 3,
   'packages/core/src/kir-runtime/linked-kir-program/contracts.ts': 1,
   'packages/core/src/kir-runtime/linked-kir-program/expression.ts': 2,
-  'packages/core/src/kir-runtime/linked-kir-program/link.ts': 2,
+  // link.ts's one direct site is the projection-authentication-error throw; the other of the two
+  // pre-split sites was always inside `fault()`, which the split moves to link-support.ts (D0-TD7).
+  'packages/core/src/kir-runtime/linked-kir-program/link-support.ts': 1,
+  'packages/core/src/kir-runtime/linked-kir-program/link.ts': 1,
 });
 
 // `instanceof KernKirFault` is a classifier, not a catcher: inspect.ts and execute.ts re-throw,
