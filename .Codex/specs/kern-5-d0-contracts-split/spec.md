@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED
 **Date:** 2026-09-08
-**Confidence:** 0.91
+**Confidence:** 0.95
 
 **Landed commits** (`feat/kern-5-d0-contracts-split`, base `87ca7874`): oracle-defect fixes
 `97379e86`, `e75a2a96`, `c3ba4b45` (D0-TD1…D0-TD5); implementation `8ff4e84f`, `6448309c`,
@@ -109,7 +109,7 @@ The root cause of the withdrawal in `e105f1da` is **two** independent gates, not
 ## Contract (Verified)
 
 > Originally verified against the `1ef72e0d` checkout at
-> `/Users/nicolascukas/KERN/.worktrees/kern-5-d0-split` on 2026-09-08 and **re-verified against the
+> `.worktrees/kern-5-d0-split` on 2026-09-08 and **re-verified against the
 > built `2c6f4abd` checkout at the same path** on 2026-09-08, plus the commands quoted inline. Every
 > row below carries the `2c6f4abd` reading; the eight that drifted are STEP-0-a … STEP-0-h.
 
@@ -675,53 +675,61 @@ Steps 4-5 cannot be authored before step 3's build exists.
 | **D0-TD6.** The first receipt refresh reused an inherited `packages/core/tsconfig.tsbuildinfo` and authenticated stale `dist` bytes | Deleting that one incremental-build record and rebuilding changed the live compiled-core digest as `4ff42dce…` and the coverage implementation digest as `0cd53bee…`; a second writer produced the same values, and the inventory oracle's receipt-consistency row then passed | The prerequisite literal and both generated coverage summaries are re-pinned from the clean build; no source behavior or inventory membership changed |
 | **D0-TD7.** INV-2's written edge map (`link.ts → {contracts.ts, link-support.ts, statements.ts}`) and `EXPECTED_IMPORT_EDGES`/`RUNTIME_FAULT_SITES` are wrong on three counts the landed split exposed | (1) `support.mjs#importSpecifiers`'s capture group is `(\.\/[A-Za-z0-9._-]+\.js)`, keeping the `./` prefix; every `EXPECTED_IMPORT_EDGES` entry omits it, so the exact `assert.deepEqual` against live-parsed edges rejected all fourteen real cross-file imports (verified by running the parser over the seven landed files: `contracts.ts` 0, `expression.ts` 1, `index.ts` 4, `link-support.ts` 1, `link.ts` 4, `statements.ts` 3, `walkers.ts` 1 unique — none prefix-matching an unprefixed pin). (2) The Implementation Plan's own file→contents assignment (Split table) keeps `helperIsAsync`/`callScope`/`selectHandler`/`linkVerifiedKernKirProgram{,OrThrow}` in `link.ts` while moving `linkedStatementsInvokeCapability`, `LinkedKernKirClosureWalk` and `createLinkedKirClosureWalk` to `walkers.ts` — that assignment forces a `link.ts → walkers.ts` edge (confirmed identical at the pre-split base, `git show 20a19556^:.../link.ts`: the same three names, same call sites, same file, before `walkers.ts` existed), so the edge is a spec-plan omission, not an implementation deviation. (3) `RUNTIME_FAULT_SITES['.../link.ts']: 2` was never two sites in one file after the split: `census('new KernKirFault(')` (full `packages/core/src` walk) finds exactly one direct site in `link.ts` (`projection-authentication-error`) and one inside the extracted `fault()` helper, now in `link-support.ts` — total unchanged at 5 for the directory, 55 overall | `importSpecifiers`'s capture group moves inside the `\.\/` literal (matched but not captured), returning the bare filename; this also un-breaks the previously vacuous cycle-detection test that compared prefixed parsed values against unprefixed file-name keys. `EXPECTED_IMPORT_EDGES['link.ts']` gains `'walkers.js'`. `RUNTIME_FAULT_SITES` drops `'link.ts': 2`, adds `'link.ts': 1` and `'link-support.ts': 1` (nine files → ten); `fault-census.test.mjs`'s hardcoded file-count assertion moves 9 → 10 alongside it, the same class of mechanical follow-on as D0-TD2's registry-dependency edit. No production code changed; `FAULT_CENSUS_TOTALS.runtime` (55) and the five-site linked-kir-program total are unchanged |
 | **D0-TD8.** `BASE_LINE_COUNTS['index.ts']` is `43`, asserted by exact equality post-split | The Split table's own Now/After columns (line 202) already project `index.ts` growing to **45** for this edit (`same export list; four names re-sourced to ./walkers.js \| 43 \| 45`) — the pin never carried its own plan's projected growth. The only formatter-conformant rendering of the edit (`biome check`, required by `pnpm lint`) is 45 lines: a hand-compacted 43-line form exists (three names crammed onto the `link.js` re-export's opening line) but fails `pnpm lint`, which this gate requires green | `BASE_LINE_COUNTS['index.ts']` re-pinned to 45; `index.ts` reformatted to its standard multi-line shape (`biome check` clean). The semantic invariant this line count is a proxy for — byte-equivalent export surface — stays separately and exactly pinned by INV-3's 39-name source list and 18-name dist list, both unchanged |
+| **D0-TD9.** `d0-contracts-split-historical-transition.mjs`'s `successorCommit` was filled in at land as `87ca7874`, resolving OQ-4/STEP-0-o's chicken-and-egg by picking a real 40-char SHA | Found by post-land review: `87ca7874` is a pre-split commit — it contains none of `walkers.ts`, `statements.ts`, `link-support.ts`. The inventory digest this transition guards is path-based, so a wrong-but-syntactically-valid successor passed every existing assertion (they check SHA shape, not commit content) | Ruling: the successor is the split commit itself, `20a19556a676fa6568fd468fd366e99e62a0935c` — the exact commit whose diff adds all three modules, confirmed by `git show <commit>:<path>` succeeding for each and failing against its parent. The pin was corrected and the test strengthened to assert membership by content: for each `addedPaths` entry, `git show successorCommit:<path>` must succeed and `git show predecessorCommit:<path>` must fail, so a future mis-pin fails the suite instead of passing on shape alone |
+| **D0-TD10.** `link-support.ts`'s `ModuleContext.closureWalk` re-declared `LinkedKernKirClosureWalk`'s shape inline, and `containsReturn` hand-rolled the sub-block traversal `statementSubBlocks` already provides | Found by a dryness-lens review pass: both are single-sourced elsewhere in the same split (`walkers.ts` for the type, `contracts.ts` for the traversal helper), and `walkers.ts` already imports only `contracts.ts`, so importing the type into `link-support.ts` adds no cycle | `ModuleContext.closureWalk` is now `readonly closureWalk: LinkedKernKirClosureWalk` via a type-only import from `./walkers.js`; `containsReturn` is now `statements.some((statement) => statement.kind === 'return' \|\| statementSubBlocks(statement).some(containsReturn))`. Behaviour is unchanged and covered by the existing behaviour-preservation suite; both files stay under the 500-line ceiling. Two follow-on oracle edits were forced, both mechanical: (1) `link-support.ts`'s type-only import is a real edge to `EXPECTED_IMPORT_EDGES`'s regex scanner regardless of the `import type` keyword, so `'link-support.ts'` gained `'walkers.js'`. (2) rt12's `walker-coverage.test.mjs` "containsReturn keeps exactly its four block-owning arms" row scraped `containsReturn`'s own body for the `for`/`if`/`while`/`return` literals; with the three block-owning arms moved into `statementSubBlocks`, the row split in two — `containsReturn`'s own body must now scrape to exactly `['return']`, and a new sibling assertion scrapes `statementSubBlocks` for exactly `['for', 'if', 'while']` — preserving the original creep guard (no arm for a childless kind) at its new true location |
 
 ## Confidence
 
-Implementation correction, 2026-09-08: the landed layout oracle's `EXPECTED_IMPORT_EDGES` entries
-omit the literal `./` prefix even though `support.mjs#importSpecifiers` preserves it, so its exact
-edge assertion rejects every existing relative import. The implementation leaves this oracle row
-failing rather than editing the D.0 oracle, as required by the task brief.
+Implemented state, 2026-09-08 (post D0-TD1…D0-TD10): every oracle row the pre-implementation draft
+above expected to land RED for an artifact-of-D.0 reason is now GREEN, re-pinned against the
+landed split rather than left failing.
 
-Implementation correction, 2026-09-08: the layout oracle also demands that `index.ts` remain 43
-lines. The initial conventional formatting occupied 45 lines, but compacting the three-name
-`link.js` re-export restores the base line count without changing the 39-name source surface or
-18-name runtime surface. This row is therefore satisfied.
+`EXPECTED_IMPORT_EDGES` (D0-TD7): `support.mjs#importSpecifiers`'s capture group kept the literal
+`./` prefix while every edge entry omitted it, so the exact edge assertion rejected all fourteen
+real cross-file imports. The capture group was moved inside the `\.\/` literal (matched, not
+captured); `EXPECTED_IMPORT_EDGES['link.ts']` gained `'walkers.js'`, matching the true edge that
+`link.ts` calling the extracted public closure walker (`LinkedKernKirClosureWalk` in its unchanged
+public signatures) always implied. `RUNTIME_FAULT_SITES` was corrected alongside it: the split
+puts one direct site in `link.ts` and one (the extracted `fault()` helper) in `link-support.ts`,
+nine files becoming ten, with the directory and stacked-base totals (5 and 55) unchanged.
 
-Implementation correction, 2026-09-08: `link.ts` necessarily calls the extracted public closure
-walker to classify reachable helper capabilities and accepts `LinkedKernKirClosureWalk` in its
-unchanged public signatures. Consequently its truthful edge set includes `./walkers.js`; the
-written INV-2/pins omit that edge while also requiring those functions to exist only in
-`walkers.ts`. The implementation preserves the single walker implementation and records the
-oracle discrepancy instead of duplicating behavior merely to conceal the dependency.
+`BASE_LINE_COUNTS['index.ts']` (D0-TD8): the pin demanded 43 lines; the Implementation Plan's own
+Split table already projected 45 for this edit, and only the standard, `biome check`-conformant
+45-line formatting satisfies `pnpm lint`. The pin was raised to 45 and `index.ts` kept in its
+ordinary multi-line shape rather than hand-compacted to dodge the stale number. The semantic
+invariant the line count stands in for — byte-equivalent export surface — stays pinned separately
+by INV-3's 39-name source list and 18-name dist list, both unchanged.
 
-Implementation correction, 2026-09-08: the reserved-label oracle's pinned base vocabulary omits
-`KIR_JUMP_WITHOUT_LOOP_FRAME`, which is already emitted by slice C in
-`kir-runtime/expression.ts`; the D.0 implementation neither added nor moved that token. The row is
-left failing without changing the oracle.
+Reserved-label vocabulary and fault census (D0-TD1): slice C's `e1d94060` adds
+`KIR_JUMP_WITHOUT_LOOP_FRAME` and two `new KernKirFault(` sites to `kir-runtime/expression.ts`
+ahead of D.0. `BASE_KIR_TOKENS` was re-pinned to forty (title and failure message now name any
+future missing/extra token), and `RUNTIME_FAULT_SITES`, `FAULT_CENSUS_TOTALS.runtime`, and
+`BASE_COMPILED_CORE_DIGEST` were re-pinned alongside it as the same root-cause drift, not four
+independent findings.
 
-Implementation correction, 2026-09-08: the fault-census oracle pins 20 construction sites in
-`kir-runtime/expression.ts`, while the stacked slice-C source has 22 (the two
-`KIR_JUMP_WITHOUT_LOOP_FRAME` guards). It also expects both linker sites to remain in `link.ts`,
-although the required extraction moves `fault()` and its one textual construction site to
-`link-support.ts`. The implementation preserves the actual total of 55 stacked-base sites and
-leaves both stale census rows failing.
+Post-land review found two further defects, now fixed (D0-TD9, D0-TD10). The historical-transition
+record's `successorCommit` (OQ-4/STEP-0-o's "pin the shape, not the value") had been filled in at
+land with `87ca7874`, a pre-split commit containing none of the three added modules — the inventory
+digest is path-based and does not itself catch a successor pinned to the wrong commit. It is now
+`20a19556`, the exact commit that adds `walkers.ts`/`statements.ts`/`link-support.ts`, and the test
+no longer only checks SHA syntax: it asserts `git show <successorCommit>:<path>` succeeds and
+`git show <predecessorCommit>:<path>` fails for each added module's source path, so a future re-pin
+to the wrong commit fails the suite instead of passing on shape alone. Separately,
+`link-support.ts` carried two DRY defects a dryness-lens review caught: `ModuleContext.closureWalk`
+re-declared `LinkedKernKirClosureWalk`'s shape inline instead of importing the type, and
+`containsReturn` hand-rolled the sub-block traversal that `statementSubBlocks` already provides.
+Both are now single-sourced from `walkers.ts`/`contracts.ts`; behaviour is unchanged and covered by
+the existing behaviour-preservation suite.
 
-**0.94**, up from 0.91. What moved it: the oracle exists, ran at base `2c6f4abd`, and every one of
-its 30 RED rows fails for exactly one cause that is an artifact D.0 must create — no row is RED
-because the plan is wrong. The 42 GREEN rows are the ones that matter most, because a
-behaviour-preserving slice is judged by what stays still: fifteen fixtures pinned at three depths
-(linked program, emitted artifact, executed envelope), both kernel SHAs, both union kind sets, the
-whole fault census, the 21 settled marker scrapes, and the RC-v1 no-amendment fence.
+**0.95**, up from 0.91 at the pre-implementation draft. What moved it: the oracle ran at base
+`2c6f4abd` with every RED row failing for a D.0-artifact reason, not a wrong plan; landing D.0
+turned every one of those rows GREEN by re-pinning to the true post-split values (D0-TD1, D0-TD7,
+D0-TD8) rather than by loosening the oracle; and independent post-implementation review found and
+fixed two further defects the build/lint/test gate could not see on its own — a successor commit
+whose SHA was syntactically valid but semantically wrong, and two DRY violations — with a
+strengthened test that now proves commit membership by content, not shape.
 
-Seven base facts the oracle corrected while being written (STEP-0-i … STEP-0-o) are why the score
-is not higher earlier rather than lower now: the 49-entry omitted list, `uncaught-throw`'s live
-producer in `normalize.ts`, the four re-throwing guarded catches, `link.ts` shedding
-`./expression.js`, the INV-1 marker order, and the 22-pair marker surface behind the 13 files. Each
-would have produced either a vacuous row or a row RED for the wrong reason. Finding them is exactly
-what writing the oracle before the code is for.
-
-The remaining deduction is OQ-4 (STEP-0-o): the transition record's `successorCommit` cannot be
-known before D.0's merge commit, so the oracle pins its shape and not its value. That is the one
-place where a licensed judgement is left to the implementer. Nothing above 0.95 is claimable until
-the oracle has been seen to go GREEN on real code.
+Residual risk: the fifteen fixtures pinned at three depths, both kernel SHAs, both union kind sets,
+the whole fault census, the 21 settled marker scrapes, and the RC-v1 no-amendment fence are all
+unchanged and re-verified. Nothing above 0.95 is claimable until this corrected state has itself
+been through one more independent review pass with no further finding.
