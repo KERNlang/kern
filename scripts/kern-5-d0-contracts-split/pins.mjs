@@ -10,13 +10,18 @@ export const EXPECTED_LINKED_TS_NAMES = Object.freeze([
   'walkers.ts',
 ]);
 
+// Every budget below must clear both the D.0 landing estimate and the spec's slice-D headroom
+// projection (Implementation Plan, "Slice D headroom after D.0") while staying under
+// FILE_LINE_CEILING. statements.ts is budgeted for its ~415-line slice-D projection
+// (compileTry/compileCatch/compileFinally), matching the headroom contracts.ts and link.ts already
+// carry for their own post-D.0 growth — not just its own ~285-line D.0 landing size.
 export const LINE_BUDGETS = Object.freeze({
   'contracts.ts': 420,
   'expression.ts': 400,
   'index.ts': 60,
   'link-support.ts': 200,
   'link.ts': 420,
-  'statements.ts': 340,
+  'statements.ts': 420,
   'walkers.ts': 220,
 });
 
@@ -198,6 +203,7 @@ export const BASE_KIR_TOKENS = Object.freeze([
   'KIR_FOR_BOUND_NOT_INTEGER',
   'KIR_FOR_ZERO_STEP',
   'KIR_IF_COND_NOT_BOOLEAN',
+  'KIR_JUMP_WITHOUT_LOOP_FRAME',
   'KIR_LOOP_ZERO_STEP',
   'KIR_PROGRAM_FORMAT',
   'KIR_RUNTIME_FORMAT',
@@ -257,7 +263,10 @@ export const RUNTIME_FAULT_SITES = Object.freeze({
   'packages/core/src/kir-runtime/deadline.ts': 1,
   'packages/core/src/kir-runtime/envelope.ts': 1,
   'packages/core/src/kir-runtime/execute.ts': 11,
-  'packages/core/src/kir-runtime/expression.ts': 20,
+  // 22, not 20: `fix(kern5): fail closed when a jump has no enclosing loop frame` (e1d94060, an
+  // ancestor of this tip landed after this pin was first authored) adds two `KIR_JUMP_WITHOUT_LOOP_FRAME`
+  // KernKirFault sites.
+  'packages/core/src/kir-runtime/expression.ts': 22,
   'packages/core/src/kir-runtime/inspect.ts': 12,
   'packages/core/src/kir-runtime/json.ts': 3,
   'packages/core/src/kir-runtime/linked-kir-program/contracts.ts': 1,
@@ -278,7 +287,7 @@ export const FAULT_CLASSIFIER_SITES = Object.freeze({
   'packages/core/src/kir-runtime/linked-kir-program/link.ts': 1,
 });
 
-export const FAULT_CENSUS_TOTALS = Object.freeze({ javascript: 39, python: 40, runtime: 53 });
+export const FAULT_CENSUS_TOTALS = Object.freeze({ javascript: 39, python: 40, runtime: 55 });
 
 export const FAULT_MODEL_RULE =
   '__Fault / _Fault / KernKirFault denote VM-invariant collapse only: no site is reachable by a ' +
@@ -299,8 +308,10 @@ export const ADDED_DIST_PATHS = Object.freeze([
 
 export const TRANSITION_CLAIM = 'kern.kir-runtime.linked-kir-program.split.v1';
 
+// Re-pinned past STEP-0-a's 2c6f4abd reading: e1d94060 (ancestor of this tip, landed after that
+// reading) recompiles kir-runtime/expression.ts, moving the live compiled-core digest again.
 export const BASE_COMPILED_CORE_DIGEST =
-  '4b1db71b0e8f36466c2d1c195e98f702263623a46b81dae03ccf4895bea1c17b';
+  '101269453b409ac45693d861c7e917bf4e3bd01fdb8ac7702f4838926413f397';
 
 export const M4145_HISTORICAL_COUNT = 317;
 
