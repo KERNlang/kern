@@ -55,6 +55,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
   'invalid-handler-result',
   'projection-authentication-error',
   'runtime-limit-exceeded',
+  'uncaught-throw',
   'unsupported-runtime-input',
 ]);
 
@@ -148,7 +149,7 @@ test('the request limits and the diagnostic code union are byte-stable in shape'
   assert.equal(
     codes.split("  | '").length - 1,
     DIAGNOSTIC_CODES.length,
-    'RT10F_CODE_CREEP: the diagnostic code union must stay at twelve members',
+    'RT10F_CODE_CREEP: the diagnostic code union must stay at thirteen members',
   );
 });
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 
 import { TARGET_KERNEL_SHA256 as JAVASCRIPT_KERNEL } from '../../packages/core/dist/compiler/kir-js-esm/emitter.js';
@@ -16,7 +16,7 @@ const RT10X_GOLDEN_URL = new URL('../kern-5-rt10-cross-call-integer/k0-golden.js
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
 const LIMITS_URL = new URL('../../packages/core/src/kir-runtime/contracts.ts', import.meta.url);
 const PYTHON_EMITTER_URL = new URL('../../packages/core/src/compiler/kir-python/emitter.ts', import.meta.url);
-const LINK_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/link.ts', import.meta.url);
+const KIR_RUNTIME_URL = new URL('../../packages/core/src/kir-runtime/', import.meta.url);
 const CENSUS_URL = new URL('../kern-5-admission-census/admission.json', import.meta.url);
 
 const JAVASCRIPT_KERNEL_SHA256 = 'b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6';
@@ -63,6 +63,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
   'invalid-handler-result',
   'projection-authentication-error',
   'runtime-limit-exceeded',
+  'uncaught-throw',
   'unsupported-runtime-input',
 ]);
 
@@ -155,8 +156,9 @@ test('every statement kind still outside the linked union stays outside it', asy
 // The reserved label is written into the spec and into no source file. Pinning its absence is what
 // stops it being quietly spent on some other refusal before the try/catch slice can claim it.
 test('the reserved cross-try label is spent nowhere in the source tree', async () => {
-  for (const url of [LINK_URL, CONTRACTS_URL, LIMITS_URL]) {
-    const text = await readFile(url, 'utf8');
+  const entries = await readdir(KIR_RUNTIME_URL, { recursive: true, withFileTypes: true });
+  for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith('.ts'))) {
+    const text = await readFile(`${entry.parentPath}/${entry.name}`, 'utf8');
     assert.equal(
       text.includes(RESERVED_LABEL),
       false,
@@ -190,7 +192,7 @@ test('the request limits and the diagnostic code union are byte-stable in shape'
   assert.equal(
     codes.split("  | '").length - 1,
     DIAGNOSTIC_CODES.length,
-    'RT12J_CODE_CREEP: the diagnostic code union must stay at twelve members',
+    'RT12J_CODE_CREEP: the diagnostic code union must stay at thirteen members',
   );
   assert.deepEqual(Object.keys(LINKED_KIR_TYPE_ADMISSION).sort(), ['boolean', 'integer', 'list', 'text', 'void']);
 });

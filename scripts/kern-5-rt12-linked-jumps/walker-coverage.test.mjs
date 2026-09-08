@@ -32,7 +32,7 @@ import {
 } from './k0-support.mjs';
 
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
-const LINK_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/link.ts', import.meta.url);
+const LINK_SUPPORT_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/link-support.ts', import.meta.url);
 const REQUEST_URL = new URL('../../packages/core/src/compiler/kir-python/request.ts', import.meta.url);
 const EXPRESSION_DIST_URL = new URL('../../packages/core/dist/kir-runtime/expression.js', import.meta.url);
 const INSPECT_DIST_URL = new URL('../../packages/core/dist/kir-runtime/inspect.js', import.meta.url);
@@ -355,10 +355,10 @@ test('compileBlock sends a jump to the ordinary statement route in every block i
 // added — an arm for a childless kind would be dead code with a real cost, because it would have to
 // be kept correct as the union grows.
 test('containsReturn keeps exactly its four block-owning arms and gains none for a jump', async () => {
-  const link = await readFile(LINK_URL, 'utf8');
-  const walker = link.slice(
-    link.indexOf('function containsReturn'),
-    link.indexOf('function assertLeaf'),
+  const linkSupport = await readFile(LINK_SUPPORT_URL, 'utf8');
+  const walker = linkSupport.slice(
+    linkSupport.indexOf('function containsReturn'),
+    linkSupport.indexOf('function assertLeaf'),
   );
   assert.ok(walker.length > 0, 'containsReturn must be locatable');
   const kinds = [...walker.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]);
