@@ -227,17 +227,21 @@ export function* walkStatements(
     if (statement.kind === 'let') {
       bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'break') {
-      while (frames.length > 0) {
-        const target = frames.pop();
-        if (target?.loop !== undefined) {
-          meter.step();
-          break;
-        }
+      let depth = frames.length - 1;
+      while (depth >= 0 && frames[depth].loop === undefined) depth -= 1;
+      if (depth < 0) {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_JUMP_WITHOUT_LOOP_FRAME');
       }
+      frames.length = depth;
+      meter.step();
     } else if (statement.kind === 'continue') {
-      while (frames[frames.length - 1]?.loop === undefined) frames.pop();
-      const target = frames[frames.length - 1];
-      if (target !== undefined) target.index = target.statements.length;
+      let depth = frames.length - 1;
+      while (depth >= 0 && frames[depth].loop === undefined) depth -= 1;
+      if (depth < 0) {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_JUMP_WITHOUT_LOOP_FRAME');
+      }
+      frames.length = depth + 1;
+      frames[depth].index = frames[depth].statements.length;
     } else if (statement.kind === 'assign') {
       bindings.set(statement.target, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'capability') {

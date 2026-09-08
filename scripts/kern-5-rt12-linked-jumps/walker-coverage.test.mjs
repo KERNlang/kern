@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { ENTRY_WALK_POLICY, WALK_SEED, walkStatements } from '../../packages/core/dist/kir-runtime/expression.js';
@@ -31,6 +34,71 @@ import {
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
 const LINK_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/link.ts', import.meta.url);
 const REQUEST_URL = new URL('../../packages/core/src/compiler/kir-python/request.ts', import.meta.url);
+const EXPRESSION_DIST_URL = new URL('../../packages/core/dist/kir-runtime/expression.js', import.meta.url);
+const INSPECT_DIST_URL = new URL('../../packages/core/dist/kir-runtime/inspect.js', import.meta.url);
+
+// A frame-search bug with no `meter.step()` of its own spins the host CPU with no yield point at
+// all, so no in-process guard (a step budget, an abort signal) can bound it: only an OS-level kill
+// can. The walk runs in a throwaway child process for exactly this one property.
+const WALK_CHILD_TIMEOUT_MS = 2_000;
+
+function walkChildDriverSource() {
+  return [
+    `import { walkStatements, ENTRY_WALK_POLICY, WALK_SEED } from ${JSON.stringify(EXPRESSION_DIST_URL.href)};`,
+    `import { RuntimeMeter } from ${JSON.stringify(INSPECT_DIST_URL.href)};`,
+    `import { readFile, writeFile } from 'node:fs/promises';`,
+    `const [, , inputPath, outputPath] = process.argv;`,
+    `const statements = JSON.parse(await readFile(inputPath, 'utf8'));`,
+    `const handler = Object.freeze({`,
+    `  parameters: Object.freeze([]),`,
+    `  returnType: Object.freeze({ kind: 'integer' }),`,
+    `  statements: Object.freeze(statements),`,
+    `});`,
+    `const meter = new RuntimeMeter(${JSON.stringify(LIMITS)});`,
+    `const runtime = {`,
+    `  asyncHelpers: new Set(),`,
+    `  checkAbort: () => {},`,
+    `  events: [],`,
+    `  helpers: undefined,`,
+    `  maxEvents: ${LIMITS.maxEvents},`,
+    `};`,
+    `let outcome;`,
+    `try {`,
+    `  const walk = walkStatements(handler, new Map(), meter, runtime, ENTRY_WALK_POLICY);`,
+    `  const step = walk.next(WALK_SEED);`,
+    `  outcome = { caught: false, done: step.done, value: step.value };`,
+    `} catch (error) {`,
+    `  outcome = { caught: true, code: error && error.code, message: error && error.message, name: error && error.name };`,
+    `}`,
+    `await writeFile(outputPath, JSON.stringify(outcome));`,
+  ].join('\n');
+}
+
+async function walkStatementsInChild(statements) {
+  const directory = await mkdtemp(join(tmpdir(), 'kern-rt12j-walk-'));
+  try {
+    const driverPath = join(directory, 'driver.mjs');
+    const inputPath = join(directory, 'input.json');
+    const outputPath = join(directory, 'output.json');
+    await Promise.all([
+      writeFile(driverPath, walkChildDriverSource()),
+      writeFile(inputPath, JSON.stringify(statements)),
+    ]);
+    const run = spawnSync(process.execPath, [driverPath, inputPath, outputPath], {
+      encoding: 'utf8',
+      timeout: WALK_CHILD_TIMEOUT_MS,
+    });
+    assert.equal(
+      run.signal,
+      null,
+      `RT12J_JUMP_UNMETERED_HANG: the walk did not return within ${WALK_CHILD_TIMEOUT_MS}ms and was killed`,
+    );
+    assert.equal(run.status, 0, `walk child failed: ${run.stderr}`);
+    return JSON.parse(await readFile(outputPath, 'utf8'));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 const JUMPS = Object.freeze([
   ['break', linkedBreakStatement],
@@ -145,6 +213,61 @@ for (const [kind, build] of JUMPS) {
     );
   });
 }
+
+// RT12J-TD17: link.ts's loopDepth gate keeps a bare jump from ever reaching walkStatements through
+// a compiled program, but walkStatements is exported and this suite drives it directly with
+// hand-built statements, so the frame-search fix needs its own oracle independent of the linker.
+test('a continue with no enclosing loop frame faults closed instead of spinning unmetered', async () => {
+  const outcome = await walkStatementsInChild([linkedContinueStatement()]);
+  assert.equal(
+    outcome.caught,
+    true,
+    'RT12J_JUMP_FAIL_OPEN: a continue with no loop frame must raise a fault, not silently drain the stack',
+  );
+  assert.equal(outcome.name, 'KernKirFault');
+  assert.equal(outcome.code, 'unsupported-runtime-input');
+  assert.equal(outcome.message, 'KIR_JUMP_WITHOUT_LOOP_FRAME');
+});
+
+// The fail-open twin of the row above: at base, a break with no loop frame pops every frame and
+// the walk returns `drained` as if the handler had run to completion, skipping the return below it.
+test('a break with no enclosing loop frame faults closed instead of draining the whole stack', async () => {
+  const outcome = await walkStatementsInChild([linkedBreakStatement(), linkedIntegerReturn('7')]);
+  assert.equal(
+    outcome.caught,
+    true,
+    'RT12J_JUMP_FAIL_OPEN: a break with no loop frame must raise a fault, not complete the handler normally',
+  );
+  assert.equal(outcome.name, 'KernKirFault');
+  assert.equal(outcome.code, 'unsupported-runtime-input');
+  assert.equal(outcome.message, 'KIR_JUMP_WITHOUT_LOOP_FRAME');
+});
+
+// Regression guard for the fix itself: the frame search must look past a loopless `if` frame to
+// the loop frame beneath it, not treat the `if` frame as the nearest loop and fault on it.
+test('a continue or break inside an if frame inside a loop still finds the loop frame', () => {
+  const trueCondition = Object.freeze({ kind: 'literal', value: Object.freeze({ tag: 'boolean', value: true }) });
+  for (const [kind, build] of JUMPS) {
+    const ifWrapped = Object.freeze({
+      condition: trueCondition,
+      elseBranch: undefined,
+      kind: 'if',
+      thenBranch: Object.freeze([build()]),
+    });
+    const handler = handBuiltLinkedProgram([
+      linkedForStatement({ body: [ifWrapped], to: '3' }),
+      linkedIntegerReturn('7'),
+    ]).program;
+    const walk = walkStatements(handler, new Map(), new RuntimeMeter(LIMITS), runtimeStub(), ENTRY_WALK_POLICY);
+    const step = walk.next(WALK_SEED);
+    assert.equal(step.done, true, `RT12J_IF_FRAME_JUMP_GAP: a ${kind} inside an if inside a loop must not hang`);
+    assert.deepEqual(
+      step.value,
+      { kind: 'returned', value: { tag: 'integer', value: '7' } },
+      `RT12J_IF_FRAME_JUMP_GAP: a ${kind} inside an if must still find the loop frame beneath it`,
+    );
+  }
+});
 
 // The JavaScript emitter's block dispatcher, reached without the linker. At base `leafSource` is
 // where a jump lands and it throws a plain `Error` about return statements — an emit-time
