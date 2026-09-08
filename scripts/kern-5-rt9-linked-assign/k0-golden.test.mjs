@@ -97,7 +97,7 @@ test('the RT-9 K0 golden pins linker admission, the statement union and the assi
   );
 });
 
-test('assign, jumps, for and while are linked statement kinds, and the other loop kinds still are not', async () => {
+test('assign, jumps, for, while and the try family are linked statement kinds, and the loop kinds still are not', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.deepEqual(golden.linkedStatementKinds, [
     'assign',
@@ -109,6 +109,8 @@ test('assign, jumps, for and while are linked statement kinds, and the other loo
     'let',
     'print',
     'return',
+    'throw',
+    'try',
     'while',
   ]);
   for (const kind of ['each', 'set']) {

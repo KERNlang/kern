@@ -37,9 +37,9 @@ const RT10X_GOLDEN_SHA256 = '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764
 // The RT-3 golden before and after this slice's licensed RT-2 → RT-3 digest cascade, and the one
 // field of RT-3's golden the cascade is licensed to move.
 const RT3_GOLDEN_BASE_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
-const RT3_GOLDEN_SHA256 = 'd871bd4cd495d6c85b1621ee13b042a8651d714ff26204b3c505b5719ee3f291';
+const RT3_GOLDEN_SHA256 = 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b';
 const RT3_GOLDEN_BASE_RT2_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
-const RT2_GOLDEN_SHA256 = 'ea64e2ef7bc824bf62d632533488bda484c81aa783fb04d7940af9f249b2ac87';
+const RT2_GOLDEN_SHA256 = 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b';
 
 // The Python emitter is byte-frozen: `while` is deferred by ledger row, not lowered. Slice A pins
 // this digest too, and it must not move in either slice.

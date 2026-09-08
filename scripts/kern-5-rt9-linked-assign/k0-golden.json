@@ -57,6 +57,8 @@
     "let",
     "print",
     "return",
+    "throw",
+    "try",
     "while"
   ],
   "structuralSchema": {

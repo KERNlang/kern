@@ -3,14 +3,18 @@
     "assign": "admitted",
     "break": "admitted",
     "capability": "admitted",
+    "catch": "handler-entry-unsupported",
     "continue": "admitted",
     "else": "handler-entry-unsupported",
+    "finally": "handler-entry-unsupported",
     "for": "admitted",
     "if": "admitted",
     "if-else": "admitted",
     "let": "admitted",
     "print": "admitted",
     "return": "admitted",
+    "throw": "admitted",
+    "try": "admitted",
     "while": "admitted"
   },
   "linkedStatementKinds": [
@@ -23,6 +27,8 @@
     "let",
     "print",
     "return",
+    "throw",
+    "try",
     "while"
   ],
   "structuralSchema": {
