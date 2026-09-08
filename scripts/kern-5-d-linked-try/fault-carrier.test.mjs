@@ -23,12 +23,16 @@ import {
 import {
   TRY_POSITIONS,
   assertTryAdmitted,
+  emitLinkedProgram,
+  executeJavaScriptChild,
+  linkedProgram,
   occurrencesOf,
   repositoryText,
   runtimeEvaluator,
   runtimeRequest,
   tryArtifact,
   tryTwoLegBytes,
+  withNonTextMessage,
 } from './k0-support.mjs';
 
 function census(constructor) {
@@ -230,6 +234,34 @@ test('both label helpers fail closed on a non-text message rather than reading t
     declaration.includes("?.tag!=='text'"),
     `D_LABEL_UNGUARDED: the emitted ${THROW_LABEL_HELPER} must guard a non-text message the way the RT-1 clamp does`,
   );
+});
+
+// The same property, EXECUTED rather than scraped. A source substring proves nothing about what the
+// artifact does, and the guard's absence used to throw a raw TypeError that escaped the envelope and
+// killed the host. The payload gate refuses a non-text message, so the only way to reach the emitted
+// helper is to splice one into an already-linked program and emit that.
+test('a hand-built non-text message fails closed to uncaught-throw instead of escaping the envelope', async () => {
+  const linked = await linkedProgram(TRY_POSITIONS['throw-uncaught']());
+  const bytes = await emitLinkedProgram(withNonTextMessage(linked));
+  const run = await executeJavaScriptChild(bytes, runtimeRequest('d-nontext-message', {}));
+  assert.equal(
+    run.envelope.outcome,
+    'failure',
+    'D_LABEL_UNGUARDED: a non-text message must fail closed, not escape as a host exception',
+  );
+  assert.deepEqual(
+    run.envelope.diagnostics,
+    [{ category: 'runtime', code: UNCAUGHT_THROW_CODE, phase: 'execution' }],
+    `D_LABEL_UNGUARDED: the emitted leg must still surface ${UNCAUGHT_THROW_CODE} for an unlabellable payload`,
+  );
+  const { clampThrowLabel } = runtimeEvaluator();
+  for (const message of [{ tag: 'null' }, { tag: 'integer', value: '1' }, { tag: 'boolean', value: true }]) {
+    assert.equal(
+      clampThrowLabel({ tag: 'record', value: [{ key: 'code', value: { tag: 'null' } }, { key: 'message', value: message }] }),
+      '',
+      `D_LABEL_UNGUARDED: the RT-1 clamp must fail closed on a ${message.tag} message`,
+    );
+  }
 });
 
 test('no JSON.stringify is reachable from the label path on either leg', async () => {

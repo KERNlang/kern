@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
+import { KERN_KIR_RUNTIME_FORMAT } from '../../packages/core/dist/kir-runtime/contracts.js';
 import { DEFERRAL_LABEL } from '../kern-5-parity-ledger/ledger-support.mjs';
 import {
+  ENTRY,
   admission,
   compileJavaScript,
   compilePython,
@@ -203,6 +205,47 @@ export function linkedTryStatement({ binding = 'e', body, catchBody, finallyBody
   if (binding !== undefined) statement.binding = binding;
   if (finallyBody !== undefined) statement.finallyBody = Object.freeze(finallyBody);
   return Object.freeze(statement);
+}
+
+// Emitting a HAND-BUILT linked program is the only way to drive a payload the linker refuses: the
+// payload gate is what keeps a non-text `message` out, so a source-level fixture can never reach the
+// emitted label helper. `emitJavaScriptEsm` is the same entrypoint `compileKernKirToJavaScriptEsm`
+// uses, so the artifact under test is the real one.
+export async function emitLinkedProgram(program) {
+  const { TARGET_KERNEL_SHA256, emitJavaScriptEsm } = require('../../packages/core/dist/compiler/kir-js-esm/emitter.js');
+  const contracts = require('../../packages/core/dist/compiler/kir-js-esm/contracts.js');
+  assert.equal(typeof emitJavaScriptEsm, 'function', 'D_EMITTER_MISSING: emitJavaScriptEsm must be exported');
+  return emitJavaScriptEsm(program, {
+    artifactFormat: contracts.KERN_KIR_JS_ESM_ARTIFACT_FORMAT,
+    canonicalization: 'kern.canonical-json.v1',
+    compilerFormat: contracts.KERN_KIR_JS_ESM_COMPILER_FORMAT,
+    compilerRequestSha256: '0'.repeat(64),
+    entry: ENTRY,
+    hashAlgorithm: 'sha256',
+    hostProfile: contracts.KERN_KIR_JS_ESM_HOST_PROFILE,
+    kernelSha256: TARGET_KERNEL_SHA256,
+    linkedProgramSha256: program.sha256,
+    projectionArtifactSha256: program.projectionArtifactSha256,
+    runtimeFormat: KERN_KIR_RUNTIME_FORMAT,
+  });
+}
+
+// The payload the linker refuses, spliced into an already-linked program.
+export function withNonTextMessage(program) {
+  const statements = program.program.statements.map((statement) => {
+    if (statement.kind !== 'throw') return statement;
+    const entries = statement.value.entries.map((entry) =>
+      entry.key === 'message'
+        ? Object.freeze({ key: 'message', value: Object.freeze({ kind: 'literal', value: Object.freeze({ tag: 'null' }) }) })
+        : entry,
+    );
+    return Object.freeze({ ...statement, value: Object.freeze({ entries: Object.freeze(entries), kind: 'record' }) });
+  });
+  assert.ok(
+    statements.some((statement) => statement.kind === 'throw'),
+    'D_THROW_ABSENT: the fixture must carry a throw to splice',
+  );
+  return Object.freeze({ ...program, program: Object.freeze({ ...program.program, statements: Object.freeze(statements) }) });
 }
 
 export function specCriteria() {
