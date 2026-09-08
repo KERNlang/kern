@@ -31,12 +31,13 @@ test('undoing the two RT-9 edits reproduces the pre-RT-9 RT-2 K0 golden byte for
   assert.equal(sha256(raw), RT2_GOLDEN_SHA256, 'RT9_PRE_IMAGE_DRIFT: the RT-2 golden is not at its re-pinned seal');
   assert.equal(golden.admission.assign, 'admitted');
   assert.ok(golden.linkedStatementKinds.includes('assign'));
-  const { for: _forAdmission, ...admissionBeforeFor } = golden.admission;
+  const { for: _forAdmission, break: _breakAdmission, continue: _continueAdmission, ...admissionBeforeFor } =
+    golden.admission;
   const preRt9 = {
     ...golden,
     admission: { ...admissionBeforeFor, assign: 'projection-rejected', while: 'projection-rejected' },
     linkedStatementKinds: golden.linkedStatementKinds.filter(
-      (kind) => kind !== 'assign' && kind !== 'for' && kind !== 'while',
+      (kind) => kind !== 'assign' && kind !== 'for' && kind !== 'while' && kind !== 'break' && kind !== 'continue',
     ),
   };
   assert.equal(
