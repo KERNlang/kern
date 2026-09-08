@@ -256,14 +256,24 @@ test('normalize.ts stays the single internalRuntimeFailure producer, diverging o
 // "exactly once, in the union declaration" assertion has to be re-homed by D.
 test('the D.0 diagnostics rows that D moves have actually been moved, not left stale', () => {
   const diagnostics = repositoryText('scripts/kern-5-d0-contracts-split/diagnostics.test.mjs');
+  // An absence assertion is only meaningful if the row it names is findable in the first place, so
+  // the anchors that must survive are asserted present before the two that must be gone.
+  for (const anchor of ['uncaught-throw is already the frozen RC-v1 public code', 'remains the single producer']) {
+    assert.ok(
+      diagnostics.includes(anchor),
+      `D_PRIOR_PIN_LOST: the D.0 diagnostics row ${JSON.stringify(anchor)} must still exist, or this scrape is blind`,
+    );
+  }
   assert.equal(
     diagnostics.includes('no fault construction site anywhere in core carries'),
     false,
     'D_PRIOR_PIN_STALE: D.0 asserted no core site carries uncaught-throw; D adds three and must move that row',
   );
+  // Scraped without backticks: D.0's title is plain text, and the backticked form matched nothing,
+  // so this assertion passed vacuously -- the exact failure mode this suite exists to prevent.
   assert.equal(
-    diagnostics.includes('names `uncaught-throw` exactly once'),
+    diagnostics.includes('names uncaught-throw exactly once'),
     false,
-    'D_PRIOR_PIN_STALE: D.0 asserted the kir-runtime tree names uncaught-throw exactly once; D must move that row',
+    'D_PRIOR_PIN_STALE: D.0 asserted the kir-runtime tree names uncaught-throw exactly once; D adds producers and must move that row',
   );
 });
