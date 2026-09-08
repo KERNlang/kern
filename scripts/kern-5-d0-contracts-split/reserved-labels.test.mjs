@@ -83,42 +83,62 @@ test('spentBy may only name a reserved label, and only with a slice name', () =>
   }
 });
 
-test('no reserved label appears anywhere under packages/core/src', () => {
+test('no unspent reserved label appears anywhere under packages/core/src', () => {
+  const unspent = unspentLabels(registry());
   for (const path of sourceFilesUnder('packages/core/src')) {
     const source = readRepositoryText(path);
-    for (const label of RESERVED_LABELS) {
+    for (const label of unspent) {
       assert.equal(
         source.includes(label),
         false,
-        `D0_LABEL_SPENT: ${path} names the reserved label ${label}`,
+        `D0_LABEL_SPENT: ${path} names the reserved label ${label}, which spentBy does not exempt`,
       );
     }
   }
 });
 
-test('no reserved label appears in either built kernel', () => {
+test('no unspent reserved label appears in either built kernel', () => {
+  const unspent = unspentLabels(registry());
   const kernels = compiledCorePaths().filter(
     (path) => path.startsWith('compiler/kir-js-esm/') || path.startsWith('compiler/kir-python/'),
   );
   assert.ok(kernels.length > 0, 'D0_KERNEL_SCAN_EMPTY: the built kernel inventory must not be empty');
   for (const path of kernels) {
     const source = readRepositoryText(`packages/core/dist/${path}`);
-    for (const label of RESERVED_LABELS) {
+    for (const label of unspent) {
       assert.equal(
         source.includes(label),
         false,
-        `D0_LABEL_SPENT: built ${path} names the reserved label ${label}`,
+        `D0_LABEL_SPENT: built ${path} names the reserved label ${label}, which spentBy does not exempt`,
       );
     }
   }
 });
 
-test('the emitted KIR label vocabulary is the pinned thirty-nine and is disjoint from the reserved set', () => {
+// QD-3's interlock, proven directly against the helper rather than the (empty at D.0) registry
+// file: a label named in spentBy must fall out of the absence scan above, and every other reserved
+// label must stay enforced.
+test('unspentLabels exempts a spent label from the absence scan and keeps enforcing the rest', () => {
+  const [spent, ...stillUnspent] = RESERVED_LABELS;
+  const synthetic = { labels: [...RESERVED_LABELS], spentBy: { [spent]: 'kern-5-d' } };
+  assert.deepEqual(
+    unspentLabels(synthetic),
+    stillUnspent,
+    'D0_LABEL_SPENT: a spentBy entry must exempt only its own label from the absence scan',
+  );
+});
+
+test('the emitted KIR label vocabulary is the pinned forty and is disjoint from the reserved set', () => {
   const emitted = kirTokensUnder(KIR_RUNTIME_DIR);
+  const expected = [...BASE_KIR_TOKENS];
+  const missing = expected.filter((token) => !emitted.includes(token));
+  const extra = emitted.filter((token) => !expected.includes(token));
   assert.deepEqual(
     emitted,
-    [...BASE_KIR_TOKENS],
-    'D0_LABEL_VOCABULARY: the KIR_* token set under kir-runtime moved',
+    expected,
+    'D0_LABEL_VOCABULARY: the KIR_* token set under kir-runtime moved' +
+      (missing.length > 0 ? ` — missing: ${missing.join(', ')}` : '') +
+      (extra.length > 0 ? ` — extra: ${extra.join(', ')}` : ''),
   );
   const reserved = new Set(RESERVED_LABELS);
   for (const token of emitted) {
