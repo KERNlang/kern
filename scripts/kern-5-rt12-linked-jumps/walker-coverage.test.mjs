@@ -351,9 +351,11 @@ test('compileBlock sends a jump to the ordinary statement route in every block i
 });
 
 // `containsReturn` needs no arm: it is a `.some` predicate whose unrecognised kinds are simply
-// `false`, and a jump owns no block that could hide a `return`. This row pins that no arm was
-// added — an arm for a childless kind would be dead code with a real cost, because it would have to
-// be kept correct as the union grows.
+// `false`, and a jump owns no block that could hide a `return`. D0-TD10 moved the block-owning
+// arms out of `containsReturn` and into the shared `statementSubBlocks` (both `for`/`while`'s
+// single-block case and `if`'s one-or-two-block case now come from there); this row splits in two
+// so it still pins that no arm was added anywhere — an arm for a childless kind would be dead code
+// with a real cost, because it would have to be kept correct as the union grows.
 test('containsReturn keeps exactly its four block-owning arms and gains none for a jump', async () => {
   const linkSupport = await readFile(LINK_SUPPORT_URL, 'utf8');
   const walker = linkSupport.slice(
@@ -361,11 +363,23 @@ test('containsReturn keeps exactly its four block-owning arms and gains none for
     linkSupport.indexOf('function assertLeaf'),
   );
   assert.ok(walker.length > 0, 'containsReturn must be locatable');
-  const kinds = [...walker.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]);
+  const walkerKinds = [...walker.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]);
   assert.deepEqual(
-    [...new Set(kinds)].sort(),
-    ['for', 'if', 'return', 'while'],
-    'RT12J_WALKER_CREEP: containsReturn must not learn a kind that owns no block',
+    [...new Set(walkerKinds)].sort(),
+    ['return'],
+    'RT12J_WALKER_CREEP: containsReturn must delegate every block-owning kind to statementSubBlocks, not re-learn one inline',
+  );
+  const contracts = await readFile(CONTRACTS_URL, 'utf8');
+  const subBlocks = contracts.slice(
+    contracts.indexOf('function statementSubBlocks'),
+    contracts.indexOf('function statementSubExpressions'),
+  );
+  assert.ok(subBlocks.length > 0, 'statementSubBlocks must be locatable');
+  const subBlockKinds = [...subBlocks.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]);
+  assert.deepEqual(
+    [...new Set(subBlockKinds)].sort(),
+    ['for', 'if', 'while'],
+    'RT12J_WALKER_CREEP: statementSubBlocks must not learn a kind that owns no block',
   );
 });
 

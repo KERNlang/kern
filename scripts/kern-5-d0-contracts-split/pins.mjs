@@ -46,12 +46,14 @@ export const FILE_LINE_CEILING = 500;
 // linkedStatementsInvokeCapability plus the LinkedKernKirClosureWalk type and its
 // createLinkedKirClosureWalk() default-parameter factory, all three of which move to walkers.ts —
 // this edge is forced by that assignment, not a deviation from it; INV-2's written edge map missed
-// it (D0-TD7).
+// it (D0-TD7). link-support.ts also gained an edge to walkers.ts (D0-TD10): ModuleContext.closureWalk
+// imports LinkedKernKirClosureWalk as a type instead of re-declaring its shape inline; the scanner
+// matches the specifier regardless of the `import type` keyword, so the edge is real here too.
 export const EXPECTED_IMPORT_EDGES = Object.freeze({
   'contracts.ts': Object.freeze([]),
   'expression.ts': Object.freeze(['contracts.js']),
   'index.ts': Object.freeze(['contracts.js', 'expression.js', 'link.js', 'walkers.js']),
-  'link-support.ts': Object.freeze(['contracts.js']),
+  'link-support.ts': Object.freeze(['contracts.js', 'walkers.js']),
   'link.ts': Object.freeze(['contracts.js', 'link-support.js', 'statements.js', 'walkers.js']),
   'statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js']),
   'walkers.ts': Object.freeze(['contracts.js']),

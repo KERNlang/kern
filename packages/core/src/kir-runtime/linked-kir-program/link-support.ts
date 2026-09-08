@@ -2,14 +2,16 @@ import type { CanonicalValue } from '../../canonical-value/types.js';
 import type { StructuralKirNode } from '../../kir-structural/types.js';
 import { type KernKirDiagnosticCode, KernKirFault } from '../contracts.js';
 import { canonicalRecord, exact, nodeChildren, plainRecord, type RuntimeMeter, requiredText } from '../inspect.js';
-import type {
-  LinkedKernKirCallPolicy,
-  LinkedKernKirCallScope,
-  LinkedKernKirCrossCallType,
-  LinkedKernKirHandler,
-  LinkedKernKirStatement,
-  LinkedKernKirStaticType,
+import {
+  type LinkedKernKirCallPolicy,
+  type LinkedKernKirCallScope,
+  type LinkedKernKirCrossCallType,
+  type LinkedKernKirHandler,
+  type LinkedKernKirStatement,
+  type LinkedKernKirStaticType,
+  statementSubBlocks,
 } from './contracts.js';
+import type { LinkedKernKirClosureWalk } from './walkers.js';
 export function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
 }
@@ -63,13 +65,7 @@ export function propertySet(
 
 export function containsReturn(statements: readonly LinkedKernKirStatement[]): boolean {
   return statements.some(
-    (statement) =>
-      statement.kind === 'return' ||
-      (statement.kind === 'for' && containsReturn(statement.body)) ||
-      (statement.kind === 'while' && containsReturn(statement.body)) ||
-      (statement.kind === 'if' &&
-        (containsReturn(statement.thenBranch) ||
-          (statement.elseBranch !== undefined && containsReturn(statement.elseBranch)))),
+    (statement) => statement.kind === 'return' || statementSubBlocks(statement).some(containsReturn),
   );
 }
 
@@ -88,12 +84,7 @@ export interface LinkScope {
 }
 
 export interface ModuleContext {
-  readonly closureWalk: {
-    readonly active: Set<string>;
-    readonly done: Map<string, boolean>;
-    cycles: number;
-    visits: number;
-  };
+  readonly closureWalk: LinkedKernKirClosureWalk;
   readonly linked: Map<string, LinkedKernKirHandler>;
   readonly linking: Set<string>;
   readonly meter: RuntimeMeter;
