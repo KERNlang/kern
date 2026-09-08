@@ -19,7 +19,7 @@ import {
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
-const RT2_GOLDEN_SHA256 = '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939';
+const RT2_GOLDEN_SHA256 = 'ea64e2ef7bc824bf62d632533488bda484c81aa783fb04d7940af9f249b2ac87';
 
 const LIST_INPUT = Object.freeze([Object.freeze({ name: 'xs', type: 'boolean[]' })]);
 

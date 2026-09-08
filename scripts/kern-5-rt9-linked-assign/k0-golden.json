@@ -49,7 +49,9 @@
   },
   "linkedStatementKinds": [
     "assign",
+    "break",
     "capability",
+    "continue",
     "for",
     "if",
     "let",

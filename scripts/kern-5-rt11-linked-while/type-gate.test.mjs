@@ -22,8 +22,6 @@ const REFUSALS = Object.freeze([
   ['neg-while-void-return-in-body', 'KIR_VOID_HANDLER_VALUE_RETURN'],
   ['neg-while-cond-async', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-while-assign-in-body-async', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
-  ['neg-while-break-in-body', 'statement kind break is outside RT-1'],
-  ['neg-while-continue-in-body', 'statement kind continue is outside RT-1'],
 ]);
 
 const ADMITTED = Object.freeze([
@@ -31,6 +29,8 @@ const ADMITTED = Object.freeze([
   'while-cap-via-if',
   'while-print-via-if',
   'while-true-exhausts-steps',
+  'neg-while-break-in-body',
+  'neg-while-continue-in-body',
 ]);
 
 for (const [position, label] of REFUSALS) {
@@ -81,25 +81,6 @@ test('an empty while body is refused by the branch gate and never by the outside
     !message.includes('statement must be a leaf'),
     'RT11W_ROUTE_GAP: a childless while must not be mistaken for a leaf statement',
   );
-});
-
-// `break` and `continue` project and reach the body block, so their refusal proves the body is
-// compiled by the ordinary statement path and not by a permissive loop-local one. Both are the next
-// slice's work, so this row is also the fence that keeps them out of this one.
-test('break and continue reach the ordinary statement refusal inside a while body', async () => {
-  for (const [position, keyword] of [
-    ['neg-while-break-in-body', 'break'],
-    ['neg-while-continue-in-body', 'continue'],
-  ]) {
-    const message = await assertLinkLabel(
-      WHILE_POSITIONS[position](),
-      `statement kind ${keyword} is outside RT-1`,
-    );
-    assert.ok(
-      !message.includes('statement must be a leaf'),
-      `${position}: the body must be compiled, so the leaf gate cannot be what refuses`,
-    );
-  }
 });
 
 // A `while` binds no name, so `scope.counters` is never written and the loop-counter label is

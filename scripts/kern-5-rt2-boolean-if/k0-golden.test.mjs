@@ -16,7 +16,9 @@ const CONTRACTS_URL = new URL(
 
 const PROBE_BODIES = Object.freeze({
   assign: ['let name=held value="\"a\""', 'assign target="held" value="\"b\""'],
+  break: ['let name=x value="0"', 'for name=i from="0" to="1"', '  break'],
   capability: ['capability namespace=fixture operation=resolve name=reply'],
+  continue: ['let name=x value="0"', 'for name=i from="0" to="1"', '  continue'],
   else: ['else', '  print value="\"f\""'],
   for: ['let name=x value="0"', 'for name=i from="0" to="1"', '  assign target="x" value="x + 1"'],
   if: ['if cond="flag"', '  print value="\"t\""'],
@@ -29,7 +31,9 @@ const PROBE_BODIES = Object.freeze({
 
 const STATEMENT_PROBES = Object.freeze([
   'assign',
+  'break',
   'capability',
+  'continue',
   'else',
   'for',
   'if',

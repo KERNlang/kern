@@ -37,9 +37,9 @@ const RT10X_GOLDEN_SHA256 = '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764
 // The RT-3 golden before and after this slice's licensed RT-2 → RT-3 digest cascade, and the one
 // field of RT-3's golden the cascade is licensed to move.
 const RT3_GOLDEN_BASE_SHA256 = '935da8148df5c02d5d405fea2db00fb7f5f6db08158d9cdca0d61c0084972b18';
-const RT3_GOLDEN_SHA256 = '969dd11bdeaf11169559b1c790f6350ed3e29cf21983797acf3167c1bed8d512';
+const RT3_GOLDEN_SHA256 = 'd871bd4cd495d6c85b1621ee13b042a8651d714ff26204b3c505b5719ee3f291';
 const RT3_GOLDEN_BASE_RT2_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
-const RT2_GOLDEN_SHA256 = '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939';
+const RT2_GOLDEN_SHA256 = 'ea64e2ef7bc824bf62d632533488bda484c81aa783fb04d7940af9f249b2ac87';
 
 // The Python emitter is byte-frozen: `while` is deferred by ledger row, not lowered. Slice A pins
 // this digest too, and it must not move in either slice.
@@ -72,7 +72,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
 
 // The statement kinds this slice must leave outside the union. `while` is deliberately absent: it
 // is what the slice adds, and `walker-coverage.test.mjs` asserts it arrives.
-const STILL_OUTSIDE = Object.freeze(['break', 'continue', 'each', 'set']);
+const STILL_OUTSIDE = Object.freeze(['each', 'set']);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');

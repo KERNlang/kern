@@ -46,10 +46,10 @@ const KIR_PYTHON_FILES = Object.freeze([
 const NEIGHBOUR_GOLDENS = Object.freeze({
   'kern-5-rt10-cross-call-integer': '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf',
   'kern-5-rt10-pre-linked-arithmetic': '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718',
-  'kern-5-rt2-boolean-if': '5db55623bf5fca9e0bff84f81c159705002a044d9114a95e284c596896b05939',
-  'kern-5-rt3-binary-expression': '969dd11bdeaf11169559b1c790f6350ed3e29cf21983797acf3167c1bed8d512',
+  'kern-5-rt2-boolean-if': 'ea64e2ef7bc824bf62d632533488bda484c81aa783fb04d7940af9f249b2ac87',
+  'kern-5-rt3-binary-expression': 'd871bd4cd495d6c85b1621ee13b042a8651d714ff26204b3c505b5719ee3f291',
   'kern-5-rt6-void-fallthrough': '429de5ebbb5e606acfd48764b506d38b6abc4c5c6270bca883b34aa027306e81',
-  'kern-5-rt9-linked-assign': '1a28f75c914a5631dfb3b00a45ac352b5dde28ae864cd98aa85d8e580e5e491b',
+  'kern-5-rt9-linked-assign': '41ca43d8a5aa73f18f323dd86c9f647ee923f2b5b22f8b3cec7124c5864f39aa',
 });
 
 function distJavaScriptCount(directory) {

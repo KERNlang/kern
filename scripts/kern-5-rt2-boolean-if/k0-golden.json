@@ -1,7 +1,9 @@
 {
   "admission": {
     "assign": "admitted",
+    "break": "admitted",
     "capability": "admitted",
+    "continue": "admitted",
     "else": "handler-entry-unsupported",
     "for": "admitted",
     "if": "admitted",
@@ -13,7 +15,9 @@
   },
   "linkedStatementKinds": [
     "assign",
+    "break",
     "capability",
+    "continue",
     "for",
     "if",
     "let",
