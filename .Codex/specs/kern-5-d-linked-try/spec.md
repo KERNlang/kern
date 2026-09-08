@@ -2,7 +2,7 @@
 
 **Status:** ORACLE LANDED RED
 **Oracle:** `scripts/kern-5-d-linked-try/**` — 17 files (11 test files), **216 rows**, **166 RED / 50 GREEN** (one row skipped: the D-7f self-drive) at base
-`071e5df9`, landed in eight commits: `aa335118` (harness, fixtures, pins), `72eac0b3` (the unmoved
+`071e5df9`, landed in eleven commits: `aa335118` (harness, fixtures, pins), `72eac0b3` (the unmoved
 world), `8dd986d0` (linker gates), `de681969` (RT-1 walk, walkers, behaviour), `9388c5f9` (metering,
 fault carrier), `2c670ca4` (label registry, parity ledger), `75d80030` (gated finally, D-7f
 measurement), `a32ab9db` (evidence-family wiring), `349b661c` (harness cleanup), `52aecd92` (D-7f self-drive
