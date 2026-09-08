@@ -2,7 +2,12 @@
 
 **Status:** SPEC — ORACLE NOT YET WRITTEN
 **Date:** 2026-09-08
-**Confidence:** 0.88
+**Confidence:** 0.92
+**Revision:** 2 — incorporates the coordinator's five rulings on the Nero FLAWED (20%) verdict of
+2026-09-08 (jump refusal narrowed to finally-bearing `try`; `code` typed as `text | null` with a
+linker-inserted default; single-artifact `instanceof` verified; importer-facing catch boundary
+documented; RC-v1 closed-set challenge rejected on D.0's C-6/C-7/C-8 and backed by running the
+contract walls), and closes OQ-D1 by measurement.
 
 **Depends on D.0 landing at `87ca787416eab0b2bb1b92b759ed0f4f1ab16a98`** — the tip of
 `feat/kern-5-d0-contracts-split` on 2026-09-08, which carries D.0's spec **and its oracle** (eight
@@ -33,10 +38,16 @@ walk generator — so an engine `__Fault`, which travels as a host exception, is
 of becoming catchable. An uncaught throw surfaces as `outcome:'failure'` with the single diagnostic
 code `'uncaught-throw'`, with events already committed preserved.
 
+`break`/`continue` **may** cross a `try`/`catch` that carries no `finally` — the importer's hottest
+defensive loop, `for { try { if (!ok) continue; … } catch { … } }`, links and behaves, on both legs,
+with no new machinery. The reserved refusal `KIR_LOOP_JUMP_CROSSES_TRY` is narrowed to the one case
+with something to run on the way out: a crossed `try` that **has** a `finally`.
+
 `finally` is the **last ordered commit** and is gated: cleanup-only, no abrupt completion, and it
 does **not** run on envelope faults — the one pinned TS divergence. A pre-registered, measurable
 abort criterion cuts it to D2 before merge if its oracle row count exceeds the sum of all preceding
-D commits' rows.
+D commits' rows. Because the jump refusal is only reachable once a `finally` exists, cutting
+`finally` also returns `KIR_LOOP_JUMP_CROSSES_TRY` to the reserved-and-unspent state.
 
 The whole slice adds **two** statement-union members (`throw`, `try`), **zero** expression-union
 members, **zero** diagnostic codes (D.0 already reserved the 13th), **zero** new files under
@@ -149,12 +160,15 @@ payload is an ordinary record expression the whole stack already carries. Tag: V
 
 | # | Claim | Evidence | Tag |
 |---|---|---|---|
-| D-1a | A user throw carries exactly `{message: text}` or `{message: text, code: text}` — nothing else, ever | tribunal verdict §RECOMMENDATION, KEY INSIGHT 1 | VERIFIED (ruling) |
-| D-1b | The linker **types** the throw expression against that shape syntactically. It is admitted iff (i) `expression.kind === 'record'` and its entry keys sorted are exactly `['message']` or `['code','message']` and each entry value's `crossCallExpressionType(...)` is `'text'`; or (ii) `expression.kind === 'identifier'` and the name is in `LinkScope.payloads` (a catch binding). Anything else is a link refusal with `KIR_THROW_PAYLOAD_SHAPE` | `crossCallExpressionType` returns `'text'` for text literals, text-typed identifiers and text-returning user calls (`linked-kir-program/expression.ts` `crossCallExpressionType`, `literalCrossCallType`); `LinkedKernKirStaticType` cannot express `text` or `record` (`contracts.ts:7`), so `scope.types` is the wrong channel and a third set is required | VERIFIED |
+| D-1a | **The payload record type is `{message: text, code: text \| null}`** — `code` is a declared field with a declared default, not an absent key. A throw site may write `{message: …}` or `{message: …, code: …}`; nothing else, ever | tribunal verdict §RECOMMENDATION, KEY INSIGHT 1, as sharpened by the coordinator ruling of 2026-09-08 on absent-key semantics | VERIFIED (ruling) |
+| D-1a1 | **Absent-key semantics: the linker inserts a literal null.** When the throw expression omits `code`, `compileThrow` completes the linked record with `{key:'code', value:{kind:'literal', value:{tag:'null'}}}`, so **every** linked throw payload carries both keys, sorted `code` then `message`. This is a **typing default on an already-conforming throw**, not canonicalization: canonicalization (D-1c) is coercing a *non-conforming* payload into shape, and remains the importer's job and forbidden here. The distinction is observable — a non-conforming throw is still a refusal, never a completion | `KernKirValue` has a `null` tag (`kir-runtime/contracts.ts:4-13`); `{kind:'literal', value}` is an existing expression variant (`linked-kir-program/contracts.ts:174-207`) | VERIFIED |
+| D-1a2 | **Reading the payload.** `member` expressions are statically untyped on **both** channels today — `staticExpressionType` and `crossCallExpressionType` each fall through to `undefined` for `kind === 'member'` — so `e.message` and `e.code` need **no typing change at all**. Because D-1a1 guarantees `code` is always present, `e.code` never takes the missing-member path: the runtime `member` arm finds the entry and returns its value, which is `{tag:'text'}` or `{tag:'null'}`. `e.message` always returns `{tag:'text'}`. That is the whole minimal rule | `staticExpressionType` and `crossCallExpressionType` both end `if (expression.kind !== 'literal') return undefined` (`linked-kir-program/expression.ts`); the runtime arm is `object.value.find(e => e.key === property)?.value` with a `value !== undefined` guard, and `{tag:'null'}` is not `undefined` (`kir-runtime/expression.ts` `case 'member'`) | VERIFIED |
+| D-1b | The linker **types** the throw expression against that shape syntactically. It is admitted iff (i) `expression.kind === 'record'`, its entry keys sorted are exactly `['message']` or `['code','message']`, the `message` value's `crossCallExpressionType(...)` is `'text'`, and the `code` value (when written) is either `'text'` or an explicit null literal (`kind === 'literal' && value.tag === 'null'`, admitted so that writing the default is not a refusal); or (ii) `expression.kind === 'identifier'` and the name is in `LinkScope.payloads` (a catch binding). Anything else is a link refusal with `KIR_THROW_PAYLOAD_SHAPE` | `crossCallExpressionType` returns `'text'` for text literals, text-typed identifiers and text-returning user calls (`linked-kir-program/expression.ts` `crossCallExpressionType`, `literalCrossCallType`); `LinkedKernKirStaticType` cannot express `text` or `record` (`contracts.ts:7`), so `scope.types` is the wrong channel and a third set is required | VERIFIED |
 | D-1c | The linker **never canonicalizes**. It does not synthesize a `message`, coerce a non-text value, wrap a non-record, or render anything. Importer canonicalization of non-conforming TS throws is **out of scope** and belongs to the importer lane | tribunal KEY INSIGHT 1 ("the kernel never renders, coerces, or invents payloads") | VERIFIED (ruling) |
 | D-1d | The catch binding is that record type and **nothing else**. It is added to `LinkScope.bindings` (so shadowing is refused) and to `LinkScope.payloads`; it is **not** added to `scope.types` or `scope.crossCallTypes`, because entering it there would make `staticExpressionType` lie about a record | `bindName` writes both type maps (`link.ts:200-…`); `staticExpressionType` reads `scope.types` (`linked-kir-program/expression.ts`) | VERIFIED |
 | D-1e | Consequences of D-1d, all intended: `e.message`/`e.code` are ordinary `member` expressions (statically untyped, exactly like every `text` expression today); `assign target="e"` is refused by the existing `KIR_ASSIGN_UNDECLARED`/`KIR_ASSIGN_TARGET_NOT_LET` gate because a catch binding never enters `assignable`; `let name=e` is refused as a duplicate binding; `throw value="e"` is admitted by D-1b(ii) — that is rethrow | `link.ts` assign gates; `compileStatement` `let` duplicate-binding check | VERIFIED |
 | D-1f | A `let`-bound payload (`let p = {message:"x"}` then `throw value="p"`) is **refused** in D. `payloads` holds catch bindings only | design decision, this spec | VERIFIED (decision) |
+| D-1f1 | **Rethrow through a helper parameter is impossible in D, and that is an importer-visible limitation.** A payload cannot be passed into a helper and rethrown there, because `throw` in a helper body is refused outright (D-2h) — and it could not be typed anyway: a payload record is not an admissible parameter type (`LINKED_KIR_TYPE_ADMISSION` has no `record` row, so `parameterType` refuses it). So the *only* rethrow form in D is `throw value="e"` lexically inside the `catch` that bound `e`. Stated plainly because a TS importer will hit it: helper-mediated rethrow is **D2's top item** | `LINKED_KIR_TYPE_ADMISSION` (`linked-kir-program/contracts.ts:~215-228`) admits only `boolean`/`integer`/`list`/`text`/`void`; D-2h | VERIFIED |
 | D-1g | A bare `throw` with no `value` is refused. `compileThrow` calls `propertySet(properties, ['value'], ['trailingComment'], label)`, which faults `unsupported property set` — **no new label needed** | `propertySet` (`link.ts`, `required.some(key => !properties.has(key))` → `fault('handler-entry-unsupported', ...unsupported property set)`); F5 marks `throw.value` `required:false` (`catalog.generated.ts:2979`) | VERIFIED |
 
 ### D-2 Catchability: user throws only, disjoint by construction on every leg
@@ -162,6 +176,7 @@ payload is an ordinary record expression the whole stack already carries. Tag: V
 | # | Claim | Evidence | Tag |
 |---|---|---|---|
 | D-2a | **JavaScript.** `class __UserThrow { constructor(value){ this.value = value; } }` — a *nominal* class, checked with `instanceof`, **never** a field check, **never** `extends __Fault`. The catch lowering is `catch(__e){ if(!(__e instanceof __UserThrow)) throw __e; … }` | tribunal §RECOMMENDATION; `__Fault` is the only class today (`target-base.ts:3-9`) and the boundary catch is generic (`target-execution.ts:78-89`) | VERIFIED |
+| D-2b0 | **`instanceof` is sound because a linked program is exactly one artifact.** `emitJavaScriptEsm(program, manifestBase)` is the single emit entrypoint (`kir-js-esm/index.ts:71`), it emits one `function __module() { … }` source (`emitter.ts:471-479`), and **every helper is inlined into that same module** — `helperSources` is built from `linked.helpers` and joined straight into the `__runSpecialized` closure (`emitter.ts:375,430`). The artifact path is the literal-typed `'entry.mjs'` (`contracts.ts:32`, `index.ts:77,85`). There is **no multi-artifact cross-call path** in RT-1's linked-program pipeline, so exactly one `__UserThrow` class exists per artifact and cross-realm identity cannot arise. A kernel-resident class is therefore **not** needed and the kernel digest does not move | `kir-js-esm/index.ts:71,77,85`; `emitter.ts:375,430,471-479`; `kir-js-esm/contracts.ts:32` | VERIFIED |
 | D-2b | `__UserThrow` is emitted **per module by `specializedSource`, and only when the program contains a `throw` or a `try`** — never added to `TARGET_BASE_SOURCE` or any other kernel source. This is what keeps `TARGET_KERNEL_SHA256` byte-frozen on both legs, keeps every existing rt-suite emitted-artifact digest byte-identical, and keeps D.0's fifteen behaviour-preservation fixtures GREEN | `TARGET_KERNEL_SHA256 = sha256(KERNEL_SOURCE)` where `KERNEL_SOURCE` is the four fixed target sources (`emitter.ts:23,25`); `__artifactSha256` hashes `__module.toString()` (`emitter.ts:475`), so only throw-carrying programs move | VERIFIED |
 | D-2c | **RT-1.** A throw is a **walk completion**: `StatementWalkResult` gains `{kind:'threw'; value: KernKirValue}`. It is a *return value* of `walkStatements`, not a host exception — which is why it is physically incapable of intercepting a `__Fault`/`KernKirFault`, which travels as a host throw and unwinds past the frame stack entirely | `StatementWalkResult` (`kir-runtime/expression.ts:41-44`); `return` already works exactly this way (`:297-307`); every fault is a plain `throw new KernKirFault(...)` that nothing in RT-1 catches (facts pack §4; D.0 C-12 as restated in STEP-0-k) | VERIFIED |
 | D-2d | **RT-1 frame model.** `WalkFrame` gains `readonly trap: TryTrap \| undefined`, where `TryTrap = { readonly binding: string \| undefined; readonly catchBody: readonly LinkedKernKirStatement[]; readonly finallyBody: readonly LinkedKernKirStatement[] \| undefined }`. A `try` pushes its body as a frame carrying `trap`; loop frames carry `loop`; the two are disjoint in practice and neither is a discriminated-union rewrite of `WalkFrame` | `WalkFrame` today is `{loop, statements, index}` (`:174-178`); `loop` is already the rt12 discriminated union (`:159-172`) | VERIFIED (design, minimal-diff) |
@@ -184,6 +199,8 @@ payload is an ordinary record expression the whole stack already carries. Tag: V
 | D-3e | This matches `runtime-envelope/normalize.ts`'s existing `'uncaught-throw'` shape on `outcome`, `completion.kind`, `result` and the single `{category:'runtime', code, phase:'execution'}` diagnostic, and **diverges on `events`**: `internalRuntimeFailure` hard-codes `events: []` (`normalize.ts:72-83`) while the KIR failure envelope preserves committed events. The divergence is **pre-existing and correct** — the append-only pin is a KIR property the legacy normalizer does not have | `normalize.ts:122` `if (trace.completion.kind === 'throw') return internalRuntimeFailure('uncaught-throw')`; `internalRuntimeFailure` at `normalize.ts:72-83`; `envelope.ts:44` `events: Object.freeze([...committedEvents])` | VERIFIED |
 | D-3f | `normalize.ts:122` stays the single **`internalRuntimeFailure`** producer of the code. D adds KIR producers (D-2j), so D.0's row *"the kir-runtime tree names `uncaught-throw` exactly once, in the union declaration"* (`diagnostics.test.mjs:106`) and *"no fault construction site anywhere in core carries `uncaught-throw`"* (`:87`) both **must move** | `scripts/kern-5-d0-contracts-split/diagnostics.test.mjs:87,106,122` | VERIFIED |
 | D-3g | `KernKirDiagnosticCode` stays at **13** members. D creates no code, no completion kind, no third `outcome` value, and **no RC-v1 amendment** — the chain stays at 3 records, consumed length 2, 0 pending | D.0 Reservation 1 and its C-6/C-7/C-8 reasoning; `pins.mjs` `RC_V1_AMENDMENT_COUNT`, `RC_V1_CONSUMED_CHAIN_LENGTH` | VERIFIED |
+| D-3g1 | **There is no closed-set surprise waiting on the public side, and the reason is D.0's C-6/C-7/C-8.** *C-6*: RC-v1's amendment chain governs four artifacts — `constitution.json`, `public-declaration-schema.json`, `goldens.json`, `proof-inventory.json` — and **not** the KIR union; proven because the KIR union already carries `projection-authentication-error` and `runtime-limit-exceeded`, which the constitution lacks, while the constitution carries `encoded-limit`, `escaped-control`, `internal-runner-error`, `non-portable-value` and `uncaught-throw`, which the KIR union lacks. The two sets are siblings. *C-7*: a zero-drift amendment record is structurally rejected. *C-8*: `runtime-handler-public-declaration.mjs:147-152` equates `constitution.diagnostics.codes` with the **public runtime-handler** union `KernRuntimeHandlerDiagnosticCode`, not with the KIR union — and `uncaught-throw` is **already** in both, with the golden behaviour `failure-uncaught-throw` (`scripts/runtime-contract-v1/constitution.json:96`, `public-declaration-schema.json:18`, `goldens.json:83-90,306,320`) | `.Codex/specs/kern-5-d0-contracts-split/spec.md` rows C-6, C-7, C-8 | VERIFIED |
+| D-3g2 | Rather than rest on that reasoning alone, D's oracle **runs the contract walls** so a closed-set surprise fails at oracle time instead of CI time: `node ./scripts/check-runtime-contract-v1.mjs`, `node ./scripts/check-runtime-envelope.mjs` and `node ./scripts/check-rule-coverage.mjs`, wrapped by `pnpm test:kern-runtime-contract-v1`, `pnpm test:kern-runtime-envelope` and `pnpm check:rule-coverage`. All three are **GREEN at base and must stay GREEN** | `package.json` scripts `test:kern-runtime-contract-v1`, `test:kern-runtime-envelope`, `check:rule-coverage`, `test:runtime-abi` | VERIFIED |
 | D-3h | **A capability inside a try, followed by a throw:** the capability event stays in the failure envelope's `events`. Catch is not a transaction; there is no rollback on either leg | one shared `committedEvents` array created before the try (`execute.ts:228-247`), one `__events` array created before the try (`emitter.ts:436,446`) | VERIFIED |
 
 ### D-4 Control flow
@@ -193,11 +210,15 @@ payload is an ordinary record expression the whole stack already carries. Tag: V
 | D-4a | `return` inside `try` or `catch` is **allowed**, exactly as `return` inside an `if` branch already is | `compileBranch`/`compileBlock` admit `return` in any nested block; the early-return-in-`if` precedent is `containsReturn` (`link.ts:152-162`) plus the top-level-only filter (`link.ts:607-613`) | VERIFIED |
 | D-4b | A `return` inside `try`/`catch` does **not** satisfy the trailing top-level return rule. No code change (see *What Already Works*) | `link.ts:607-613` counts only top-level `kind === 'return'` | VERIFIED |
 | D-4c | `containsReturn` **must** gain `try` recursion (body, catch body, finally body), or a **void** handler with a `return` inside a `try` silently escapes `KIR_VOID_HANDLER_VALUE_RETURN`. This is a required edit and a discriminating oracle row | `containsReturn` recurses only `for`/`while`/`if` today (`link.ts:152-162`); it gates the void check at `link.ts:606` | VERIFIED |
-| D-4d | `break`/`continue` crossing a `try` boundary is a link refusal spending the reserved `KIR_LOOP_JUMP_CROSSES_TRY`. Mechanism: `LinkScope` gains **two** link-time numbers, `tryDepth` (incremented by `compileTry` for the body and each clause) and `loopTryDepth` (set to `scope.tryDepth` when `compileFor`/`compileWhile` builds the body scope). At a `break`/`continue`, after the existing `loopDepth === 0` check, refuse if `scope.tryDepth > scope.loopTryDepth` | rt12 `[RT12J-N4]` (`.Codex/specs/kern-5-rt12-linked-jumps/spec.md:721-726`); `loopDepth` is set the same way at `link.ts:487,516` | VERIFIED |
-| D-4e | The comparison gets all three cases right: **loop inside try** → entry `tryDepth` 1, body 1, equal → legal; **try inside loop** → entry 0, inside try 1 > 0 → refused; **jump inside a loop inside a try** → entry 1, body 1 → legal | derivation from D-4d; three oracle rows | VERIFIED |
-| D-4f | Both new scope fields are **link-time only**. No leg carries a runtime try-depth or loop-depth counter; RT-1's frame chain and the host's own nesting are the answer | rt12 `[RT12J-N5]` (`spec.md:727-728`) | VERIFIED |
-| D-4g | Rethrow (`throw value="e"` of the bound value) is **in**; nested `try` is **in**; the catch binding is **optional** (`catch {}` links, F5 marks `catch.name` `required:false`) | tribunal §RECOMMENDATION; `catalog.generated.ts:6695` | VERIFIED |
-| D-4h | A **typed** catch (`catch.type`) is refused: F5 already marks the property `disposition:'excluded-host-type'`, `reasonId:'portable-type-grammar-required'`, and `compileCatch` calls `propertySet(properties, [], ['name'], label)` so a `type` property faults `unsupported property set` | `catalog.generated.ts:6695` | VERIFIED |
+| D-4d | **`break`/`continue` MAY cross a `try`/`catch` frame that carries NO `finally` clause.** The refusal `KIR_LOOP_JUMP_CROSSES_TRY` applies **only** when the crossed `try` has a `finally` — the one case with something to run on the way out. **Coordinator ruling, 2026-09-08, overriding the tribunal's Q4 answer and rt12's `[RT12J-N4]` wording**, both of which predate the importer-pattern evidence | ruling; rt12 `[RT12J-N4]` (`.Codex/specs/kern-5-rt12-linked-jumps/spec.md:721-726`) is the superseded text | VERIFIED (ruling) |
+| D-4d1 | The shape the override exists for is the importer's hottest defensive loop — `for … { try { if (!ok) continue; … } catch { … } }`. An unconditional refusal prices a control-flow rewrite at every importer call site. **Measured to project**: `for{try{assign, catch{continue}}}` and `try{for{break}}, catch{assign}` both come back `status: 'projected'`, with `continue`/`break` as leaf children exactly where the shape needs them | OQ-D1 measurement, 2026-09-08, recorded under *OQ-D1 — CLOSED* | VERIFIED |
+| D-4e | Both legs already behave correctly with no unwind work, so the admission is the **removal of a refusal**, not new machinery: **RT-1** truncates `frames` to the target loop frame with the same bounded scan `break`/`continue` already use (`frames.length = depth`), and an intervening trap frame carries nothing to run; **JS** lowers to a native `break;`/`continue;`, and a native jump out of a `try` block that has no `finally` is plain, correct JavaScript | `kir-runtime/expression.ts:229-244` (the scan assigns `frames.length`, it runs no per-frame code); `kir-js-esm/emitter.ts:305-307` (native `break;`/`continue;`) | VERIFIED |
+| D-4f | Mechanism, revised: `LinkScope` gains **two** link-time numbers — `finallyDepth`, incremented by `compileTry` for its body and clauses **only when that `try` has a `finally` clause**, and `loopFinallyDepth`, set to `scope.finallyDepth` when `compileFor`/`compileWhile` builds the body scope. At a `break`/`continue`, after the existing `loopDepth === 0` check, refuse if `scope.finallyDepth > scope.loopFinallyDepth`. `compileTry` partitions its children before compiling the body (D-6f), so finally-presence is known in time. **A plain `tryDepth` is no longer needed for anything and is not added** | `loopDepth` is set the same way at `link.ts:487,516` | VERIFIED |
+| D-4f1 | **Consequence: with no `finally` in the union, the refusal is unreachable.** If the D-7f gate cuts `finally` to D2, `KIR_LOOP_JUMP_CROSSES_TRY` stays **reserved and unspent**, neither scope field is added, and the jump commit is a pure admission. The label therefore moves from the jump commit to the finally commit in the commit plan | derivation from D-4d/D-4f | VERIFIED |
+| D-4g | The cases the comparison must get right, with a **finally-bearing** `try`: **loop inside try** → entry `finallyDepth` 1, body 1, equal → legal; **try inside loop** → entry 0, inside try 1 > 0 → refused; **jump inside a loop inside a try** → entry 1, body 1 → legal. The same three with a finally-**less** `try` → all legal | derivation from D-4f | VERIFIED |
+| D-4h | Both new scope fields are **link-time only**. No leg carries a runtime try-depth, finally-depth or loop-depth counter; RT-1's frame chain and the host's own nesting are the answer. rt12's `[RT12J-N5]` survives the override untouched | rt12 `[RT12J-N5]` (`spec.md:727-728`) | VERIFIED |
+| D-4i | Rethrow (`throw value="e"` of the bound value) is **in**; nested `try` is **in**; the catch binding is **optional**. All three **measured to project**: `catch{throw value="e"}`, a `try` whose first child is another `try`, and `catch` with `props: []` | `catalog.generated.ts:6695` (`catch.name` `required:false`); OQ-D1 measurement | VERIFIED |
+| D-4j | A **typed** catch (`catch.type`) is refused: F5 already marks the property `disposition:'excluded-host-type'`, `reasonId:'portable-type-grammar-required'`, and `compileCatch` calls `propertySet(properties, [], ['name'], label)` so a `type` property faults `unsupported property set` | `catalog.generated.ts:6695` | VERIFIED |
 
 ### D-5 Metering and abort
 
@@ -217,7 +238,7 @@ All post-split file claims: **PINNED-BY-D0**, cited to `.Codex/specs/kern-5-d0-c
 | # | Claim | Evidence | Tag |
 |---|---|---|---|
 | D-6a | `compileTry` and `compileCatch` are **dedicated visitors in `statements.ts`**, dispatched from `compileBlock` alongside `for`/`while`/`if` — never `assertLeaf` exemptions | D.0 Implementation Plan places `compileStatement`, `compileIf`, `compileFor`, `compileWhile`, `compileBlock`, `compileBranch` in `statements.ts` (`spec.md:426`, table row) and estimates `statements.ts` +~130 for `compileTry`/`compileCatch`/`compileFinally` (`spec.md:~470`) | PINNED-BY-D0 |
-| D-6b | `LinkScope` (`tryDepth`, `loopTryDepth`, `payloads`, `tryFamily`) and `containsReturn` live in `link-support.ts`; `branchScope` propagates all four | D.0 Implementation Plan (`spec.md:425`): `link-support.ts` holds `fault`, `nodeKind`, `propertyText`, `propertyBool`, `propertySet`, `containsReturn`, `assertLeaf`, `LinkScope`, `ModuleContext`, `branchScope`, `bindName`, `assignTargetName`; and D.0's own headroom note "`link-support.ts` +3 (`tryDepth` on `LinkScope`, propagated in `branchScope`)" | PINNED-BY-D0 |
+| D-6b | `LinkScope` (`payloads`, `tryFamily`, and — in the finally commit only — `finallyDepth`/`loopFinallyDepth`) and `containsReturn` live in `link-support.ts`; `branchScope` propagates each as it arrives | D.0 Implementation Plan (`spec.md:425`): `link-support.ts` holds `fault`, `nodeKind`, `propertyText`, `propertyBool`, `propertySet`, `containsReturn`, `assertLeaf`, `LinkScope`, `ModuleContext`, `branchScope`, `bindName`, `assignTargetName`; and D.0's own headroom note "`link-support.ts` +3 (`tryDepth` on `LinkScope`, propagated in `branchScope`)" | PINNED-BY-D0 |
 | D-6c | The two union members, the `statementSubBlocks` `try` arm and the `statementSubExpressions` `try` arm live in `contracts.ts`, which keeps every INV-1 marker | D.0 INV-1 (`spec.md` *Implementation Plan*): the two `export type … =` declarations and `function statementSubBlocks` / `function statementSubExpressions` / `function expressionVariantUnhandled` all stay in `contracts.ts`, in that order | PINNED-BY-D0 |
 | D-6d | `statementSubExpressions` needs **one** arm, not two: `try` joins the zero-expression arm (`break`/`continue`/`try`), while `throw` falls through to the existing `return [statement.value]`. Without the `try` arm the fallback returns `[undefined]` and the capability closure and call-depth policy walk a hole | `statementSubExpressions` (`contracts.ts:292-300`): `if (statement.kind === 'break' \|\| statement.kind === 'continue') return []; return [statement.value];`; rt12 `[RT12J-TD5]` is the "one arm, not two" lesson | VERIFIED |
 | D-6e | `statementSubBlocks` gains a `try` arm returning `[body]`, `[body, catchBody]` or `[body, catchBody, finallyBody]` — every sub-block must be reachable or `createLinkedKirClosureWalk` and `linkedStatementsCallDepth` (post-split: `walkers.ts`) miss a capability or a call inside a try | `statementSubBlocks` (`contracts.ts:284-290`); D.0 moves the walkers to `walkers.ts` (`spec.md:423`) | VERIFIED / PINNED-BY-D0 |
@@ -237,6 +258,15 @@ All post-split file claims: **PINNED-BY-D0**, cited to `.Codex/specs/kern-5-d0-c
 | D-7e | F5 asymmetry the finally commit must respect: `finally`'s `allowedChildren` **excludes `for`, `destructure` and `handler`** but includes `while`, `each`, `try`, `throw`, `break`, `continue`. So a `for` inside a `finally` is refused by F5 (not by the linker), while a `while` inside a `finally` reaches the linker and must be admitted, and a `throw`/`break`/`continue` inside a `finally` reaches the linker and must be refused with `KIR_ABRUPT_FINALLY_UNSUPPORTED` | `catalog.generated.ts:6749` | VERIFIED |
 | D-7f | **Pre-registered abort criterion, with its measurement procedure.** A *row* is one `test('…')` case under `scripts/kern-5-d-linked-try/`. A checked-in `commit-rows.json` maps every test name to its commit tag `D1 … D5`, and one oracle row asserts the mapping is **total and disjoint** (every test name present exactly once, no unknown name). Before merge, run `node --test --test-reporter=tap scripts/kern-5-d-linked-try/` and count top-level test names per tag. **If `rows(D5) > rows(D1) + rows(D2) + rows(D3) + rows(D4)`, the finally commit is dropped from D and re-queued as D2, and the four finally labels return to unspent.** The measurement is a command, not a judgement | tribunal §RECOMMENDATION ("Pre-register the abort criterion in the parity ledger: if this commit's test surface exceeds all preceding D commits combined, cut finally to D2 before merge") | VERIFIED (ruling) |
 | D-7g | The abort criterion is recorded in the parity ledger's own commit as a spec citation: the `try` row's `spec` field points at this document, which is where the criterion lives. The ledger schema has no field for a criterion (`ROW_KEYS` is exactly `blockedBy label nodeKind since spec surface`), so the citation is the mechanism | `scripts/kern-5-parity-ledger/ledger-support.mjs:42-44` | VERIFIED |
+
+### D-8 Importer-facing notes — what a `catch` observes in D
+
+| # | Claim | Evidence | Tag |
+|---|---|---|---|
+| D-8a | **In D, a `catch` observes only throws raised lexically inside the same handler body.** It does not and cannot observe: a throw from a helper (refused at link, D-2h), a capability/host failure (an uncatchable `__Fault`, QD-1 option (a), D-2i), or any envelope fault (D-5d). An importer must not assume TS `try { … } catch` semantics beyond that boundary in D | D-2h, D-2i, D-5d | VERIFIED |
+| D-8b | **There is therefore no silent-miscatch hazard around `await`.** The worry — `try { await helper() } catch` quietly intercepting something it should not — cannot arise, because an async callee has no way to raise a user throw in D at all: `throw` in a helper body is a link refusal. The absence is structural, not incidental | D-2h; `assertAsyncCallPosition` (`link.ts:285-297`) already governs where an async call may sit | VERIFIED |
+| D-8c | The positive behaviour must still be pinned: `try { await helper() } catch { … }` where the helper **completes normally** runs the try body to completion and does **not** enter the catch. A spurious catch entry here would be the exact bug D-8b argues is impossible, so the row is the falsifier for the argument | this spec's acceptance criteria | VERIFIED |
+| D-8d | Queued consequences the importer lane must plan around, in priority order: helper-mediated throw and rethrow (D2 top item, D-1f1), capability failures as catchable values (needs the result-record channel QD-1 leaves owing), and payload widening beyond `{message, code}` | *Queued* | VERIFIED |
 
 ## Implementation Options
 
@@ -262,10 +292,12 @@ Each commit is independently green: local gate, then the next commit.
 | # | Tag | Content | Labels spent / added |
 |---|---|---|---|
 | 1 | **D1** | `throw` + uncaught-throw. Statement union +`throw`; `statementSubExpressions` fallback covers it; `compileThrow` in `statements.ts` with the payload gate; `LinkScope.payloads`/`tryFamily`; RT-1 `'threw'` completion + `clampThrowLabel` + both driver arms; JS per-module `__UserThrow`/`__throwLabel` + the `throw` `blockSource` arm + the uncaught-conversion catch; parity-ledger `throw` row + `THROW_ROW_POSITIONS`; Python lowering table `throw: 'deferred'`; rt2/rt9 goldens gain `throw`; the whole digest cascade **once**, at the end of this commit | added: `KIR_THROW_PAYLOAD_SHAPE`, `KIR_TRY_FAMILY_IN_HELPER` |
-| 2 | **D2** | `try`/`catch`. Statement union +`try`; `statementSubBlocks` + `statementSubExpressions` `try` arms; `compileTry`/`compileCatch` with the clause partition; `containsReturn` `try` recursion; `LinkScope.tryDepth`; RT-1 `TryTrap` + `WalkFrame.trap` + the bounded unwind scan; JS native `try{}catch(){}` with the nominal guard; parity-ledger `try` row + `TRY_ROW_POSITIONS`; Python `try: 'deferred'`; rt2/rt9 goldens gain `try`; rt12 `walker-coverage` `containsReturn` kind list gains `try`; the digest cascade **again** | spent: `KIR_TRY_REQUIRES_CATCH`, `KIR_CATCH_WITHOUT_TRY`, `KIR_DUPLICATE_CATCH`; added: `KIR_TRY_BODY_AFTER_CLAUSE` |
+| 2 | **D2** | `try`/`catch`. Statement union +`try`; `statementSubBlocks` + `statementSubExpressions` `try` arms; `compileTry`/`compileCatch` with the clause partition; `containsReturn` `try` recursion; `LinkScope.payloads`/`tryFamily` extended to `try`; RT-1 `TryTrap` + `WalkFrame.trap` + the bounded unwind scan; JS native `try{}catch(){}` with the nominal guard; parity-ledger `try` row + `TRY_ROW_POSITIONS`; Python `try: 'deferred'`; rt2/rt9 goldens gain `try`; rt12 `walker-coverage` `containsReturn` kind list gains `try`; the digest cascade **again** | spent: `KIR_TRY_REQUIRES_CATCH`, `KIR_CATCH_WITHOUT_TRY`, `KIR_DUPLICATE_CATCH`; added: `KIR_TRY_BODY_AFTER_CLAUSE` |
 | 3 | **D3** | Rethrow, nested try, optional catch binding. Payload gate branch (ii); no union change, no golden change, no digest cascade | none |
-| 4 | **D4** | Jumps crossing a try. `LinkScope.loopTryDepth`; the comparison in the `break`/`continue` arm; rt12's reserved-label scan flipped from *absent* to *spent in `statements.ts`* | spent: `KIR_LOOP_JUMP_CROSSES_TRY` |
-| 5 | **D5** *(gated by D-7f)* | `finally`. `compileFinally`; `TryTrap.finallyBody`; the RT-1 trap-frame drain path; the JS `__efN` lowering; the abrupt-completion refusals; the `spentBy` transition of D-7d | spent: `KIR_ABRUPT_FINALLY_UNSUPPORTED`, `KIR_DUPLICATE_FINALLY`, `KIR_CATCH_AFTER_FINALLY`, `KIR_TRY_REQUIRES_CATCH_OR_FINALLY`; unspent again: `KIR_TRY_REQUIRES_CATCH`; added: `KIR_FINALLY_WITHOUT_TRY` |
+| 4 | **D4** | Jumps crossing a try — an **admission** commit, no refusal (D-4d). No scope field, no new label: `break`/`continue` inside a `try`/`catch` simply stop being refused, and the commit is behaviour rows proving RT-1 and JS agree byte-for-byte on the importer's defensive-loop shape | none |
+| 5 | **D5** *(gated by D-7f)* | `finally`. `compileFinally`; `TryTrap.finallyBody`; the RT-1 trap-frame drain path; the JS `__efN` lowering; the abrupt-completion refusals; **`LinkScope.finallyDepth`/`loopFinallyDepth` and the cross-try jump refusal**, which is only reachable once a `finally` can exist (D-4f1); rt12's reserved-label scan flipped from *absent* to *spent in `statements.ts`*; the `spentBy` transition of D-7d | spent: `KIR_ABRUPT_FINALLY_UNSUPPORTED`, `KIR_DUPLICATE_FINALLY`, `KIR_CATCH_AFTER_FINALLY`, `KIR_TRY_REQUIRES_CATCH_OR_FINALLY`, **`KIR_LOOP_JUMP_CROSSES_TRY`**; unspent again: `KIR_TRY_REQUIRES_CATCH`; added: `KIR_FINALLY_WITHOUT_TRY` |
+
+**If the D-7f gate cuts D5**, `KIR_LOOP_JUMP_CROSSES_TRY` goes to D2 with `finally`, unspent — and D ships with jumps across `try` fully admitted and no cross-try refusal in the tree. That is a coherent end state, not a hole: with no `finally` in the union there is nothing a jump could skip.
 
 ### Labels: spent / reserved / added
 
@@ -275,7 +307,7 @@ Each commit is independently green: local gate, then the next commit.
 | `KIR_TRY_REQUIRES_CATCH_OR_FINALLY` | `spentBy: kern-5-d` | reserved, unspent | `statements.ts` |
 | `KIR_CATCH_WITHOUT_TRY` | `spentBy: kern-5-d` | `spentBy: kern-5-d` | `statements.ts` |
 | `KIR_DUPLICATE_CATCH` | `spentBy: kern-5-d` | `spentBy: kern-5-d` | `statements.ts` |
-| `KIR_LOOP_JUMP_CROSSES_TRY` | `spentBy: kern-5-d` | `spentBy: kern-5-d` | `statements.ts` |
+| `KIR_LOOP_JUMP_CROSSES_TRY` | `spentBy: kern-5-d` | reserved, **unspent** (D-4f1) | `statements.ts` (D5 only) |
 | `KIR_ABRUPT_FINALLY_UNSUPPORTED` | `spentBy: kern-5-d` | reserved, unspent | `statements.ts` |
 | `KIR_DUPLICATE_FINALLY` | `spentBy: kern-5-d` | reserved, unspent | `statements.ts` |
 | `KIR_CATCH_AFTER_FINALLY` | `spentBy: kern-5-d` | reserved, unspent | `statements.ts` |
@@ -285,8 +317,11 @@ Each commit is independently green: local gate, then the next commit.
 | `KIR_FINALLY_WITHOUT_TRY` | not a registry member (new emitted) | not emitted | `statements.ts` |
 
 `BASE_KIR_TOKENS` therefore moves from D.0's pinned **39** to **40** (D.0's own missing
-`KIR_JUMP_WITHOUT_LOOP_FRAME`, see the Corrections Log) **+ 7 or 8** spent-or-new labels emitted
-under `kir-runtime/` = **47** if finally lands, **46** if it is cut. Exact recount is an oracle step.
+`KIR_JUMP_WITHOUT_LOOP_FRAME`, see the Corrections Log) **+ 8** spent-or-new labels if `finally`
+lands = **48**, or **+ 3** = **43** if the D-7f gate cuts it (only `KIR_TRY_REQUIRES_CATCH`,
+`KIR_CATCH_WITHOUT_TRY`, `KIR_DUPLICATE_CATCH` are spent, plus `KIR_THROW_PAYLOAD_SHAPE`,
+`KIR_TRY_FAMILY_IN_HELPER`, `KIR_TRY_BODY_AFTER_CLAUSE` — six, so **46**). Exact recount is an
+oracle step, not an arithmetic claim in this document.
 
 ### `kir-runtime/expression.ts` line budget (QD-2) — no second inventory transition
 
@@ -335,8 +370,8 @@ re-pin.
 | `scripts/ci/test-tier-contract.test.mjs` | **edit (required)** | `kern5EvidenceCommands` at `:49-71` is `deepEqual`'d against the aggregate's segments at `:154-159`; the leaf lands in **both** lists or `test:ci-contract` goes red (D.0's STEP-0-g, same trap) |
 | `.github/workflows/ci.yml` | **no edit** | the `kern-5-evidence` job runs the aggregate once |
 | `packages/core/src/kir-runtime/linked-kir-program/contracts.ts` | edit | +2 statement-union members; **one** `statementSubExpressions` arm (D-6d); one `statementSubBlocks` arm (D-6e). ~+14 lines → ~381 vs D.0's 420 budget. **PINNED-BY-D0** for the post-split baseline |
-| `packages/core/src/kir-runtime/linked-kir-program/statements.ts` | edit | `compileTry`, `compileCatch`, `compileFinally`, `compileThrow`, the payload gate, the clause partition, the `break`/`continue` cross-try comparison. **PINNED-BY-D0**: this file does not exist before D.0 |
-| `packages/core/src/kir-runtime/linked-kir-program/link-support.ts` | edit | `LinkScope` +`tryDepth` +`loopTryDepth` +`payloads` +`tryFamily`, all propagated in `branchScope`; `containsReturn` `try` recursion (D-4c). **PINNED-BY-D0** |
+| `packages/core/src/kir-runtime/linked-kir-program/statements.ts` | edit | `compileTry`, `compileCatch`, `compileFinally`, `compileThrow`, the payload gate, the clause partition, and — in the finally commit only — the `break`/`continue` finally-crossing comparison (D-4f). **PINNED-BY-D0**: this file does not exist before D.0 |
+| `packages/core/src/kir-runtime/linked-kir-program/link-support.ts` | edit | `LinkScope` +`payloads` +`tryFamily` (D1/D2), and +`finallyDepth` +`loopFinallyDepth` in the finally commit only (D-4f/D-4f1), each propagated in `branchScope`; `containsReturn` `try` recursion (D-4c). **PINNED-BY-D0** |
 | `packages/core/src/kir-runtime/linked-kir-program/link.ts` | edit | `compileHandler` seeds the four new scope fields (`tryFamily: true` for the entry, `false` via `resolveHelper`). **PINNED-BY-D0** for the post-split baseline |
 | `packages/core/src/kir-runtime/linked-kir-program/walkers.ts` | **no edit** | the walkers read `statementSubBlocks`/`statementSubExpressions`, which D extends in `contracts.ts`. **PINNED-BY-D0** |
 | `packages/core/src/kir-runtime/expression.ts` | edit | `TryTrap`, `WalkFrame.trap`, `StatementWalkResult` `'threw'`, the `throw`/`try` arms, `clampThrowLabel`, the `callHelper` fail-closed arm. **No new `checkAbort()`**; must finish < 500 (406 today) |
@@ -365,7 +400,9 @@ re-pin.
 | `RT9_GOLDEN_SHA256` literals | **edit — licensed, 2 files** | measured: rt10-for, rt10-cross-call-integer |
 | historical pre-image reconstructions | **verify and re-derive, do not assume** | `scripts/kern-5-rt9-linked-assign/compatibility.test.mjs:50-60` rebuilds the pre-RT-9 RT-3 golden as `{...golden, rt2GoldenSha256: RT2_K0_GOLDEN_PRE_RT9_SHA256}`; `scripts/kern-5-rt10-pre-linked-arithmetic/compatibility.test.mjs:78-88` rebuilds a pre-slice RT-3 golden by *also filtering* `linkedExpressionKinds`, and `:115-125` re-derives **rt4's `RT3_PRE_SLICE_SHA256`** (`rt4/compatibility.test.mjs:13,192`) and **rt9's `RT3_K0_GOLDEN_PRE_RT9_SHA256`** by cross-file `literal()` scrape; `scripts/kern-5-rt10-cross-call-integer/compatibility.test.mjs:36,145` holds `RT10PRE_GOLDEN_PRE_SLICE_SHA256` and scrapes rt4's literal; `rt5/compatibility.test.mjs:129` holds a `PRE_SLICE_DIGESTS` map. rt11's `[RT11W-O5]` obligation applies unchanged: these survive **only** while `rt2GoldenSha256` stays the single RT-3 field the cascade moves. D adds **no expression kind**, so rt10-pre's `linkedExpressionKinds` filter is unaffected — **verify it** |
 | `scripts/kern-5-rt10-for/compatibility.test.mjs`, `rt11/compatibility.test.mjs`, `rt12/compatibility.test.mjs` — `STILL_OUTSIDE` | **no edit** | measured: already `['each','set']` in all three (`:63`, `:75`, `:72`). The try family was never in those lists, so nothing shrinks. `with`/`do` were never in them either and stay outside |
-| `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs` | **edit — required** | (a) the reserved-label scan at `:157-166` reads only `LINK_URL`, `CONTRACTS_URL`, `LIMITS_URL` — none of which is `statements.ts`, where D spends `KIR_LOOP_JUMP_CROSSES_TRY`. Left alone it stays **GREEN vacuously**, the exact failure mode D.0 exists to prevent. It must flip to *the label is now spent, in `statements.ts`, by slice D*. (b) `RT12J_CODE_CREEP` is a D.0 edit (12 → 13), not a D edit |
+| `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs` | **edit — required, in the finally commit only** | (a) the reserved-label scan at `:157-166` reads only `LINK_URL`, `CONTRACTS_URL`, `LIMITS_URL` — none of which is `statements.ts`, where the finally commit spends `KIR_LOOP_JUMP_CROSSES_TRY`. Left alone it stays **GREEN vacuously**, the exact failure mode D.0 exists to prevent. It must flip to *the label is now spent, in `statements.ts`, by slice D*. **If the D-7f gate cuts `finally`, this file is not touched at all** and rt12's absence scan stays correct (D-4f1). (b) `RT12J_CODE_CREEP` is a D.0 edit (12 → 13), not a D edit |
+| `.Codex/specs/kern-5-rt12-linked-jumps/spec.md` — `[RT12J-N4]` | **edit — text-only pin change, no code** | rt12 pinned *"`break`/`continue` **never cross a KIR `try` boundary** … a link refusal with the reserved label `KIR_LOOP_JUMP_CROSSES_TRY`"* (`:721-726`). The coordinator ruling of 2026-09-08 **narrows** it: the refusal applies only to a `try` **carrying a `finally`**. `[RT12J-N4]` gains a dated superseding note pointing at D-4d; its reasoning (*"both hosts make the naive lowering look correct"*) survives verbatim and is exactly why the narrowed case still needs a refusal. No rt12 source, test or golden changes |
+| `pnpm test:kern-runtime-contract-v1`, `pnpm test:kern-runtime-envelope`, `pnpm check:rule-coverage` | **run, assert GREEN** | the contract walls (`check-runtime-contract-v1.mjs`, `check-runtime-envelope.mjs`, `check-rule-coverage.mjs`) are D's guard against a closed-set surprise on the public side (D-3g2). No file edited; three gate rows added to D's oracle |
 | `scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs` | **edit — required** | the `containsReturn` → `assertLeaf` scrape lives at **`:357-370`** (D.0's spec cites `:237-238`, stale — measured 2026-09-08), and is re-pointed from `link.ts` to `link-support.ts` by D.0. Its test is named *`containsReturn` keeps exactly its **four** block-owning arms and gains none for a jump* and `deepEqual`s the scraped kinds against `['for','if','return','while']`. D-4c adds `try`, a genuinely block-owning kind, so the list becomes `['for','if','return','try','while']` **and the test title must change** ("four" → "five"). Its own comment — *"an arm for a childless kind would be dead code"* — is the reason `throw` must **not** get an arm. This scrape breaks **loudly**, which is why it is the one that must be edited explicitly |
 | `packages/core/src/compiler/kir-python/request.ts` — the `statementDeferral` switch | **edit — required, and tsc-forced** | `statementDeferral` (`:104-139`) short-circuits at its first line (`if (lowering.statement[statement.kind] === 'deferred') return statement.kind;`), so the `throw`/`try` arms are unreachable — but its `default:` binds `const exhaustive: never = statement`, so **tsc fails** unless the switch names every union member. `case 'throw': case 'try': return undefined;` joins the existing `case 'break': case 'continue': return undefined;` group. rt12 pins this with *the Python statement deferral switch keeps its never guard and names both jump kinds* (`walker-coverage.test.mjs:374-…`); D needs the analogous row for `throw`/`try` |
 | `scripts/kern-5-rt10-for/type-gate.test.mjs`, `rt11/type-gate.test.mjs` | **verify** | rt12 already flipped their `break`/`continue`-in-loop-body refusal rows to admitted. Re-grep for any row asserting a `try`/`throw` refusal that D now admits; none found on 2026-09-08, but the grep is a required step |
@@ -413,8 +450,28 @@ Promotion rule: no ASSUMED or OPEN claim feeds a final fixture unresolved.
       an identifier that is not a catch binding, `{}`, `{message: 1}`, `{message: "x", extra: "y"}`,
       `{code: "E1"}` (no `message`), a `member` expression, and a nested-record `message`.
 - [ ] A bare `throw` with no `value` → `unsupported property set`.
-- [ ] `e.message` and `e.code` link and evaluate; `e.missing` faults `missing member` at runtime on
-      both legs (the existing arm, re-asserted for the new binding).
+- [ ] An explicit `{message: "x", code: null}` is **admitted** (writing the default is not a refusal).
+- [ ] **The absent-`code` default is inserted, and observable** (D-1a1): the linked payload for
+      `throw value="{message: \"x\"}"` carries **both** keys, sorted `code` then `message`, with
+      `code` a `{kind:'literal', value:{tag:'null'}}`. `e.code` then evaluates to `{tag:'null'}` and
+      `e.message` to `{tag:'text'}`, byte-identically on both legs. A non-conforming payload is still
+      a **refusal**, never a completion — the row that separates a typing default from canonicalization.
+- [ ] `e.message` and `e.code` link and evaluate with **no typing change**: `staticExpressionType` and
+      `crossCallExpressionType` both still return `undefined` for `kind === 'member'`. `e.missing`
+      faults `missing member` at runtime on both legs (the existing arm, re-asserted for the binding).
+- [ ] **Rethrow is lexical only** (D-1f1): `catch name=e` → `throw value="e"` links; a payload record
+      as a helper **parameter type** is refused by `parameterType`, and a helper body containing
+      `throw` is refused with `KIR_TRY_FAMILY_IN_HELPER`. Both rows, so the limitation is asserted
+      rather than assumed.
+- [ ] **One artifact, one class** (D-2b0): the emitted module for a program with a `throw`, a `try`
+      **and helpers** contains exactly **one** `class __UserThrow`, and the manifest names exactly one
+      artifact, `'entry.mjs'`. A helper's own body is inside that same module.
+- [ ] **No silent miscatch around `await`** (D-8c): `try { await helper() } catch { … }` where the
+      helper completes normally runs the try body to completion, does **not** enter the catch, and
+      produces identical envelopes on both legs.
+- [ ] **The contract walls are GREEN** (D-3g2): `pnpm test:kern-runtime-contract-v1`,
+      `pnpm test:kern-runtime-envelope` and `pnpm check:rule-coverage` all pass, so a closed-set
+      surprise on the public diagnostic surface fails here rather than in CI.
 
 **Control flow**
 - [ ] `return` inside `try` and inside `catch` links and returns, on both legs, with identical
@@ -423,11 +480,17 @@ Promotion rule: no ASSUMED or OPEN claim feeds a final fixture unresolved.
       **no** code change to `compileHandler` (the row exists to pin that the rule already covers it).
 - [ ] A **void** handler with a `return` inside a `try`/`catch`/`finally` → `KIR_VOID_HANDLER_VALUE_RETURN`
       (the discriminating row for D-4c; RED at base with `containsReturn` unrecursed).
-- [ ] `break` inside a `for` inside a `try` → **admitted**. `break` inside a `try` inside a `for` →
-      `KIR_LOOP_JUMP_CROSSES_TRY`. `continue` in both shapes, same verdicts. `break` inside a `while`
-      inside a `try` inside a `for` → admitted (the innermost loop is inside the try).
+- [ ] **Jumps crossing a `try` with NO `finally` are admitted and behave** (D-4d). `for { try { if(!ok) continue; … } catch { … } }` and `for { try { … catch { continue } } }` both link, and RT-1 and the JS leg produce **byte-identical envelopes** — the loop advances, the trap frame is discarded, nothing is skipped. Same for `break` in both positions. This is the importer's defensive-loop shape (D-4d1) and it is the discriminating row for the override.
+- [ ] `break` inside a `for` inside a finally-less `try` → admitted. `break` inside a `while` inside a
+      `try` inside a `for` → admitted.
+- [ ] **Jumps crossing a `try` that HAS a `finally` are refused** with `KIR_LOOP_JUMP_CROSSES_TRY`
+      (finally commit only). `break` inside a `try{…}finally{…}` inside a `for` → refused; a `for`
+      **inside** that same finally-bearing `try` still permits `break` (entry `finallyDepth` equals
+      body `finallyDepth`).
 - [ ] A bare `break` inside a `try` at handler top level → `KIR_BREAK_OUTSIDE_LOOP`, not the cross-try
       label: the `loopDepth === 0` check runs first.
+- [ ] If the D-7f gate cuts `finally`: `KIR_LOOP_JUMP_CROSSES_TRY` appears in **no** file under
+      `packages/core/src`, keeps no `spentBy` entry, and rt12's own absence scan is untouched and GREEN.
 
 **RT-1 leg**
 - [ ] An uncaught `throw` returns `{kind:'threw', value}` from `walkStatements` and the driver
@@ -546,10 +609,12 @@ splitting `linked-kir-program/expression.ts` or `contracts.ts` further.
 ## Queued
 
 - **D2 — `finally`**, if D-7f's gate fires.
-- **D2 — `throw`/`try` inside a helper body** (highest-priority queued item, because the importer
-  maps TS functions to helpers and TS functions throw constantly). Needs either a disjoint host
-  carrier caught at the `callHelper`/`evaluateExpression` boundary, or a generator-shaped
-  `callHelper`. Both are real designs; neither belongs in D.
+- **D2 — `throw`/`try` inside a helper body, and helper-mediated rethrow. Top item.** The importer
+  maps TS functions to helpers and TS functions throw constantly, so this is the largest gap D
+  leaves (D-1f1, D-8a). Needs **two** things, not one: a disjoint host carrier caught at the
+  `callHelper`/`evaluateExpression` boundary (or a generator-shaped `callHelper`), **and** a way to
+  type a payload in parameter position, since `LINKED_KIR_TYPE_ADMISSION` has no `record` row.
+  Both are real designs; neither belongs in D.
 - **D2 — payload widening** to any `KernKirValue`, behind an `unknown`-type slice (Codex's option A,
   ruled out of D but not out of the roadmap).
 - **D2 — `let`-bound payloads** (D-1f) and bare `throw` as a rethrow signal.
@@ -572,14 +637,33 @@ splitting `linked-kir-program/expression.ts` or `contracts.ts` further.
 - **QD-3 — ANSWERED, with a finding.** Every spent label gains a `spentBy` entry in the commit that
   emits it — **and** D.0's two not-emitted scans must be changed to iterate the *unspent* set, or the
   interlock is unsatisfiable. See the Blast Radius row for `reserved-labels.test.mjs`.
-- **OQ-D1 (ASSUMED, must be measured before the golden edit).** Whether the F5 **frontend expression
-  parser** produces an `objectLit` ValueIR node from `value="{message: \"x\"}"` in a `.kern` probe
-  body. VERIFIED at the projection layer (`kir-structural/expression.ts:84-96` maps `objectLit` →
-  `expression('record', …)`); ASSUMED at the parser layer, and no tracked `.kern` file or rt fixture
-  uses a record literal (`grep -rln 'value="{' scripts/kern-5-rt*/` → zero hits, 2026-09-08).
-  Promotion: run the rt2 probe harness on a record-literal body and read the projection verdict
-  before writing the golden's `PROBE_BODIES` entries. If the parser refuses it, the throw probe body
-  must be built from a text-parameter record instead, and the payload fixtures move with it.
+- **OQ-D1 — CLOSED, VERIFIED, and it went further than asked.** Measured 2026-09-08 by driving
+  `projectKernModules` through rt2's own `handlerSource`/`project` harness against the **built**
+  `dist` of the slice-C worktree `/Users/nicolascukas/KERN/.worktrees/kern-5-rt12-jumps` (read-only;
+  nothing in it was modified). Results:
+  - `throw value="{message: \"boom\"}"` → **`status: 'projected'`**, handler children `[throw, return]`,
+    and the `throw` node carries `properties:[{key:'value'}]` whose canonical value is
+    `expression('record', {entries: {message: expression('text', {value:'boom'})}})`. The two-key form
+    `{message: …, code: …}` projects the same way with `entries` sorted `code`, `message`. So the
+    record-literal channel is real end to end, and D-1b's key-set gate reads exactly that `entries`
+    record.
+  - A **text-literal** throw (`throw value="\"boom\""`) also projects — it comes back as
+    `expression('text', …)`, i.e. the *linker* is the only thing that refuses it. That confirms
+    `KIR_THROW_PAYLOAD_SHAPE` is reachable and is a link refusal, not a projection refusal.
+  - **`try` projects too**, and the clause model this spec assumed is exactly right:
+    `{kind:'try', props:[], children:[<body statements…>, {kind:'catch', props:['name'], children:[…]},
+    {kind:'finally', props:[], children:[…]}]}`. `props: []` on `try` confirms D-6g (the
+    body-statement shape carries no `name`). Also measured projecting: try **without** a catch (so
+    `KIR_TRY_REQUIRES_CATCH` is a *link* refusal), `catch` with `props: []` (no binding), nested try,
+    `catch{throw value="e"}` (rethrow), `for{try{assign, catch{continue}}}` and
+    `try{for{break}}, catch{assign}` — the last two being D-4d1's importer shape.
+  - **Hazard found, and it is not about `try`:** a bare `print` as the *only* statement of a nested
+    block is **projection-rejected**. `while cond="false"` + `print` is rejected identically to
+    `try` + `print`, while `while` + `if` + `print` (rt2's own probe idiom) and `try` + `assign`
+    both project. That is why rt2's `while` probe wraps its `print` in an `if`. **Every D fixture and
+    every new rt2 `PROBE_BODIES` entry must use the `assign`- or `if`-wrapped idiom**, or it will be
+    RED for a reason that has nothing to do with the try family. This is the single most useful thing
+    the measurement produced, and it would have cost a debugging cycle per fixture.
 - **OQ-D2 (ASSUMED).** The metering integers in D-5c. Promotion: measure with a `checkpoints()`
   helper against the hand-counted twins in the same run and re-state them. rt11's `[RT11W-TD1]` and
   rt12's `[RT12J-TD9]` both went wrong here; a derived number goes RED against a *correct*
@@ -644,33 +728,58 @@ Full local gate before push: `pnpm lint`, `pnpm typecheck`, `pnpm test:kern-5-sc
 | `__UserThrow` belongs in the JS kernel prelude | `TARGET_KERNEL_SHA256 = sha256(TARGET_BASE + TARGET_JSON + TARGET_HASH + TARGET_EXECUTION)` (`emitter.ts:23,25`); any kernel byte moves both kernel pins and every emitted-artifact digest in every rt suite | Conditional per-module emission from `specializedSource`. This single decision is what keeps D.0's fifteen behaviour-preservation fixtures GREEN and both kernel SHAs frozen. D-2b |
 | The admission census gains files once `try` is admitted (7/240 use it) | Measured: all 7 are rejected at the **projection** stage (`projection-fatal` ×2, `F4_AUTHORITY_DRIFT`, `UNEXPECTED_TOKEN`, `FRONTEND_UNSUPPORTED_MODULE_ROOT`, `FRONTEND_EXCLUDED_HOST_EXPRESSION`, `F4_F2B_DRIFT`), and the census has **zero** `link`-stage rows | Admission gain is exactly **0**, `admittedCount` stays 1, `scripts/kern-5-admission-census/**` needs **no edit**. Measured for D rather than inherited from rt12 |
 | RT2/RT3 digest literals live in 6 files each (rt12's spec) | Measured 2026-09-08: `RT2_GOLDEN_SHA256` in **7** (rt11 now carries it), `RT3_GOLDEN_SHA256` in **6**, `RT9_GOLDEN_SHA256` in **2** | One more file in the cascade than rt12's table says. The counts are re-measured, not copied |
+| **Coordinator override, 2026-09-08 (ruling 1).** `break`/`continue` crossing **any** `try` boundary is a link refusal spending `KIR_LOOP_JUMP_CROSSES_TRY` — the tribunal's Q4 answer, rt12's `[RT12J-N4]`, and this spec's first revision | The refusal is correct **only** when the crossed `try` carries a `finally`, because that is the only case with something to run on the way out. `for { try { if (!ok) continue; … } catch { … } }` is the importer's hottest defensive loop, and an unconditional refusal prices a control-flow rewrite at every call site. Both legs are already correct without a finally: RT-1's bounded scan assigns `frames.length` and runs no per-frame code (`kir-runtime/expression.ts:229-244`), and a native JS jump out of a finally-less `try` is plain correct JavaScript (`emitter.ts:305-307`). Measured to project: `for{try{assign, catch{continue}}}` and `try{for{break}}, catch{assign}` | The mechanism changed shape and shrank: `tryDepth`/`loopTryDepth` are **replaced** by `finallyDepth`/`loopFinallyDepth`, counting only finally-bearing `try`s, and neither field is added until the finally commit. The refusal **moves from D4 to D5**, D4 becomes a pure admission commit, and if the D-7f gate cuts `finally` the label stays reserved and unspent (D-4f1). rt12's `[RT12J-N4]` takes a dated, text-only superseding note — no rt12 code, test or golden moves. rt12's reasoning survives verbatim and is precisely why the narrowed case still needs a refusal |
+| `code` is simply an optional key: present or absent (this spec's first revision, D-1a) | An absent key has no type, so `e.code` would have needed optional-member semantics and a typing story the linked type system cannot express. **Coordinator ruling (2)**: the payload type is `{message: text, code: text \| null}` and the linker **inserts a literal null** when `code` is omitted | Every linked payload carries both keys, sorted. `e.code` never takes the missing-member path, so **no typing change is needed at all** — `member` is already statically untyped on both channels. The insertion is a *typing default on a conforming throw*, categorically distinct from canonicalization of a *non-conforming* throw, which stays forbidden (D-1c) and stays a refusal. Also forced a new admitted form: an explicit `code: null` |
+| Rethrow is available wherever a payload is in scope | It is **lexical only**. A payload cannot reach a helper: `throw` in a helper body is refused (D-2h) **and** a record is not an admissible parameter type (`LINKED_KIR_TYPE_ADMISSION` has no `record` row), so helper-mediated rethrow is doubly impossible in D | Stated as an **importer-visible limitation** with two refusal rows rather than left implicit, and promoted to D2's top item (D-1f1) |
+| Per-module `__UserThrow` might break `instanceof` across artifacts (Nero challenge 1) | **Not possible.** `emitJavaScriptEsm` is the single emit entrypoint (`kir-js-esm/index.ts:71`), emits one `function __module(){…}` (`emitter.ts:471-479`), and inlines **every helper into that same module** (`emitter.ts:375,430`); the artifact path is literal-typed `'entry.mjs'` (`contracts.ts:32`). There is no multi-artifact cross-call path in the linked-program pipeline | The nominal check is sound as specified. **No kernel-resident class, no kernel digest move.** Pinned as D-2b0 with a row asserting exactly one `class __UserThrow` per artifact, measured on a program that has a throw, a try *and* helpers |
+| A `try` around `await helper()` could silently miscatch (Nero challenge 2) | It cannot: an async callee has no way to raise a user throw in D, because `throw` in a helper body is a link refusal. The absence is structural | Documented rather than defended: D-8 states plainly that a `catch` in D observes only throws lexically inside the same handler body, and D-8c adds the falsifier row (helper completes normally → try body completes, catch not entered) |
+| The RC-v1 diagnostic code set might be a closed set D cannot spend into (Nero challenge 4) | **Rejected on D.0's evidence.** C-6: the amendment chain governs four artifacts, not the KIR union — proven by each set already carrying codes the other lacks. C-7: a zero-drift record self-cycles. C-8: `runtime-handler-public-declaration.mjs:147-152` equates the constitution with the **public runtime-handler** union, and `uncaught-throw` is already in both with golden `failure-uncaught-throw` | Cited as D-3g1 instead of re-derived, and backed by D-3g2: D's oracle **runs** `check-runtime-contract-v1.mjs`, `check-runtime-envelope.mjs` and `check-rule-coverage.mjs`, so a surprise fails at oracle time rather than CI time |
+| **OQ-D1 was the confidence cap: whether a record literal survives the F5 frontend parser** | **Measured and closed.** `throw value="{message: \"boom\"}"` projects, carrying `expression('record',{entries:{message: expression('text',…)}})`; `try` projects with `catch`/`finally` as **child clauses** and `props: []` on the `try` itself, confirming both the payload channel and the whole clause model. Ten shapes measured, all projecting | Two ASSUMED rows promoted to VERIFIED, the clause-partition design confirmed rather than hoped, and a real hazard found: **a bare `print` alone in a nested block is projection-rejected** (`while` + bare `print` fails identically), so every D fixture must use the `assign`/`if`-wrapped idiom rt2 already uses |
 | D.0's spec locates rt12's `containsReturn`/`assertLeaf` scrape at `walker-coverage.test.mjs:237-238` | It is at **`:357-370`** (measured 2026-09-08). Every marker *string* is unchanged, so the citation drift is inert — but the assertion is stricter than expected: the test is titled *"keeps exactly its **four** block-owning arms"* and its comment argues that an arm for a childless kind would be dead code | The title changes with the list, and the same comment is the authority for `throw` getting **no** `containsReturn` arm. Both are oracle rows, not just re-pins |
 | Adding `throw`/`try` to the Python lowering table is a table-only edit | `statementDeferral` (`kir-python/request.ts:104-139`) binds `const exhaustive: never = statement` in its `default:`, so **tsc fails** unless the switch itself names every union member — even though the function short-circuits on `'deferred'` at its first line and the new arms are unreachable | Two unreachable-but-required `case` arms, grouped with `break`/`continue`. Caught by reading, not by a failed build (the brief forbids building) |
 | `throw` needs its own diagnostic-code or completion-kind widening | `'uncaught-throw'` is already D.0's 13th KIR code **and** a frozen RC-v1 public code with the golden behaviour `failure-uncaught-throw`, and `runtime-envelope/normalize.ts:122` is already a live producer | Zero public-vocabulary growth in D. The KIR envelope *converges* on the frozen public spelling rather than forking one |
 
 ## Confidence
 
-**0.88.**
+**0.92**, up from 0.88.
 
-What supports it: every contract row rests on a source read with a citation, and the four decisions
-that could have gone wrong quietly are each closed by a mechanism rather than a convention — the
-nominal `__UserThrow` class, the `'threw'` walk **completion** (a return value, so a host exception
-can never become catchable), the conditional kernel-free emission that keeps both kernel digests
-frozen, and the `__efN` guard that makes the finally divergence real on the JS leg instead of
-aspirational. Three prior-slice traps were found by reading rather than by going RED — rt12's
-vacuous reserved-label scan, rt12's loudly-breaking `containsReturn` scrape, and the parity ledger's
-`for`-shaped position catalogue — and two of D.0's own pins were caught stale or self-contradictory
-(`BASE_KIR_TOKENS` at 39, `statements.ts ≤ 340` against a 415 projection). The QD-1 answer costs
-zero code because the disjoint carrier already enforces it on both legs, and the admission-census
-gain of zero is measured, not assumed.
+What moved it, in order of weight. **OQ-D1 is closed by measurement, not argument** — and it closed
+wider than it was asked to. Ten shapes were driven through rt2's own projection harness against a
+built `dist`: the record payload projects with exactly the `entries` shape D-1b gates on, a
+text-literal payload projects too (so `KIR_THROW_PAYLOAD_SHAPE` is provably a *link* refusal and not
+a projection accident), and `try` projects with `catch`/`finally` as **child clauses** and `props: []`
+on the `try` itself — confirming the clause-partition design and D-6g's async-orchestration
+discriminator against real output rather than against the catalog alone. The importer shape the whole
+of ruling 1 rests on, `for{try{…catch{continue}}}`, was measured projecting before the ruling was
+written into the spec. That removes the one deduction that held revision 1 below 0.90.
 
-What holds it below 0.90: **OQ-D1**. Whether a record literal survives the F5 *frontend* expression
-parser is ASSUMED, verified only one layer down at `projectRecord`, and it sits directly on the
-recommended path — every throw fixture and the rt2 golden's new probe bodies depend on it. It is
-resolvable with one harness run before any golden byte moves, and if it fails the payload fixtures
-change shape while no contract row does. **OQ-D2** (the metering integers) is the second deduction:
-rt11 and rt12 both shipped arithmetically wrong metering rows in their first revisions, and the only
-defence is the hand-counted twin, which cannot be written until the code runs.
+The five rulings each made the spec smaller or sharper, which is the good direction. Ruling 1
+**deleted** machinery: `tryDepth`/`loopTryDepth` are gone, replaced by `finallyDepth`/
+`loopFinallyDepth` that do not exist at all until the finally commit, and the jump commit became a
+pure admission with no label and no scope field. Ruling 2 turned an untyped optional key into a
+declared field with a declared default, which is why `e.code` needs **no** typing change — the
+absent-key problem was dissolved rather than solved. Ruling 3 was verified rather than accepted:
+one emit entrypoint, one `__module()`, every helper inlined, one literal-typed `'entry.mjs'`, so the
+nominal check is sound and the kernel digest stays frozen. Ruling 4 converted an argument
+("no miscatch is possible") into a falsifier row. Ruling 5 replaced a chain of reasoning with three
+executable gates.
 
-Nothing above 0.92 is claimable until the oracle exists, has been seen RED at base for one cause per
-row, and has been red-teamed per the ORACLE DESIGN GATE.
+The measurement also produced the finding most likely to have cost real time: **a bare `print` alone
+in a nested block is projection-rejected**, identically for `while` and for `try`. Every fixture in
+this slice must use the `assign`/`if`-wrapped idiom rt2 already uses, and that is now written down
+instead of being rediscovered once per fixture.
+
+What still holds it below 0.95. **OQ-D2**, the metering integers, is unchanged and unchangeable
+before the code runs: rt11 and rt12 both shipped arithmetically wrong metering rows in their first
+revisions, and the only defence is the hand-counted twin measured in the same run. **OQ-D3**, the
+`expression.ts` arm estimate (~54 lines against 94 free), is now the second-largest unknown, though
+ruling 1 shrank it — the cross-try comparison left the RT-1 file entirely and the trap-frame drain
+path is the only finally-related addition. **OQ-D4** (whether the other three `NEIGHBOUR_GOLDENS`
+slices move) is a mechanical re-hash. None of the three sits on a contract row; all three are
+measurements the implementer takes.
+
+Nothing above 0.95 is claimable until the oracle exists, has been seen RED at base for one cause per
+row, and has been red-teamed per the ORACLE DESIGN GATE. The specific red-team target is the
+narrowed jump rule: the oracle must prove both halves — that a jump across a finally-less `try`
+*behaves* byte-identically on both legs, and that a jump across a finally-bearing `try` is refused —
+because a one-sided oracle here would let the override through on assertion alone.
