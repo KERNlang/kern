@@ -2,10 +2,10 @@
   "format": "kern.oracle.d-linked-try.commit-rows.v1",
   "abortCriterion": {
     "cut": false,
-    "gated": 43,
-    "preceding": 180
+    "gated": 44,
+    "preceding": 183
   },
-  "criteriaCount": 61,
+  "criteriaCount": 62,
   "groups": {
     "Linker — admission and structure": [
       "type-gate.test.mjs",
@@ -52,6 +52,7 @@
       "F5 owns the try-family refusals the linker cannot reach",
       "StatementWalkResult gains a threw variant, so an uncaught throw is a completion not an exception",
       "a bare print alone in a try body is projection-rejected, and the wrapped idiom is not",
+      "a hand-built non-text message fails closed to uncaught-throw instead of escaping the envelope",
       "a print and a capability committed before an uncaught throw both survive into the failure envelope",
       "a program with no throw and no try carries no __UserThrow token at all",
       "a resolved capability before an uncaught throw leaves the throw as the failing code",
@@ -84,6 +85,8 @@
       "meter-try-leaf charges exactly 2 steps more than its hand-counted twin twin-leaf",
       "meter-try-throw-catch-leaf charges exactly 4 steps more than its hand-counted twin twin-let-and-leaf",
       "neg-assign-catch-binding is refused at link with KIR_ASSIGN_TARGET_NOT_LET",
+      "neg-throw-async-call is refused at link with KIR_THROW_PAYLOAD_SHAPE",
+      "neg-throw-async-in-payload is refused at link with KIR_ASYNC_CALL_EXPRESSION_POSITION",
       "neg-throw-bare is refused at link with unsupported property set",
       "neg-throw-boolean-literal is refused at link with KIR_THROW_PAYLOAD_SHAPE",
       "neg-throw-empty-record is refused at link with KIR_THROW_PAYLOAD_SHAPE",
@@ -238,6 +241,7 @@
     ],
     "D5": [
       "a bare break inside a try at handler top level is refused for its loop depth, not the cross-try label",
+      "a deferred return charges its boundary before the cleanup, so both legs starve identically",
       "a failing capability inside a try with a finally skips the finally body on both legs",
       "a finally clause in a loop body is refused by F5, so only the if-wrapped shape reaches the linker",
       "a finally event is charged against maxBytes on both legs, not emitted past it",
