@@ -64,6 +64,14 @@ test('spentBy names exactly the labels D emits, each attributed to this slice', 
 // `try{}finally{}` becomes legal, so its key is DELETED -- not set to null, which D.0 forbids.
 test('the KIR_TRY_REQUIRES_CATCH key is deleted once the finally commit lands, never nulled', () => {
   const value = registry();
+  // D-7d, stated directly rather than only through the unspent set: no entry may resolve to null,
+  // whatever the label. A nulled key would satisfy "has no truthy spend" while still occupying the
+  // registry, and D.0's own interlock reads `spentBy[label] ?? null`.
+  assert.deepEqual(
+    Object.entries(value.spentBy).filter(([, slice]) => slice === null || slice === undefined),
+    [],
+    'D_REGISTRY_SPENT: a spentBy entry may never resolve to null; the key is deleted instead',
+  );
   assert.deepEqual(
     unspentLabels(value).filter((label) => Object.hasOwn(value.spentBy, label)),
     [],

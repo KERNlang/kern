@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  LIMITS,
   TRY_METER_POSITIONS,
   TRY_POSITIONS,
   TRY_THRESHOLD_POSITIONS,
   TRY_TWINS,
   assertTryAdmitted,
   assertTryStepThreshold,
+  compileJavaScript,
+  failingProvider,
+  executeJavaScriptChild,
   executeKernKir,
   loopStepBudget,
   occurrencesOf,
@@ -120,47 +124,119 @@ test('maxSteps exhausted inside a try with a catch produces runtime-limit-exceed
   );
 });
 
+// Both legs, driven: these two rows claimed "on both legs" while executing RT-1 alone, so the
+// emitted leg's own abort path -- a different mechanism, `__deadline`/`AbortController` rather than
+// the walk's `checkAbort` -- was asserted by the title and by nothing else.
+async function abortLegs(name, control, requestId, limits) {
+  const source = TRY_POSITIONS[name]();
+  await assertTryAdmitted(name, source);
+  const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', `D_LINK_REFUSED: ${name} must emit an artifact`);
+  const base = runtimeRequest(requestId, {});
+  const request = limits === undefined ? { ...base, control } : { ...base, control, limits };
+  return {
+    direct: await executeKernKir(verified, request, provider([])),
+    emitted: (await executeJavaScriptChild(javascript.artifact.bytes, request)).envelope,
+  };
+}
+
+function abortCodes(envelope) {
+  return envelope.diagnostics.map((diagnostic) => diagnostic.code);
+}
+
 test('cancellation inside a try produces execution-cancelled with the catch body skipped, on both legs', async () => {
-  const source = TRY_POSITIONS['try-catch-caught-throw']();
-  await assertTryAdmitted('try-catch-caught-throw', source);
-  const verified = await project(source);
-  const request = { ...runtimeRequest('d-cancelled', {}), control: { preCancelled: true, timeoutMs: null } };
-  const envelope = await executeKernKir(verified, request, provider([]));
-  assert.equal(envelope.outcome, 'failure');
-  assert.deepEqual(
-    envelope.diagnostics.map((diagnostic) => diagnostic.code),
-    ['execution-cancelled'],
-    'D_ENVELOPE_CATCHABLE: cancellation must bypass the catch entirely',
-  );
+  const legs = await abortLegs('try-catch-caught-throw', { preCancelled: true, timeoutMs: null }, 'd-cancelled');
+  for (const [leg, envelope] of Object.entries(legs)) {
+    assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on cancellation`);
+    assert.deepEqual(
+      abortCodes(envelope),
+      ['execution-cancelled'],
+      `D_ENVELOPE_CATCHABLE: cancellation must bypass the catch entirely on the ${leg} leg`,
+    );
+    assert.deepEqual(envelope.events, [], `D_ENVELOPE_CATCHABLE: ${leg} must commit no event`);
+  }
 });
 
-test('a timeout inside a try produces execution-timeout with the catch body skipped', async () => {
-  const source = TRY_POSITIONS['try-catch-caught-throw']();
-  await assertTryAdmitted('try-catch-caught-throw', source);
-  const verified = await project(source);
-  const request = { ...runtimeRequest('d-timeout', {}), control: { preCancelled: false, timeoutMs: 1 } };
-  const envelope = await executeKernKir(verified, request, provider([]));
-  assert.equal(envelope.outcome, 'failure');
-  assert.deepEqual(
-    envelope.diagnostics.map((diagnostic) => diagnostic.code),
-    ['execution-timeout'],
-    'D_ENVELOPE_CATCHABLE: a timeout must bypass the catch entirely',
+test('a timeout inside a try produces execution-timeout with the catch body skipped, on both legs', async () => {
+  // maxSteps is raised so the deadline is the only limit that can fire; otherwise the row races the
+  // step budget and could report runtime-limit-exceeded on a fast host.
+  const legs = await abortLegs(
+    'try-catch-slow-loop',
+    { preCancelled: false, timeoutMs: 1 },
+    'd-timeout',
+    { ...LIMITS, maxSteps: 1_000_000 },
   );
+  for (const [leg, envelope] of Object.entries(legs)) {
+    assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on a timeout`);
+    assert.deepEqual(
+      abortCodes(envelope),
+      ['execution-timeout'],
+      `D_ENVELOPE_CATCHABLE: a timeout must bypass the catch entirely on the ${leg} leg`,
+    );
+  }
 });
 
-// QD-1 option (a), enforced by the carrier rather than implemented: the capability fault is raised
-// in the driver and never re-enters the walk, so a catch cannot see it. Asserted on both legs so a
-// future capability slice has to move this row consciously.
-test('a capability-error raised inside a try with a catch stays an uncatchable fault on both legs', async () => {
+// The honest title for what this row drives: the provider SUCCEEDS here, so the failure it observes
+// is the uncaught throw. It is kept because it pins that a resolved capability neither enters the
+// catch nor changes the failing code -- but it exercises no capability fault, which is why the two
+// rows below exist.
+test('a resolved capability before an uncaught throw leaves the throw as the failing code', async () => {
   const source = TRY_POSITIONS['throw-uncaught-after-capability']();
   await assertTryAdmitted('throw-uncaught-after-capability', source);
-  const legs = await tryTwoLegs(source, runtimeRequest('d-capability-error', {}));
+  const legs = await tryTwoLegs(source, runtimeRequest('d-capability-resolved', {}));
   assert.equal(legs.direct.envelope.outcome, 'failure');
   assert.deepEqual(
     legs.direct.envelope.diagnostics.map((diagnostic) => diagnostic.code),
     ['uncaught-throw'],
     'D_ENVELOPE_CATCHABLE: the capability resolved, so the uncaught throw is what fails -- and the catch saw neither',
   );
+});
+
+// QD-1 option (a), driven rather than assumed: a provider that FAILS raises `capability-error` in
+// the driver, which never re-enters the walk, so neither the catch body nor the finally body may run
+// -- on both legs. The `failingProvider`/`capabilityFails` pair is the only way to reach this at all.
+async function capabilityFaultLegs(name, requestId) {
+  const source = TRY_POSITIONS[name]();
+  await assertTryAdmitted(name, source);
+  const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', `D_LINK_REFUSED: ${name} must emit an artifact`);
+  const request = runtimeRequest(requestId, {});
+  const calls = [];
+  return {
+    direct: await executeKernKir(verified, request, failingProvider(calls)),
+    emitted: (await executeJavaScriptChild(javascript.artifact.bytes, request, { capabilityFails: true })).envelope,
+  };
+}
+
+test('a failing capability inside a try with a catch stays an uncatchable fault on both legs', async () => {
+  const legs = await capabilityFaultLegs('try-catch-capability', 'd-capability-fault-catch');
+  for (const [leg, envelope] of Object.entries(legs)) {
+    assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on a capability fault`);
+    assert.deepEqual(
+      envelope.diagnostics.map((diagnostic) => diagnostic.code),
+      ['capability-error'],
+      `D_ENVELOPE_CATCHABLE: the ${leg} leg must surface capability-error, never a caught user throw`,
+    );
+    assert.deepEqual(envelope.result, { presence: 'absent' }, `D_ENVELOPE_CATCHABLE: ${leg} must carry no result`);
+  }
+});
+
+test('a failing capability inside a try with a finally skips the finally body on both legs', async () => {
+  const legs = await capabilityFaultLegs('try-finally-capability', 'd-capability-fault-finally');
+  for (const [leg, envelope] of Object.entries(legs)) {
+    assert.deepEqual(
+      envelope.diagnostics.map((diagnostic) => diagnostic.code),
+      ['capability-error'],
+      `D_ENVELOPE_CATCHABLE: the ${leg} leg must surface capability-error`,
+    );
+    assert.deepEqual(
+      envelope.events,
+      [],
+      `D_FINALLY_ON_FAULT: the ${leg} leg must not run the finally body, so its print commits no event`,
+    );
+  }
 });
 
 // The tick fence: a try lowering that reached for a host suspension point would change the
