@@ -6,7 +6,7 @@ const CLAIM = 'kern.kir-runtime.linked-kir-program.split.v1';
 export const D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION = Object.freeze({
   claim: CLAIM,
   predecessorCommit: '7a45f4896158ac162d050293061830dc39185599',
-  successorCommit: '87ca787416eab0b2bb1b92b759ed0f4f1ab16a98',
+  successorCommit: '20a19556a676fa6568fd468fd366e99e62a0935c',
   currentInventory: Object.freeze({
     count: 357,
     digest: 'fd1b58b4bc9979defe56533170c1969b709aeb375b147920b5838a312b5fa79e',
