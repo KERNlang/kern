@@ -659,6 +659,35 @@ Steps 4-5 cannot be authored before step 3's build exists.
 
 ## Confidence
 
+Implementation correction, 2026-09-08: the landed layout oracle's `EXPECTED_IMPORT_EDGES` entries
+omit the literal `./` prefix even though `support.mjs#importSpecifiers` preserves it, so its exact
+edge assertion rejects every existing relative import. The implementation leaves this oracle row
+failing rather than editing the D.0 oracle, as required by the task brief.
+
+Implementation correction, 2026-09-08: the layout oracle also demands that `index.ts` remain 43
+lines, while this spec's split table correctly predicts 45 after the required second re-export
+block is formatted. The 39-name source surface and 18-name runtime surface both remain exact; the
+stale physical-line row is left failing.
+
+Implementation correction, 2026-09-08: `link.ts` necessarily calls the extracted public closure
+walker to classify reachable helper capabilities and accepts `LinkedKernKirClosureWalk` in its
+unchanged public signatures. Consequently its truthful edge set includes `./walkers.js`; the
+written INV-2/pins omit that edge while also requiring those functions to exist only in
+`walkers.ts`. The implementation preserves the single walker implementation and records the
+oracle discrepancy instead of duplicating behavior merely to conceal the dependency.
+
+Implementation correction, 2026-09-08: the reserved-label oracle's pinned base vocabulary omits
+`KIR_JUMP_WITHOUT_LOOP_FRAME`, which is already emitted by slice C in
+`kir-runtime/expression.ts`; the D.0 implementation neither added nor moved that token. The row is
+left failing without changing the oracle.
+
+Implementation correction, 2026-09-08: the fault-census oracle pins 20 construction sites in
+`kir-runtime/expression.ts`, while the stacked slice-C source has 22 (the two
+`KIR_JUMP_WITHOUT_LOOP_FRAME` guards). It also expects both linker sites to remain in `link.ts`,
+although the required extraction moves `fault()` and its one textual construction site to
+`link-support.ts`. The implementation preserves the actual total of 55 stacked-base sites and
+leaves both stale census rows failing.
+
 **0.94**, up from 0.91. What moved it: the oracle exists, ran at base `2c6f4abd`, and every one of
 its 30 RED rows fails for exactly one cause that is an artifact D.0 must create — no row is RED
 because the plan is wrong. The 42 GREEN rows are the ones that matter most, because a
