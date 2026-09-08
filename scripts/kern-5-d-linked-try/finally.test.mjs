@@ -286,3 +286,51 @@ test('a return from the innermost body runs both finally bodies in order before 
     'D_FINALLY_ENVELOPE_ORDER: both cleanups must run, innermost first, before the envelope is built',
   );
 });
+
+// The step ORDER, not just the total: RT-1 charges the return statement when it reaches it, BEFORE
+// the finally runs, so on the last insufficient budget it faults with the cleanup skipped. A leg
+// that charged the return only after the cleanup got one statement further and committed the
+// cleanup's event into the failure envelope -- same total, divergent envelope.
+test('a deferred return charges its boundary before the cleanup, so both legs starve identically', async () => {
+  const source = TRY_POSITIONS['try-finally-print-return']();
+  await assertTryAdmitted('try-finally-print-return', source);
+  const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', 'D_LINK_REFUSED: the fixture must emit an artifact');
+  const rt1 = await loopStepBudget(source, {}, 'd-finally-return-budget');
+  const legs = async (delta) => {
+    const direct = await executeKernKir(
+      verified,
+      stepRequest(`d-finally-starve-rt-${delta}`, {}, rt1.link + rt1.execution + delta),
+      provider([]),
+    );
+    const emitted = await executeJavaScriptChild(
+      javascript.artifact.bytes,
+      stepRequest(`d-finally-starve-js-${delta}`, {}, rt1.execution + delta),
+    );
+    return { direct, emitted: emitted.envelope };
+  };
+  const enough = await legs(0);
+  for (const [leg, envelope] of Object.entries(enough)) {
+    assert.equal(envelope.outcome, 'success', `D_LEG_CHARGE_DRIFT: ${leg} must succeed at RT-1's own count`);
+    assert.deepEqual(
+      envelope.events,
+      [{ op: 'stdout', text: CLEANUP_TEXT }],
+      `D_LEG_CHARGE_DRIFT: ${leg} must commit the cleanup event at the sufficient budget`,
+    );
+  }
+  const starved = await legs(-1);
+  assert.deepEqual(
+    starved.direct.diagnostics.map((diagnostic) => diagnostic.code),
+    starved.emitted.diagnostics.map((diagnostic) => diagnostic.code),
+    'D_LEG_CHARGE_DRIFT: one step under, both legs must fail with the same diagnostic',
+  );
+  for (const [leg, envelope] of Object.entries(starved)) {
+    assert.equal(envelope.outcome, 'failure', `D_LEG_CHARGE_DRIFT: ${leg} must fail one step under`);
+    assert.deepEqual(
+      envelope.events,
+      [],
+      `D_METER_ORDER: ${leg} charged the return after the cleanup; the cleanup event escaped into a starved envelope`,
+    );
+  }
+});

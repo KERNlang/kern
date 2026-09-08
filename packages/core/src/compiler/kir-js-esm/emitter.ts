@@ -221,7 +221,7 @@ function forSource(
   scope: Map<string, string>,
   calls: CallLocals,
   nextLocal: (prefix?: string) => string,
-  returnSource: (value: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
 ): string {
   const cursor = nextLocal();
   const bound = nextLocal();
@@ -250,7 +250,7 @@ function whileSource(
   scope: Map<string, string>,
   calls: CallLocals,
   nextLocal: (prefix?: string) => string,
-  returnSource: (value: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
 ): string {
   const local = nextLocal();
   const condition = expressionSource(statement.condition, scope, calls);
@@ -271,7 +271,7 @@ function blockSource(
   scope: Map<string, string>,
   calls: CallLocals,
   nextLocal: (prefix?: string) => string,
-  returnSource: (value: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
 ): string {
   return statements
     .map((statement) => {
@@ -297,7 +297,7 @@ function blockSource(
         let deferred = false;
         const defer = (value: string): string => {
           deferred = true;
-          return `\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
+          return `\n      __meter.step(); __checkAbort();\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
         };
         const bodyReturn = cleanup === undefined ? returnSource : defer;
         const body = blockSource(statement.body, new Map(scope), calls, nextLocal, bodyReturn);
@@ -312,7 +312,7 @@ function blockSource(
           return `\n      __meter.step(); __checkAbort(); __meter.step(); __checkAbort();${caught}`;
         }
         const finallyBody = blockSource(cleanup, new Map(scope), calls, nextLocal, returnSource);
-        const tail = deferred ? `\n      if(${held}){${returnSource(slot)}}` : '';
+        const tail = deferred ? `\n      if(${held}){${returnSource(slot, false)}}` : '';
         return `\n      __meter.step(); __checkAbort(); ${faultFlag}=false; ${held}=false;
       ${exit}: { try { try { __meter.step(); __checkAbort();${caught} }
       catch(__e2){if(__e2?.constructor!==__UserThrow)${faultFlag}=true;throw __e2;}
@@ -403,10 +403,9 @@ function specializedSource(linked: LinkedKernKirProgram): string {
     return local;
   };
   const { returnType } = handler;
-  const returnSource = (value: string): string => {
+  const returnSource = (value: string, charged = true): string => {
     if (returnType.kind === 'void') throw new Error('a void handler must not carry a return statement');
-    return `
-      __meter.step(); __checkAbort();
+    return `${charged ? '\n      __meter.step(); __checkAbort();' : ''}
       {const __returned=${value};
       if(!__matches(__returned,${typeSource(returnType)}))throw new __Fault('invalid-handler-result','execution');
       const __result=Object.freeze({presence:'value',value:__returned});
