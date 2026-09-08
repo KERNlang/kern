@@ -82,6 +82,22 @@ test('the checked-in ledger defers exactly the linked statement rows awaiting Py
     {
       blockedBy: [],
       label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'throw',
+      since: 'kern-5-d',
+      spec: '.Codex/specs/kern-5-d-linked-try/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: ['throw'],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'try',
+      since: 'kern-5-d',
+      spec: '.Codex/specs/kern-5-d-linked-try/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: [],
+      label: KIR_PYTHON_LEG_DEFERRED,
       nodeKind: 'while',
       since: 'kern-5-rt11-linked-while',
       spec: '.Codex/specs/kern-5-rt11-linked-while/spec.md',
@@ -89,7 +105,7 @@ test('the checked-in ledger defers exactly the linked statement rows awaiting Py
     },
   ]);
   const kinds = deferredNodeKinds();
-  assert.deepEqual([...kinds.statement], ['break', 'continue', 'while']);
+  assert.deepEqual([...kinds.statement], ['break', 'continue', 'throw', 'try', 'while']);
   assert.deepEqual([...kinds.expression], []);
   for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
     assert.equal(pythonDeferral(await linked(build())), undefined, `${name} must not be deferred today`);

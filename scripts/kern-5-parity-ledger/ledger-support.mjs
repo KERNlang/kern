@@ -37,7 +37,7 @@ export {
 export const LEDGER_URL = new URL('./parity-ledger.json', import.meta.url);
 export const LEDGER_FORMAT = PARITY_LEDGER_FORMAT;
 export const DEFERRAL_LABEL = KIR_PYTHON_LEG_DEFERRED;
-export const LEDGER_SHA256 = '76e61c71032bd74601c75651cb15528b46bcd22dddd20133352de2a05989e0ec';
+export const LEDGER_SHA256 = '2329d569c6d4fa65b0e5f7b6562bb26d1aa59c8052391e0ec77d5ba203f1bf73';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
 export const ROW_KEYS = Object.freeze(['blockedBy', 'label', 'nodeKind', 'since', 'spec', 'surface']);
@@ -312,6 +312,36 @@ export const JUMP_ROW_POSITIONS = Object.freeze({
   break: jumpRowPositions('break'),
   continue: jumpRowPositions('continue'),
 });
+
+// The try family needs its own vehicles: the generic catalogue is `for`-shaped and carries no
+// `throw` or `try` node at all, so a row falling through to it makes the Python compile SUCCEED and
+// `assertNoPythonArtifact` fail. `helper-body` is omitted from both, because D-2h refuses the try
+// family in a helper at LINK -- a row there would go RED for the linker's reason, not the deferral's.
+function tryFamilyPositions(lines) {
+  const indented = lines.map((line) => `  ${line}`);
+  return Object.freeze({
+    'for-body': () => entryProgram([ACC, 'for name=o from="0" to="2"', ...indented, RETURN_ACC]),
+    'handler-top-level': () => entryProgram([ACC, ...lines, RETURN_ACC]),
+    'if-else': () =>
+      entryProgram([ACC, 'if cond="false"', '  assign target="acc" value="1"', 'else', ...indented, RETURN_ACC]),
+    'if-then': () => entryProgram([ACC, 'if cond="true"', ...indented, RETURN_ACC]),
+  });
+}
+
+const THROW_PAYLOAD = 'throw value="{message: \\"boom\\"}"';
+
+export const THROW_ROW_POSITIONS = tryFamilyPositions([
+  'if cond="false"',
+  `  ${THROW_PAYLOAD}`,
+  'assign target="acc" value="1"',
+]);
+
+export const TRY_ROW_POSITIONS = tryFamilyPositions([
+  'try',
+  '  assign target="acc" value="1"',
+  'catch name=e',
+  '  assign target="acc" value="2"',
+]);
 
 const BOUND_BODY = Object.freeze(['  assign target="acc" value="acc + i"']);
 

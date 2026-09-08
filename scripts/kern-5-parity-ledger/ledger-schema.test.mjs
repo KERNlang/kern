@@ -72,6 +72,22 @@ test('the parity ledger carries every deferred node kind', () => {
     {
       blockedBy: [],
       label: DEFERRAL_LABEL,
+      nodeKind: 'throw',
+      since: 'kern-5-d',
+      spec: '.Codex/specs/kern-5-d-linked-try/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: ['throw'],
+      label: DEFERRAL_LABEL,
+      nodeKind: 'try',
+      since: 'kern-5-d',
+      spec: '.Codex/specs/kern-5-d-linked-try/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: [],
+      label: DEFERRAL_LABEL,
       nodeKind: 'while',
       since: 'kern-5-rt11-linked-while',
       spec: '.Codex/specs/kern-5-rt11-linked-while/spec.md',

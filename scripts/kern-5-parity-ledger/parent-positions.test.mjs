@@ -7,6 +7,8 @@ import {
   JUMP_ROW_POSITIONS,
   POSITION_FENCES,
   STATEMENT_POSITIONS,
+  THROW_ROW_POSITIONS,
+  TRY_ROW_POSITIONS,
   WHILE_ROW_POSITIONS,
   admission,
   assertNoPythonArtifact,
@@ -68,7 +70,12 @@ test('each ledger row refuses in every position of its surface', async () => {
   const compile = await compileWithLowering();
   const table = await loweringTable();
   for (const row of ledgerRows()) {
-    const statementPositions = { while: WHILE_ROW_POSITIONS, ...JUMP_ROW_POSITIONS };
+    const statementPositions = {
+      throw: THROW_ROW_POSITIONS,
+      try: TRY_ROW_POSITIONS,
+      while: WHILE_ROW_POSITIONS,
+      ...JUMP_ROW_POSITIONS,
+    };
     const positions =
       row.surface === 'statement' ? (statementPositions[row.nodeKind] ?? STATEMENT_POSITIONS) : EXPRESSION_POSITIONS;
     for (const [name, build] of Object.entries(positions)) {

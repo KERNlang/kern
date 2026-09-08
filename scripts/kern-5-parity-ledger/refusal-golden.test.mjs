@@ -6,6 +6,8 @@ import {
   EXPRESSION_POSITIONS,
   JUMP_ROW_POSITIONS,
   STATEMENT_POSITIONS,
+  THROW_ROW_POSITIONS,
+  TRY_ROW_POSITIONS,
   WHILE_ROW_POSITIONS,
   assertNoPythonArtifact,
   compileJavaScript,
@@ -76,7 +78,12 @@ test('every ledger row refuses with the exact label and no Python artifact', asy
   const table = await loweringTable();
   for (const row of ledgerRows()) {
     assert.equal(table[row.surface][row.nodeKind], 'deferred', `${row.nodeKind}: the row must be deferred`);
-    const statementPositions = { while: WHILE_ROW_POSITIONS, ...JUMP_ROW_POSITIONS };
+    const statementPositions = {
+      throw: THROW_ROW_POSITIONS,
+      try: TRY_ROW_POSITIONS,
+      while: WHILE_ROW_POSITIONS,
+      ...JUMP_ROW_POSITIONS,
+    };
     const positions =
       row.surface === 'statement' ? (statementPositions[row.nodeKind] ?? STATEMENT_POSITIONS) : EXPRESSION_POSITIONS;
     for (const [name, fixture] of Object.entries(positions)) {

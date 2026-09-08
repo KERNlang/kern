@@ -37,7 +37,13 @@ function walkStatements(statements, kinds) {
     for (const child of [statement.value, statement.input, statement.condition, statement.from, statement.to, statement.step]) {
       walkExpression(child, kinds);
     }
-    for (const block of [statement.body, statement.thenBranch, statement.elseBranch]) {
+    for (const block of [
+      statement.body,
+      statement.thenBranch,
+      statement.elseBranch,
+      statement.catchBody,
+      statement.finallyBody,
+    ]) {
       if (block !== undefined) walkStatements(block, kinds);
     }
   }
