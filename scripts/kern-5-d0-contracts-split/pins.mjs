@@ -265,6 +265,19 @@ export const RUNTIME_FAULT_SITES = Object.freeze({
   'packages/core/src/kir-runtime/linked-kir-program/link.ts': 2,
 });
 
+// `instanceof KernKirFault` is a classifier, not a catcher: inspect.ts and execute.ts re-throw,
+// envelope.ts and the two compiler entries convert at their own boundary.
+export const FAULT_CLASSIFIER_SITES = Object.freeze({
+  'packages/core/src/compiler/kir-js-esm/index.ts': 1,
+  'packages/core/src/compiler/kir-js-esm/request.ts': 1,
+  'packages/core/src/compiler/kir-python/index.ts': 1,
+  'packages/core/src/compiler/kir-python/request.ts': 1,
+  'packages/core/src/kir-runtime/envelope.ts': 1,
+  'packages/core/src/kir-runtime/execute.ts': 2,
+  'packages/core/src/kir-runtime/inspect.ts': 2,
+  'packages/core/src/kir-runtime/linked-kir-program/link.ts': 1,
+});
+
 export const FAULT_CENSUS_TOTALS = Object.freeze({ javascript: 39, python: 40, runtime: 53 });
 
 export const FAULT_MODEL_RULE =
