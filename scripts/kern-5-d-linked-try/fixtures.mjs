@@ -227,15 +227,23 @@ export const TRY_POSITIONS = Object.freeze({
       THROW_BOOM,
       RET_ACC,
     ]),
-  // The timeout row needs a try whose body outlives a 1ms deadline on BOTH legs: RT-1 creates its
-  // deadline before linking, the emitted module creates its own inside `execute()`, so a leaf-sized
-  // body finishes inside the window on the emitted leg and only RT-1 would ever fail. The leading
-  // print is what proves the deadline expired AFTER the try body was entered.
+  // The timeout row's fixture, sized against measurement rather than a wall-clock bet. RT-1 creates
+  // its deadline before linking and the emitted module creates its own inside `execute()`, so the
+  // body has to outlive the window on BOTH legs; the leading print is what proves the deadline
+  // expired AFTER the try body was entered. Measured 2026-09-09: RT-1 links and prints in 6ms, and
+  // four million trips run ~2.1s on RT-1 and ~1.7s on the emitted leg -- roughly eight times the
+  // 250ms window the row uses, and inside the child runner's own five-second bound.
   'try-catch-slow-loop': () =>
     tryProgram([
       ACC,
       ...tryCatch(
-        ['if cond="true"', '  print value="\\"entered\\""', `  ${SET1}`, 'for name=i from="0" to="20000"', `  ${BUMP}`],
+        [
+          'if cond="true"',
+          '  print value="\\"entered\\""',
+          `  ${SET1}`,
+          'for name=i from="0" to="4000000"',
+          `  ${BUMP}`,
+        ],
         [SET2],
       ),
       RET_ACC,

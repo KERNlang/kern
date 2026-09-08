@@ -176,13 +176,14 @@ test('cancellation inside a try produces execution-cancelled with the catch body
 });
 
 test('a timeout inside a try produces execution-timeout with the catch body skipped, on both legs', async () => {
-  // maxSteps is raised so the deadline is the only limit that can fire; otherwise the row races the
-  // step budget and could report runtime-limit-exceeded on a fast host. 20ms is the measured window:
-  // long enough that RT-1 -- whose deadline starts before linking -- still enters the try body and
-  // prints, short enough that the 20000-trip loop overruns it on both legs. 8/8 deterministic.
+  // Both bounds are measured, not guessed. 250ms is ~42x the 6ms RT-1 needs to link, enter the try
+  // and print -- the quantity a loaded host inflates -- while the fixture's four million trips run
+  // ~2.1s on RT-1 and ~1.7s on the emitted leg, so the deadline fires with ~8x margin on both.
+  // maxSteps is raised far past the ~16M the whole loop would cost, so the deadline is the only
+  // limit that can fire and the row can never report runtime-limit-exceeded instead.
   const legs = await abortLegs('try-catch-slow-loop', 'd-timeout', {
-    control: { preCancelled: false, timeoutMs: 20 },
-    limits: { ...LIMITS, maxSteps: 1_000_000 },
+    control: { preCancelled: false, timeoutMs: 250 },
+    limits: { ...LIMITS, maxSteps: 100_000_000 },
   });
   for (const [leg, envelope] of Object.entries(legs)) {
     assert.equal(envelope.outcome, 'failure', `D_ENVELOPE_CATCHABLE: ${leg} must fail on a timeout`);
