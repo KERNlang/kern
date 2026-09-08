@@ -9,12 +9,14 @@ and **no** RC-v1 amendment record is created. OQ-3 — the inventory transition 
 `kir-runtime/expression.ts` has no clean cut today (analysis under *OQ-3, decided*). OQ-1 is closed
 and VERIFIED, with a finding that adds one required edit to the Blast Radius.
 
-**Depends on slice C landing at commit `1ef72e0d`** — `feat/kern-5-rt12-linked-jumps`
-@ `1ef72e0d07c749f29963164876af3d5bdc495d53` (`test(kern5): register jump Python deferrals`). This
-branch (`feat/kern-5-d0-contracts-split`) is cut from that commit. Slice C is **IN PROGRESS in its
-own worktree**; every line/count in this document was read from the `1ef72e0d` checkout at
-`/Users/nicolascukas/KERN/.worktrees/kern-5-d0-split` and must be re-derived if slice C's head
-moves before D.0 branches. D.0 **must not merge before slice C**: three of the pins it moves
+**Depends on slice C landing at commit `2c6f4abd`** — `feat/kern-5-rt12-linked-jumps`
+@ `2c6f4abde44a4febe216488b9777046e16b3e13d` (`chore(kern5): re-pin the compiled core digest and
+regenerate canonicalizer coverage receipts`), itself rebased onto slice B `762019ac`. This branch
+(`feat/kern-5-d0-contracts-split`) carries only its two spec commits and was rebased onto that head
+on 2026-09-08. Slice C is **BUILT and under review**; every line, count and citation in this
+document was originally read from the superseded `1ef72e0d` checkout and has been **re-derived
+against `2c6f4abd`** — the drift is recorded in the Corrections Log as rows *STEP-0-a* … *STEP-0-h*.
+D.0 **must not merge before slice C**: three of the pins it moves
 (`scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs`, `.../walker-coverage.test.mjs`) do not
 exist on `main`.
 
@@ -99,16 +101,18 @@ The root cause of the withdrawal in `e105f1da` is **two** independent gates, not
 
 ## Contract (Verified)
 
-> Verified against the `1ef72e0d` checkout at `/Users/nicolascukas/KERN/.worktrees/kern-5-d0-split`
-> on 2026-09-08, plus the commands quoted inline.
+> Originally verified against the `1ef72e0d` checkout at
+> `/Users/nicolascukas/KERN/.worktrees/kern-5-d0-split` on 2026-09-08 and **re-verified against the
+> built `2c6f4abd` checkout at the same path** on 2026-09-08, plus the commands quoted inline. Every
+> row below carries the `2c6f4abd` reading; the eight that drifted are STEP-0-a … STEP-0-h.
 
 | # | Claim | Evidence | Tag |
 |---|---|---|---|
 | C-1 | The inventory head pin is `{count: 354, digest: 78ab887d…}` and the gate is exact-equality on both | `scripts/kern-canonicalizer/c-py-1-lowering-historical-transition.mjs:11-12`; gate at `:92-96` `fail('C-PY-1 lowering historical membership requires the authenticated current inventory')` | VERIFIED |
 | C-2 | The chain is wired in one place, head-first | `scripts/kern-canonicalizer/coverage-dependencies.mjs:337-340` — `reconstructCPy1Lowering…(paths)` is called with the **live** paths, its result feeds r2-js-lowering, then r1-runtime-owner, then frontend-projection | VERIFIED |
-| C-3 | A new dist file also moves `compiledCoreDigest`, which is hard-pinned as a literal in one test | `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs:97` `compiledCoreDigest: '9f6fcf18ec2dfcf2a3ffd2d22d39fd05cca9c7b537b03f7b56c0726c3fde346e'`; same value in `coverage-summary.json:138`; regenerable via `pnpm write:kern-canonicalizer-coverage` (`package.json:130`) | VERIFIED |
+| C-3 | A new dist file also moves `compiledCoreDigest`, which is hard-pinned as a literal in one test | `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs:96` `compiledCoreDigest: '4b1db71b0e8f36466c2d1c195e98f702263623a46b81dae03ccf4895bea1c17b'` (re-derived at `2c6f4abd`, STEP-0-a); same value in `coverage-summary.json:138`; regenerable via `pnpm write:kern-canonicalizer-coverage` (`package.json:130`) | VERIFIED |
 | C-4 | `coverageImplementationDigest` path-frames every executed module under `scripts/kern-canonicalizer/`, so the new transition module moves it too | `coverage-dependencies.mjs:93` `IMPLEMENTATION_ROOT = scripts/kern-canonicalizer`; `coverage-integrity.test.mjs:552` *"the implementation digest path-frames every executed local dependency"*; it is **self-referential** in the prerequisite test (`coverage-prerequisite.test.mjs:99`), so it needs no hand re-pin | VERIFIED |
-| C-5 | **Three** rt suites pin `KernKirDiagnosticCode` at twelve, not one | `scripts/kern-5-rt10-for/compatibility.test.mjs:46-58,142-151` (`RT10F_CODE_CREEP`), `kern-5-rt11-linked-while/compatibility.test.mjs:58-70,175-184` (`RT11W_CODE_CREEP`), `kern-5-rt12-linked-jumps/compatibility.test.mjs:54-66,184-193` (`RT12J_CODE_CREEP`) | VERIFIED |
+| C-5 | **Three** rt suites pin `KernKirDiagnosticCode` at twelve, not one | `scripts/kern-5-rt10-for/compatibility.test.mjs:46-58,142-152` (`RT10F_CODE_CREEP`), `kern-5-rt11-linked-while/compatibility.test.mjs:58-70,175-185` (`RT11W_CODE_CREEP`), `kern-5-rt12-linked-jumps/compatibility.test.mjs:54-67,183-194` (`RT12J_CODE_CREEP`) | VERIFIED |
 | C-6 | **The RC-v1 amendment chain does not govern `KernKirDiagnosticCode`.** The four governed artifacts are `constitution.json`, `public-declaration-schema.json`, `goldens.json`, `proof-inventory.json` | `scripts/runtime-contract-v1/amendment-chain.mjs:8-13` `AMENDMENT_DIGEST_KEYS`. Proof of non-governance: `KernKirDiagnosticCode` already carries `projection-authentication-error` and `runtime-limit-exceeded` (`kir-runtime/contracts.ts:67-78`), **neither of which appears** in `constitution.json:82-98`; conversely the constitution carries `encoded-limit`, `escaped-control`, `internal-runner-error`, `non-portable-value`, `uncaught-throw`, which the KIR union does not. The two sets are siblings, not sub/superset | VERIFIED |
 | C-7 | **A zero-drift amendment record is structurally impossible.** If `resultDigests === parentDigests`, `composeAmendmentChain`'s `next` filter matches the record itself and the walk fails `'amendment chain cycles'`; and a record authored *without* `resultDigests` fails `'pending amendment names no artifact drift'` unless a live artifact really moved | `amendment-chain.mjs:88-97`; `amend.mjs:46-58` | VERIFIED |
 | C-8 | `constitution.diagnostics.codes` must equal the **built public handler ABI** union exactly, so widening the constitution widens a public type | `scripts/runtime-handler-public-declaration.mjs:147-152` compares `stringLiteralUnion(sourceFile,'KernRuntimeHandlerDiagnosticCode')` to `constitution.diagnostics.codes` and fails `'diagnostic code inventory drifted'`; the mutation row at `scripts/runtime-contract-v1/declaration.test.mjs:38-41` pins that behaviour. `validate-runtime-contract-v1.mjs:15-31,140` holds the same list a second time as `EXPECTED.diagnosticCodes` | VERIFIED |
@@ -132,12 +136,12 @@ families, with different fragility:
 | File | Scrapes |
 |---|---|
 | `scripts/kern-5-parity-ledger/ledger-support.mjs:131-146` | both unions (`unionKinds`) |
-| `scripts/kern-5-rt2-boolean-if/k0-golden.test.mjs:43-45` | statement union |
+| `scripts/kern-5-rt2-boolean-if/k0-golden.test.mjs:47-49` | statement union |
 | `scripts/kern-5-rt9-linked-assign/k0-golden.test.mjs:38-40` | statement union |
 | `scripts/kern-5-rt3-binary-expression/k0-golden.test.mjs:33-35` | expression union |
 | `scripts/kern-5-rt4-user-fn-call/probe-matrix.test.mjs:125-127` | expression union |
 | `scripts/kern-5-rt10-pre-linked-arithmetic/k0-golden.test.mjs:26-36` | expression union **and** `export type LinkedKernKirUnaryOperator =` → `;` |
-| `scripts/kern-5-rt10-cross-call-integer/k0-golden.test.mjs:32-35` | expression union |
+| `scripts/kern-5-rt10-cross-call-integer/k0-golden.test.mjs:32-34` | expression union |
 
 **Family 2 — end marker is a *function name* (breaks silently into a vacuous pass if that function
 leaves `contracts.ts`).**
@@ -148,12 +152,12 @@ leaves `contracts.ts`).**
 | `scripts/kern-5-rt10-for/walker-coverage.test.mjs:129-130` | same | `function expressionVariantUnhandled` |
 | `scripts/kern-5-rt11-linked-while/compatibility.test.mjs:143-144` | same | `function expressionVariantUnhandled` |
 | `scripts/kern-5-rt11-linked-while/walker-coverage.test.mjs:119-120` | same | `function expressionVariantUnhandled` |
-| `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs:141-142` | same | `function statementSubBlocks` |
-| `scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs:196-198` | same | `function statementSubBlocks` |
+| `scripts/kern-5-rt12-linked-jumps/compatibility.test.mjs:142-143` | same | `function statementSubBlocks` |
+| `scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs:197-198` | same | `function statementSubBlocks` |
 
-**`link.ts` scrapes (rt12 only).** `compatibility.test.mjs:158` — negative scan: `KIR_LOOP_JUMP_CROSSES_TRY`
+**`link.ts` scrapes (rt12 only).** `compatibility.test.mjs:159` — negative scan: `KIR_LOOP_JUMP_CROSSES_TRY`
 absent from `link.ts`, `linked-kir-program/contracts.ts`, `kir-runtime/contracts.ts`.
-`walker-coverage.test.mjs:235-238` — `link.indexOf('function containsReturn')` →
+`walker-coverage.test.mjs:237-238` — `link.indexOf('function containsReturn')` →
 `link.indexOf('function assertLeaf')`, then asserts the sliced body names exactly
 `['for','if','return','while']`. **These two functions must stay adjacent, in that order, in one
 file**, and this scrape breaks *loudly* (extra kinds leak in) rather than vacuously if they separate
@@ -179,7 +183,8 @@ Four invariants bind every cut; the exact boundary lines are the implementer's, 
 - **INV-2 acyclic module graph.** No import cycle among the five files.
   `link.ts → {statements.ts, link-support.ts}`, `statements.ts → link-support.ts`,
   `walkers.ts → contracts.ts`, `contracts.ts → ∅` (within the directory).
-- **INV-3 identical public surface.** `linked-kir-program/index.ts` exports the same 39 names, and
+- **INV-3 identical public surface.** `linked-kir-program/index.ts` re-exports the same 39 source
+  names (18 runtime bindings + 21 `type`-only, STEP-0-b), the built `index.js` the same 18, and
   `dist/.../contracts.js` keeps `LINKED_KIR_TYPE_ADMISSION` (rt6's only direct reach-past).
 - **INV-4 zero behaviour change.** No union member, no label string, no diagnostic message, no
   emitter byte, no kernel byte, no golden content.
@@ -434,6 +439,7 @@ spec must answer explicitly rather than inherit by silence.
 | `scripts/kern-5-d0-contracts-split/reserved-labels.json` | **new** | the eight-label registry |
 | `scripts/kern-5-d0-contracts-split/*.test.mjs` | **new** | this slice's oracle |
 | `package.json` | edit | `test:kern-5-d0-contracts-split` script; append to `test:kern-5-script-family` |
+| `scripts/ci/test-tier-contract.test.mjs` | **edit (required)** | `kern5EvidenceCommands` at `:49-71` is `deepEqual`'d against the aggregate's segments at `:154-159`, so the new leaf lands in both lists or `test:ci-contract` goes red (STEP-0-g) |
 | **Unchanged, and asserted so** | — | both emitters, both kernels + `TARGET_KERNEL_SHA256`, `kir-runtime/expression.ts`, `kir-runtime/execute.ts`, F5 policy digest, the 240-file census, every `k0-golden.json`, `scripts/runtime-contract-v1/**` (no amendment), `scripts/kir-v1/alpha-receipt-policy.json` (no new binding), the Python stdlib allowlist |
 
 Suites that must be green: `test:kern-5-rt2-boolean-if`, `rt3`, `rt4`, `rt5`, `rt6`, `rt8`, `rt9`,
@@ -456,9 +462,10 @@ Oracle rows the next worker writes, at `scripts/kern-5-d0-contracts-split/`.
       DAG matches INV-2 exactly).
 
 **Behaviour preservation**
-- [ ] The sorted export-name set of `dist/kir-runtime/linked-kir-program/index.js` equals the pinned
-      39-name list captured at base `1ef72e0d`, and `dist/.../contracts.js` still exports
-      `LINKED_KIR_TYPE_ADMISSION`.
+- [ ] The sorted runtime export set of `dist/kir-runtime/linked-kir-program/index.js` equals the
+      pinned **18**-name list captured at base `2c6f4abd`, the sorted source-level re-export set of
+      `index.ts` equals the pinned **39**-name list (STEP-0-b), and `dist/.../contracts.js` still
+      exports `LINKED_KIR_TYPE_ADMISSION`.
 - [ ] `TARGET_KERNEL_SHA256` for both legs equals the rt12 pins
       (`b53251fd…`, `f79a3963…`); the F5 policy digest equals `0f62f6c9…`; the census total is 240
       with zero link-stage rows.
@@ -589,6 +596,14 @@ Steps 4-5 cannot be authored before step 3's build exists.
 | There are two independent inventory chains to teach (the coverage one and the test's) | One. `reconstructRunnerCallCacheCompiledCoreJavaScriptPaths` internally runs c-py-1 → r2-js → r1-runtime-owner → frontend-projection, so both share the single head call at `coverage-dependencies.mjs:337` (C-15) | Confirmed the one-line wiring; no second insertion point |
 | `kir-runtime/expression.ts` could join this transition if slice D needs the room (OQ-3) | No clean cut exists: the only acyclic candidate (the operand/evaluator layer) is the start marker of rt10-pre's `between(BINARY_EVALUATORS, calleeBindings)` scrape, and `between` **asserts** both markers share one file (C-16); everything else sits inside `walkStatements → evaluateExpression → callHelper → walkStatements` | Transition stays 354 → 357; the 500-line constraint is handed to slice D as QD-2 |
 | The tribunal's `__Fault`/capability pin can be settled inside D.0 | Settling it needs the catch semantics D introduces, and today's census contradicts the pin's wording (C-11) | Recorded as QD-1, an explicit OPEN item slice D must answer in writing; D.0's census makes a silent re-classification impossible |
+| **STEP-0-a.** `compiledCoreDigest` is `9f6fcf18ec2dfcf2a3ffd2d22d39fd05cca9c7b537b03f7b56c0726c3fde346e` at `coverage-prerequisite.test.mjs:97` (C-3, read at `1ef72e0d`) | At `2c6f4abd` it is `4b1db71b0e8f36466c2d1c195e98f702263623a46b81dae03ccf4895bea1c17b` at `:96`. Slice C's own head commit is *"re-pin the compiled core digest and regenerate canonicalizer coverage receipts"* — it moved this literal itself | The re-pin step and the row are unchanged in kind; only the base value moves. The oracle pins `4b1db71b…` as the base value and states that step 3's build + `write:kern-canonicalizer-coverage` moves it |
+| **STEP-0-b.** `linked-kir-program/index.ts` exports 39 names, and the *dist* export set is that same list (INV-3, and the first Behaviour-preservation criterion) | Two different numbers. The **source** re-export list is 39 names; the **built** `dist/kir-runtime/linked-kir-program/index.js` exposes **18** runtime bindings, because 21 of the 39 are `type`-only re-exports that tsc erases. `dist/.../contracts.js` likewise exposes 18 | The oracle pins **both**: the 18-name sorted dist runtime surface and the 39-name sorted source-level surface. Pinning only "39 from dist" would have been unsatisfiable, and pinning only the dist 18 would let a type re-export silently vanish |
+| **STEP-0-c.** Family-2 / Family-1 scrape line citations in C-13 | Four drifted at `2c6f4abd`: `rt12/compatibility.test.mjs` 141-142 → **142-143**; `rt12/walker-coverage.test.mjs` 196-198 → **197-198** and the `link.ts` pair 235-238 → **237-238**; `rt2-boolean-if/k0-golden.test.mjs` 43-45 → **47-49**; `rt10-cross-call-integer/k0-golden.test.mjs` 32-35 → **32-34**. Every marker *string* is unchanged, and the file set is still exactly 13 + 2 | Citations refreshed. No plan change: the oracle keys the marker table on the marker strings, never on line numbers, which is why the drift is inert |
+| **STEP-0-d.** C-5's diagnostic-pin citations | `rt10-for` 46-58/142-151 → list `46-58`, assertion `142-152`; `rt11` 58-70/175-184 → `58-70` / `175-185`; `rt12` 54-66/184-193 → `54-67` / `183-194`. All three still pin twelve members with the same `CODE_CREEP` labels | None; three pin edits stand |
+| **STEP-0-e.** C-10's census, and D0-F1's *"exactly the ten codes listed there"* | Re-measured at `2c6f4abd`: JS **39** sites (24/6/5/4) over **10** distinct codes and Python **40** sites (21/7/6/6) over **9** — Python has no `handler-link-error` site. TS `new KernKirFault(` is **53** over nine files, exactly as claimed | The census numbers were right; the *code-set* claim was JS-only. The oracle pins the two code sets separately, and the asymmetry itself becomes a row: a slice that adds `handler-link-error` to the Python kernel moves a pin |
+| **STEP-0-f. OQ-5 CLOSED, VERIFIED.** Whether `check-kir-module-graph.mjs` keeps a module allowlist the three new paths must join | It keeps none. It walks reachable `./` edges outward from `packages/core/src/kir-structural/module-canonical.ts` (`check-kir-module-graph.mjs:9,19-35`) and `linked-kir-program` is not in that graph — `grep -n 'linked-kir-program' scripts/check-kir-module-graph.mjs` → zero hits, 2026-09-08 | No Blast Radius addition. `test:kern-kir-module-graph` needs no edit |
+| **STEP-0-g.** Appending the D.0 leaf to `test:kern-5-script-family` is a `package.json`-only edit | `scripts/ci/test-tier-contract.test.mjs:49-71` holds `kern5EvidenceCommands` and `deepEqual`s the script's segments against it (`:154-159`), so the leaf must be added in **both** places or `pnpm test:ci-contract` goes red | One Blast Radius row added. The oracle's wiring file asserts the two lists agree, so the coupling cannot be half-done |
+| **STEP-0-h.** Line counts and the inventory pin may have moved under slice C | Unchanged at `2c6f4abd`: `linked-kir-program/contracts.ts` **535**, `link.ts` **735**, `linked-kir-program/expression.ts` **358**, `index.ts` **43**, `kir-runtime/expression.ts` **402**, `kir-runtime/contracts.ts` **107**; live `packages/core/dist` JavaScript inventory **354**; `KernKirDiagnosticCode` **12** members; statement union **10** kinds, expression union **9** | The split plan, the 354 → 357 transition and every headroom estimate stand as written |
 
 ## Confidence
 
