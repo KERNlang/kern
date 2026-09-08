@@ -28,6 +28,10 @@ const STRUCTURE_REFUSALS = Object.freeze([
   ['neg-throw-with-children', LEAF],
   ['neg-throw-shadowed-binding', 'duplicate binding e'],
   ['neg-assign-catch-binding', 'KIR_ASSIGN_TARGET_NOT_LET'],
+  // rt5's position gate, for the throw payload. The `statementValue` flag `compileThrow` passes is
+  // what separates this row from `neg-throw-async-call` below: nested has no continuation position,
+  // a bare statement value has one. A mutation that flips the flag collapses the pair.
+  ['neg-throw-async-in-payload', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
 ]);
 
 const PAYLOAD_REFUSALS = Object.freeze([
@@ -41,6 +45,10 @@ const PAYLOAD_REFUSALS = Object.freeze([
   'neg-throw-extra-key',
   'neg-throw-no-message',
   'neg-throw-null-message',
+  // Refused by the PAYLOAD gate, not the position gate: a bare async user-call is a legal statement
+  // value, so `assertAsyncCallPosition(value, scope, label, true)` lets it through and the shape
+  // gate is what stops it. Flip that flag to false and this row reports the async label instead.
+  'neg-throw-async-call',
   'neg-throw-member',
   'neg-throw-nested-record-message',
   'neg-throw-let-bound-payload',
