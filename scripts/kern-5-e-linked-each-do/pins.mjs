@@ -38,7 +38,6 @@ export const E0_ADDED_DIST_PATHS = Object.freeze([
   'kir-runtime/statement-walker.js',
 ]);
 
-export const D0_SUCCESSOR_INVENTORY_COUNT = 357;
 export const E0_INVENTORY_COUNT = 360;
 
 export const STATEMENT_KINDS_AFTER_E = Object.freeze([
@@ -58,13 +57,17 @@ export const STATEMENT_KINDS_AFTER_E = Object.freeze([
   'while',
 ]);
 
+// Spent means "a projectable fixture reaches this gate". `KIR_DO_PROPAGATION_UNSUPPORTED` is not
+// spent: `do value="f(1)?"` never projects (probe 2026-09-09), so a linker branch carrying that
+// label would be dead code behind a single-cause label nobody can reach.
 export const DO_LABELS = Object.freeze([
   'KIR_DO_EXPRESSION_NOT_USER_CALL',
   'KIR_DO_JSON_INTRINSIC_UNSUPPORTED',
   'KIR_DO_MEMBER_CALL_UNSUPPORTED',
-  'KIR_DO_PROPAGATION_UNSUPPORTED',
 ]);
 
+// `KIR_EACH_TYPE_ANNOTATION_UNSUPPORTED` is likewise reserved, not spent: `each … type=…` never
+// projects, in any type spelling (probe 2026-09-09).
 export const EACH_LABELS = Object.freeze([
   'KIR_ASSIGN_TO_EACH_BINDING',
   'KIR_EACH_AWAIT_UNSUPPORTED',
@@ -74,7 +77,19 @@ export const EACH_LABELS = Object.freeze([
   'KIR_EACH_RECORD_FIELD_UNSUPPORTED',
   'KIR_EACH_SOURCE_NOT_LIST',
   'KIR_EACH_SOURCE_NOT_PARAMETER',
+]);
+
+export const RESERVED_UNREACHABLE_LABELS = Object.freeze([
+  'KIR_DO_PROPAGATION_UNSUPPORTED',
   'KIR_EACH_TYPE_ANNOTATION_UNSUPPORTED',
+]);
+
+// Fixtures F5 refuses. Each one is asserted as a projection wall, and no link label may be credited
+// to it.
+export const F5_WALLED_POSITIONS = Object.freeze([
+  'each-source-call',
+  'each-source-list-literal',
+  'each-type-annotation',
 ]);
 
 // Reserved by the deferred `with` design, spent by no slice-E code path. A label that appears in
@@ -96,3 +111,12 @@ export const REUSED_LABELS = Object.freeze([
 export const PYTHON_DEFERRAL_LABEL_KINDS = Object.freeze(['do', 'each']);
 
 export const EVIDENCE_LEAF = 'test:kern-5-e-linked-each-do';
+
+export const PREDECESSOR_LEAF = 'test:kern-5-d-linked-try';
+
+export const COMMIT_TAGS = Object.freeze(['E0', 'E1', 'E2', 'E3']);
+
+// E2 is the slice's largest commit and therefore the one an abort would cut. The criterion is a
+// measured comparison, not a judgement: if E2 alone claims more rows than E0+E1+E3 together, `each`
+// is too large to land in one commit and its own labels return to unspent.
+export const GATED_COMMIT_TAG = 'E2';

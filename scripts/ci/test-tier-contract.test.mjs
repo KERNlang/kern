@@ -70,6 +70,7 @@ const kern5EvidenceCommands = [
   'pnpm test:kern-5-rt12-linked-jumps',
   'pnpm test:kern-5-d0-contracts-split',
   'pnpm test:kern-5-d-linked-try',
+  'pnpm test:kern-5-e-linked-each-do',
 ];
 
 const shardedFrontendJobs = new Map([
