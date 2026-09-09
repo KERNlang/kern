@@ -126,8 +126,9 @@ export function compileEach(
   if (sourceType.kind !== 'list') fault('handler-entry-unsupported', `${label}: KIR_EACH_SOURCE_NOT_LIST`);
   const item = propertyText(properties, 'name', label, meter);
   const index = properties.has('index') ? propertyText(properties, 'index', label, meter) : undefined;
-  if (scope.bindings.has(item) || (index !== undefined && (scope.bindings.has(index) || index === item))) {
-    fault('handler-entry-unsupported', `${label}: duplicate binding ${index === item ? index : item}`);
+  if (index === item) fault('handler-entry-unsupported', `${label}: duplicate binding ${item}`);
+  for (const name of index === undefined ? [item] : [item, index]) {
+    if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
   }
   const bodyScope = {
     ...branchScope(scope),
