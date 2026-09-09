@@ -16,7 +16,7 @@ try on the linked, RT-1 and JavaScript legs*, *defer throw and try on the Python
 parity ledger*, *run the union digest cascade for the two new statement kinds*, *move the
 prior-slice pins the try family spends*, *correct the oracle rows the implementation disproves* —
 plus the review-fix commits recorded in the Corrections Log. **`finally` LANDED**: the D-7f gate was
-measured, not assumed, and does not fire (D5 carries **43** rows against **180** across D1–D4, per
+measured, not assumed, and does not fire (D5 carries **45** rows against **183** across D1–D4, per
 `commit-rows.json` `abortCriterion`). **Deploy-order deviation:** the five commits follow this
 document's own Deploy Order stages (source → parity ledger → golden cascade → prior-slice pin moves
 → oracle corrections) rather than the feature order D1 → D5, because the implementation arrived as
