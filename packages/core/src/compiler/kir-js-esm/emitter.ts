@@ -1,5 +1,5 @@
-import type { KernKirValue } from '../../kir-runtime/contracts.js';
-import { canonicalJson, sha256 } from '../../kir-runtime/digest.js';
+import { sha256 } from '../../kir-runtime/digest.js';
+import { statementSubBlocks } from '../../kir-runtime/linked-kir-program/contracts.js';
 import type {
   LinkedKernKirExpression,
   LinkedKernKirHelper,
@@ -14,6 +14,7 @@ import {
   linkedProgramHelpers,
   linkedStatementsInvokeCapability,
 } from '../../kir-runtime/linked-kir-program/index.js';
+import { dataSource, encodedText, jsString, typeSource, valueSource } from './request.js';
 import { TARGET_BASE_SOURCE } from './target-base.js';
 import { TARGET_EXECUTION_SOURCE } from './target-execution.js';
 import { TARGET_HASH_SOURCE } from './target-hash.js';
@@ -38,36 +39,18 @@ export interface TargetManifestBase {
   readonly runtimeFormat: string;
 }
 
-function jsString(value: string): string {
-  return canonicalJson(value);
-}
-
-function encodedText(value: string): string {
-  return `__chars([${Array.from(value, (character) => character.codePointAt(0) as number).join(',')}])`;
-}
-
-function valueSource(value: KernKirValue): string {
-  switch (value.tag) {
-    case 'null':
-      return `Object.freeze({tag:'null'})`;
-    case 'boolean':
-      return `Object.freeze({tag:'boolean',value:${String(value.value)}})`;
-    case 'text':
-    case 'integer':
-    case 'decimal':
-      return `Object.freeze({tag:${jsString(value.tag)},value:${jsString(value.value)}})`;
-    case 'list':
-      return `Object.freeze({tag:'list',value:Object.freeze([${value.value.map(valueSource).join(',')}])})`;
-    case 'record':
-      return `Object.freeze({tag:'record',value:Object.freeze([${value.value
-        .map((entry) => `Object.freeze({key:${jsString(entry.key)},value:${valueSource(entry.value)}})`)
-        .join(',')}])})`;
-  }
-}
-
 interface CallLocals {
   readonly async: ReadonlySet<string>;
   readonly locals: ReadonlyMap<string, string>;
+}
+
+function statementsContainTryFamily(statements: readonly LinkedKernKirStatement[]): boolean {
+  return statements.some(
+    (statement) =>
+      statement.kind === 'throw' ||
+      statement.kind === 'try' ||
+      statementSubBlocks(statement).some(statementsContainTryFamily),
+  );
 }
 
 function expressionSource(
@@ -156,12 +139,6 @@ function statementValueSource(
   return `(__meter.step(),await ${helper}(${args}))`;
 }
 
-function typeSource(type: LinkedKernKirParameterType): string {
-  return type.kind === 'list'
-    ? `Object.freeze({kind:'list',element:${jsString(type.element)}})`
-    : `Object.freeze({kind:${jsString(type.kind)}})`;
-}
-
 function capabilitySource(
   statement: Extract<LinkedKernKirStatement, { kind: 'capability' }>,
   local: string,
@@ -243,8 +220,8 @@ function forSource(
   statement: Extract<LinkedKernKirStatement, { kind: 'for' }>,
   scope: Map<string, string>,
   calls: CallLocals,
-  nextLocal: () => string,
-  returnSource: (value: string) => string,
+  nextLocal: (prefix?: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
 ): string {
   const cursor = nextLocal();
   const bound = nextLocal();
@@ -268,18 +245,85 @@ function forSource(
       __meter.step();`;
 }
 
+function whileSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'while' }>,
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: (prefix?: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
+): string {
+  const local = nextLocal();
+  const condition = expressionSource(statement.condition, scope, calls);
+  const body = blockSource(statement.body, new Map(scope), calls, nextLocal, returnSource);
+  return `
+      __meter.step();
+      while(true){
+      ${local}=${condition};
+      if(${local}.tag!=='boolean')throw new __Fault('unsupported-runtime-input','execution');
+      if(${local}.value!==true)break;
+      __meter.step(); __checkAbort();${body}
+      }
+      __meter.step();`;
+}
+
 function blockSource(
   statements: readonly LinkedKernKirStatement[],
   scope: Map<string, string>,
   calls: CallLocals,
-  nextLocal: () => string,
-  returnSource: (value: string) => string,
+  nextLocal: (prefix?: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
 ): string {
   return statements
     .map((statement) => {
       if (statement.kind === 'return') return returnSource(statementValueSource(statement.value, scope, calls));
+      if (statement.kind === 'throw') {
+        return `\n      __meter.step(); __checkAbort();\n      throw new __UserThrow(${statementValueSource(statement.value, scope, calls)});`;
+      }
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
       if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
+      if (statement.kind === 'while') return whileSource(statement, scope, calls, nextLocal, returnSource);
+      if (statement.kind === 'try') {
+        const cleanup = statement.finallyBody;
+        const catchScope = new Map(scope);
+        const catchLocal = nextLocal();
+        if (statement.binding !== undefined) catchScope.set(statement.binding, catchLocal);
+        const [faultFlag, slot, held] =
+          cleanup === undefined ? ['', '', ''] : [nextLocal('__ef'), nextLocal('__r'), nextLocal('__h')];
+        const exit = `__t${held.slice(3)}`;
+        // A return crossing a finally must not build the success envelope before the cleanup runs:
+        // the envelope freezes the event array and charges maxBytes, so a finally that commits an
+        // event would throw on the frozen array and escape the byte limit. The return breaks a
+        // labeled block, the native finally runs on the way out, and the real return follows it.
+        // It is charged exactly once however many finallys it crosses: only the return SITE charges,
+        // and each tail hands the value outward uncharged, through the next `defer` out.
+        let deferred = false;
+        const defer = (value: string, charged = true): string => {
+          deferred = true;
+          const boundary = charged ? '\n      __meter.step(); __checkAbort();' : '';
+          return `${boundary}\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
+        };
+        const bodyReturn = cleanup === undefined ? returnSource : defer;
+        const body = blockSource(statement.body, new Map(scope), calls, nextLocal, bodyReturn);
+        const catchBody = blockSource(statement.catchBody, catchScope, calls, nextLocal, bodyReturn);
+        const caught =
+          statement.catchBody.length === 0
+            ? `${body}`
+            : `try {${body}
+      } catch(__e) { if(!(__e instanceof __UserThrow))throw __e;
+      __meter.step(); __checkAbort();${statement.binding === undefined ? '' : `${catchLocal}=__e.value;`}${catchBody}}`;
+        if (cleanup === undefined) {
+          return `\n      __meter.step(); __checkAbort(); __meter.step(); __checkAbort();${caught}`;
+        }
+        const finallyBody = blockSource(cleanup, new Map(scope), calls, nextLocal, returnSource);
+        const tail = deferred ? `\n      if(${held}){${returnSource(slot, false)}}` : '';
+        return `\n      __meter.step(); __checkAbort(); ${faultFlag}=false; ${held}=false;
+      ${exit}: { try { try { __meter.step(); __checkAbort();${caught} }
+      catch(__e2){if(__e2?.constructor!==__UserThrow)${faultFlag}=true;throw __e2;}
+      } finally {if(!${faultFlag}){__meter.step(); __checkAbort();${finallyBody}}} }${tail}`;
+      }
+      if (statement.kind === 'break' || statement.kind === 'continue') {
+        return `\n      __meter.step(); __checkAbort();\n      ${statement.kind};`;
+      }
       if (statement.kind !== 'if') return leafSource(statement, nextLocal(), scope, calls);
       const local = nextLocal();
       const condition = expressionSource(statement.condition, scope, calls);
@@ -320,8 +364,8 @@ function helperSource(helper: LinkedKernKirHelper, local: string, calls: CallLoc
       `if(!__matches(${parameters[index]},${typeSource(parameter.type)}))throw new __Fault('unsupported-runtime-input','execution');`,
   );
   const locals: string[] = [];
-  const nextLocal = (): string => {
-    const name = `${local}k${locals.length.toString(36)}`;
+  const nextLocal = (prefix = `${local}k`): string => {
+    const name = `${prefix}${locals.length.toString(36)}`;
     locals.push(name);
     return name;
   };
@@ -356,16 +400,15 @@ function specializedSource(linked: LinkedKernKirProgram): string {
     return `const ${local}=__request.arguments[__argumentNames[${index}]];if(${local}===undefined||!__matches(${local},${typeSource(parameter.type)}))throw new __Fault('invalid-handler-arguments','link');`;
   });
   const statementLocals: string[] = [];
-  const nextLocal = (): string => {
-    const local = `__k${(handler.parameters.length + statementLocals.length).toString(36)}`;
+  const nextLocal = (prefix = '__k'): string => {
+    const local = `${prefix}${(handler.parameters.length + statementLocals.length).toString(36)}`;
     statementLocals.push(local);
     return local;
   };
   const { returnType } = handler;
-  const returnSource = (value: string): string => {
+  const returnSource = (value: string, charged = true): string => {
     if (returnType.kind === 'void') throw new Error('a void handler must not carry a return statement');
-    return `
-      __meter.step(); __checkAbort();
+    return `${charged ? '\n      __meter.step(); __checkAbort();' : ''}
       {const __returned=${value};
       if(!__matches(__returned,${typeSource(returnType)}))throw new __Fault('invalid-handler-result','execution');
       const __result=Object.freeze({presence:'value',value:__returned});
@@ -385,7 +428,16 @@ function specializedSource(linked: LinkedKernKirProgram): string {
   const body = blockSource(handler.statements, bindings, calls, nextLocal, returnSource);
   const declarations = statementLocals.length === 0 ? '' : `let ${statementLocals.join(',')};`;
   const hasCapability = linkedStatementsInvokeCapability(handler.statements, linkedProgramHelpers(helpers));
-  return `
+  const hasUserThrow = statementsContainTryFamily(handler.statements);
+  const userThrowSource = hasUserThrow
+    ? `
+  class __UserThrow{constructor(value){this.value=value;}}
+  const __throwLabel=(value)=>{const __at=(key)=>value.value.find((entry)=>entry.key===key)?.value;const message=__at('message');const code=__at('code');if(message?.tag!=='text')return '';const label=message.value.slice(0,256);return code?.tag==='text'?label+' ['+code.value.slice(0,64)+']':label;};`
+    : '';
+  const catchSource = hasUserThrow
+    ? `if(error?.constructor===__UserThrow)error=new __Fault('uncaught-throw','execution',__throwLabel(error.value));return __failureEnvelope(__requestId,error,__events);`
+    : `return __failureEnvelope(__requestId,error,__events);`;
+  return `${userThrowSource}
   const __runSpecialized=async(__request,__options,__meter,__deadline,__events)=>{
     const __argumentNames=Object.freeze([${argumentNames.join(',')}]);
     const __actual=Object.keys(__request.arguments).sort();
@@ -420,20 +472,9 @@ function specializedSource(linked: LinkedKernKirProgram): string {
       if(__request.entry.moduleId!==${encodedText(entry.moduleId)}||__request.entry.handlerName!==${encodedText(entry.handlerName)})throw new __Fault('handler-entry-not-found','link');
       __deadline.check();
       return await __runSpecialized(__request,__options,__meter,__deadline,__events);
-    } catch(error) { return __failureEnvelope(__requestId,error,__events); }
+    } catch(error) { ${catchSource} }
   };
 `;
-}
-
-function dataSource(value: unknown): string {
-  if (value === null || typeof value === 'boolean' || typeof value === 'number') return String(value);
-  if (typeof value === 'string') return jsString(value);
-  if (Array.isArray(value)) return `[${value.map(dataSource).join(',')}]`;
-  const record = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${jsString(key)}:${dataSource(record[key])}`)
-    .join(',')}}`;
 }
 
 const MODULE_SUFFIX = `

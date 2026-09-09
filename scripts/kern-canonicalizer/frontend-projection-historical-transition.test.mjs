@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
+  reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
@@ -35,7 +36,9 @@ function pathDigest(paths) {
 }
 
 function r1SuccessorPaths() {
-  const cPy1Predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  const cPy1Predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(
+    reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(compiledPaths()),
+  );
   return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1Predecessor);
 }
 

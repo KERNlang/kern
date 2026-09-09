@@ -76,6 +76,7 @@ export type KernKirDiagnosticCode =
   | 'invalid-handler-result'
   | 'projection-authentication-error'
   | 'runtime-limit-exceeded'
+  | 'uncaught-throw'
   | 'unsupported-runtime-input';
 
 export interface KernKirDiagnostic {

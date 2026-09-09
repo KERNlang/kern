@@ -1,0 +1,20 @@
+{
+  "rows": [
+    { "expected": "30", "name": "while-assign-outer-persists", "program": "assign to an outer let persists across three trips", "trips": 3 },
+    { "expected": "9", "name": "while-async-let-in-body", "program": "an admitted async helper call as a let value, once per trip", "trips": 3 },
+    { "expected": "3", "name": "while-counted-3", "program": "sum 0..2 through an explicit counter", "trips": 3 },
+    { "expected": "3", "name": "while-early-return", "program": "a return inside the body ends the handler on trip four", "trips": 4 },
+    { "expected": "0", "name": "while-false-never-runs", "program": "a false literal condition runs no trip", "trips": 0 },
+    { "expected": "0", "name": "while-flag-param-false", "program": "a false boolean parameter runs no trip", "trips": 0 },
+    { "expected": "4", "name": "while-for-in-body", "program": "a for nested in a while body, two by two", "trips": 2 },
+    { "expected": "6", "name": "while-helper-in-body", "program": "a helper call in the body, four trips", "trips": 4 },
+    { "expected": "7", "name": "while-if-in-body", "program": "an if in the body selects trips three and four", "trips": 5 },
+    { "expected": "4", "name": "while-in-for-body", "program": "a while nested in a for body, two by two", "trips": 2 },
+    { "expected": "3", "name": "while-in-helper-body", "program": "a while inside a helper body", "trips": 3 },
+    { "expected": "3", "name": "while-in-if-else", "program": "a while in the else branch", "trips": 3 },
+    { "expected": "3", "name": "while-in-if-then", "program": "a while in the then branch", "trips": 3 },
+    { "expected": "6", "name": "while-let-in-body", "program": "a body-local let recomputed every trip", "trips": 3 },
+    { "expected": "4", "name": "while-nested-while", "program": "a while nested in a while body, two by two", "trips": 2 },
+    { "expected": "5", "name": "while-repeated-counter-name", "program": "two sequential whiles reusing one counter binding", "trips": 5 }
+  ]
+}

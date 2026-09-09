@@ -1,0 +1,159 @@
+{
+  "format": "kern.oracle.d-linked-try.behavior.v1",
+  "rows": [
+    {
+      "commit": "D2",
+      "entersCatch": false,
+      "expected": "1",
+      "name": "try-catch",
+      "program": "try { acc = 1 } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D3",
+      "entersCatch": false,
+      "expected": "1",
+      "name": "try-catch-no-binding",
+      "program": "try { acc = 1 } catch { acc = 2 }"
+    },
+    {
+      "commit": "D2",
+      "entersCatch": true,
+      "expected": "2",
+      "name": "try-catch-caught-throw",
+      "program": "try { throw { message } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D1",
+      "entersCatch": true,
+      "expected": "2",
+      "name": "try-catch-coded-throw",
+      "program": "try { throw { message, code } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D1",
+      "entersCatch": true,
+      "expected": "2",
+      "name": "try-catch-null-code",
+      "program": "try { throw { message, code: null } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D1",
+      "entersCatch": true,
+      "expected": "2",
+      "name": "try-payload-parameter",
+      "program": "try { throw { message: t } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D1",
+      "entersCatch": true,
+      "expected": "2",
+      "name": "try-payload-helper-call",
+      "program": "try { throw { message: lab(\"x\") } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D2",
+      "entersCatch": false,
+      "expected": "5",
+      "name": "try-catch-return-in-body",
+      "program": "try { return 5 } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D2",
+      "entersCatch": true,
+      "expected": "6",
+      "name": "try-catch-return-in-catch",
+      "program": "try { throw { message } } catch (e) { return 6 }"
+    },
+    {
+      "commit": "D3",
+      "entersCatch": false,
+      "expected": "1",
+      "name": "try-nested",
+      "program": "try { try { acc = 1 } catch (i) { acc = 2 } } catch (e) { acc = 3 }"
+    },
+    {
+      "commit": "D4",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "for-try-continue",
+      "program": "for i in 0..3 { try { acc = acc + 1 } catch (e) { continue } }"
+    },
+    {
+      "commit": "D4",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "for-try-guarded-continue",
+      "program": "for i in 0..4 { try { if i == 2 { continue } acc = acc + 1 } catch (e) { acc = acc + 10 } }"
+    },
+    {
+      "commit": "D4",
+      "entersCatch": false,
+      "expected": "1",
+      "name": "for-try-break",
+      "program": "for i in 0..3 { try { acc = acc + 1; break } catch (e) { acc = 2 } }"
+    },
+    {
+      "commit": "D4",
+      "entersCatch": false,
+      "expected": "0",
+      "name": "try-for-break",
+      "program": "try { for i in 0..3 { break } } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D4",
+      "entersCatch": false,
+      "expected": "2",
+      "name": "try-while-in-for-break",
+      "program": "for o in 0..2 { try { let j = 0; while j < 3 { acc = acc + 1; break } } catch (e) { acc = 2 } }"
+    },
+    {
+      "commit": "D2",
+      "entersCatch": false,
+      "expected": "1",
+      "name": "try-await-helper-completes",
+      "program": "try { acc = later() } catch (e) { acc = 2 }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "try-finally",
+      "program": "try { acc = 1 } catch (e) { acc = 2 } finally { acc = 3 }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "try-finally-no-catch",
+      "program": "try { acc = 1 } finally { acc = 3 }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": true,
+      "expected": "3",
+      "name": "try-finally-caught-throw",
+      "program": "try { throw { message } } catch (e) { acc = 2 } finally { acc = 3 }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": false,
+      "expected": "5",
+      "name": "try-finally-return-in-body",
+      "program": "try { return 5 } catch (e) { acc = 2 } finally { acc = 3 }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "try-finally-while",
+      "program": "try { acc = 1 } catch (e) { acc = 2 } finally { let j = 0; while j < 2 { acc = acc + 1; j = j + 1 } }"
+    },
+    {
+      "commit": "D5",
+      "entersCatch": false,
+      "expected": "3",
+      "name": "for-inside-finally-bearing-try-break",
+      "program": "try { for i in 0..3 { acc = acc + 1; break } } catch (e) { acc = 2 } finally { acc = 3 }"
+    }
+  ]
+}

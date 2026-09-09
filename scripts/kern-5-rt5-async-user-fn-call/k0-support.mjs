@@ -41,6 +41,7 @@ import {
   linkedProgram,
   moduleSource,
   projectModules,
+  pythonLegAdmissionColumn,
   stepRequest,
   threeLegBytes,
 } from '../kern-5-rt4-user-fn-call/k0-support.mjs';
@@ -74,6 +75,7 @@ export {
   project,
   projectModules,
   provider,
+  pythonLegAdmissionColumn,
   queueAbort,
   runtimeRequest,
   stepRequest,

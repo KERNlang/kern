@@ -13,7 +13,7 @@
     "control-each": "handler-entry-unsupported",
     "control-for": "admitted",
     "control-set": "not-projected",
-    "control-while": "handler-entry-unsupported",
+    "control-while": "admitted",
     "helper-body-assign": "admitted",
     "integer-from-identifier": "admitted",
     "list-assign": "admitted",
@@ -49,12 +49,17 @@
   },
   "linkedStatementKinds": [
     "assign",
+    "break",
     "capability",
+    "continue",
     "for",
     "if",
     "let",
     "print",
-    "return"
+    "return",
+    "throw",
+    "try",
+    "while"
   ],
   "structuralSchema": {
     "assign": {

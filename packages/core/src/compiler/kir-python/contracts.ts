@@ -6,6 +6,7 @@ export const KERN_KIR_PYTHON_COMPILER_OWNER = 'kern.compiler.kir-python.owner.v1
 export const KERN_KIR_PYTHON_COMPILER_FORMAT = 'kern.compiler.kir-python.v1' as const;
 export const KERN_KIR_PYTHON_ARTIFACT_FORMAT = 'kern.target.kir-python.v1' as const;
 export const KERN_KIR_PYTHON_HOST_PROFILE = 'kern.python.asyncio.v1' as const;
+export const KIR_PYTHON_LEG_DEFERRED_CODE = 'KIR_PYTHON_LEG_DEFERRED' as const;
 
 export interface KernKirPythonCompileRequest {
   readonly format: typeof KERN_KIR_PYTHON_COMPILER_FORMAT;
@@ -16,7 +17,8 @@ export interface KernKirPythonCompileRequest {
 export type KernKirPythonCompileFailureCode =
   | KernKirLinkCode
   | 'invalid-compiler-request'
-  | 'artifact-emission-failure';
+  | 'artifact-emission-failure'
+  | typeof KIR_PYTHON_LEG_DEFERRED_CODE;
 
 interface OutputFile {
   readonly path: 'entry.py' | 'manifest.json';

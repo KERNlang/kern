@@ -1,0 +1,52 @@
+{
+  "format": "kern.compiler.kir-python.parity-ledger.v1",
+  "label": "KIR_PYTHON_LEG_DEFERRED",
+  "rows": [
+    {
+      "blockedBy": [
+        "while"
+      ],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "break",
+      "since": "kern-5-rt12-linked-jumps",
+      "spec": ".Codex/specs/kern-5-rt12-linked-jumps/spec.md",
+      "surface": "statement"
+    },
+    {
+      "blockedBy": [
+        "while"
+      ],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "continue",
+      "since": "kern-5-rt12-linked-jumps",
+      "spec": ".Codex/specs/kern-5-rt12-linked-jumps/spec.md",
+      "surface": "statement"
+    },
+    {
+      "blockedBy": [],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "throw",
+      "since": "kern-5-d",
+      "spec": ".Codex/specs/kern-5-d-linked-try/spec.md",
+      "surface": "statement"
+    },
+    {
+      "blockedBy": [
+        "throw"
+      ],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "try",
+      "since": "kern-5-d",
+      "spec": ".Codex/specs/kern-5-d-linked-try/spec.md",
+      "surface": "statement"
+    },
+    {
+      "blockedBy": [],
+      "label": "KIR_PYTHON_LEG_DEFERRED",
+      "nodeKind": "while",
+      "since": "kern-5-rt11-linked-while",
+      "spec": ".Codex/specs/kern-5-rt11-linked-while/spec.md",
+      "surface": "statement"
+    }
+  ]
+}

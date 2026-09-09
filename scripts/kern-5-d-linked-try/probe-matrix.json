@@ -1,0 +1,429 @@
+{
+  "format": "kern.oracle.d-linked-try.probe-matrix.v1",
+  "matrix": {
+    "fences": {
+      "fence-catch-in-catch": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-catch-property": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-catch-typed": {
+        "diagnostics": [
+          "FRONTEND_EXCLUDED_HOST_TYPE"
+        ],
+        "status": "rejected"
+      },
+      "fence-finally-in-for-body": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-finally-in-while-body": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-finally-property": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-for-inside-finally": {
+        "diagnostics": [],
+        "status": "rejected"
+      },
+      "fence-try-step-child": {
+        "diagnostics": [
+          "UNEXPECTED_TOKEN"
+        ],
+        "status": "rejected"
+      }
+    },
+    "meters": {
+      "meter-for-3-try-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "meter-try-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "meter-try-leaf-finally-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "meter-try-throw-catch-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      }
+    },
+    "positions": {
+      "for-inside-finally-bearing-try-break": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "for-try-break": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "for-try-continue": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "for-try-guarded-continue": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-assign-catch-binding": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-break-crosses-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-break-in-try-top-level": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-catch-after-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-catch-in-for": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-catch-in-while": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-catch-top-level": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-continue-crosses-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-continue-in-try-top-level": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-duplicate-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-break": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-continue": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-nested-throw": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-return": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-stray": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-finally-throw": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-return-only-in-try": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-async-call": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-async-in-payload": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-bare": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-boolean-literal": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-empty-record": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-extra-key": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-identifier": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-in-helper": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-integer-literal": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-integer-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-let-bound-payload": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-list": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-member": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-nested-record-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-no-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-null-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-shadowed-binding": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-text-literal": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-throw-with-children": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-body-after-clause": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-duplicate-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-empty-body": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-empty-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-in-helper": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-named": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-try-no-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-void-return-in-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "neg-void-return-in-try": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught-after-capability": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught-after-print": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught-after-print-and-capability": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught-coded": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "throw-uncaught-in-try-body-no-catch-match": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-await-helper-completes": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-cancel-in-body": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-capability": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-caught-throw": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-coded-throw": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-no-binding": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-null-code": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-reads-code": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-reads-message": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-reads-missing": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-reads-omitted-code": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-return-in-body": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-return-in-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-catch-slow-loop": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-capability": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-caught-throw": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-nested-print-return": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-no-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-print-return": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-rethrow": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-rethrow-prints": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-return-in-body": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-finally-while": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-for-break": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-nested": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-payload-helper-call": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-payload-parameter": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-rethrow": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-throw-in-catch": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "try-while-in-for-break": {
+        "diagnostics": [],
+        "status": "projected"
+      }
+    },
+    "twins": {
+      "twin-for-3-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "twin-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "twin-let-and-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      },
+      "twin-try-catch-leaf": {
+        "diagnostics": [],
+        "status": "projected"
+      }
+    }
+  }
+}

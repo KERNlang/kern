@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
+import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
+import { assertPythonLegAdmission } from '../kern-5-parity-ledger/support.mjs';
+
+import { ENTRY, LIMITS, compileJavaScript, compilePython, handlerSource, project } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL(
@@ -13,26 +16,47 @@ const CONTRACTS_URL = new URL(
 
 const PROBE_BODIES = Object.freeze({
   assign: ['let name=held value="\"a\""', 'assign target="held" value="\"b\""'],
+  break: ['let name=x value="0"', 'for name=i from="0" to="1"', '  break'],
   capability: ['capability namespace=fixture operation=resolve name=reply'],
+  catch: ['let name=x value="0"', 'catch name=e', '  assign target="x" value="1"'],
+  continue: ['let name=x value="0"', 'for name=i from="0" to="1"', '  continue'],
   else: ['else', '  print value="\"f\""'],
+  finally: ['let name=x value="0"', 'finally', '  assign target="x" value="1"'],
   for: ['let name=x value="0"', 'for name=i from="0" to="1"', '  assign target="x" value="x + 1"'],
   if: ['if cond="flag"', '  print value="\"t\""'],
   'if-else': ['if cond="flag"', '  print value="\"t\""', 'else', '  print value="\"f\""'],
   let: ['let name=held value="\"a\""'],
   print: ['print value="\"a\""'],
   return: [],
-  while: ['while cond="flag"', '  print value="\"w\""'],
+  throw: ['if cond="false"', '  throw value="{message: \"boom\"}"'],
+  try: [
+    'let name=x value="0"',
+    'try',
+    '  assign target="x" value="1"',
+    'catch name=e',
+    '  assign target="x" value="2"',
+  ],
+  while: ['while cond="false"', '  if cond="flag"', '    print value="\"w\""'],
 });
 
+// `catch` and `finally` are probed on purpose and must stay non-admitted: they are clauses of a
+// `try`, never statement-union members, so their non-membership becomes an asserted fact rather
+// than an omission.
 const STATEMENT_PROBES = Object.freeze([
   'assign',
+  'break',
   'capability',
+  'catch',
+  'continue',
   'else',
+  'finally',
   'for',
   'if',
   'let',
   'print',
   'return',
+  'throw',
+  'try',
   'while',
 ]);
 
@@ -84,8 +108,14 @@ async function probeAdmission(kind) {
   const python = compilePython(verified);
   const javascriptCode = javascript.outcome === 'failure' ? javascript.code : 'admitted';
   const pythonCode = python.outcome === 'failure' ? python.code : 'admitted';
-  assert.equal(javascriptCode, pythonCode, `both targets share one linker; ${kind} diverged`);
-  return javascriptCode;
+  const link = linkVerifiedKernKirProgram(verified, ENTRY, LIMITS);
+  return assertPythonLegAdmission({
+    javascriptCode,
+    label: kind,
+    linkedProgram: link.outcome === 'success' ? link.program : undefined,
+    python,
+    pythonCode,
+  });
 }
 
 async function recompute() {

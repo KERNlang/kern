@@ -16,7 +16,6 @@ import type {
   LinkedKernKirStatement,
   LinkedKernKirUnaryOperator,
 } from './linked-kir-program/index.js';
-
 export interface ExpressionRuntime {
   readonly asyncHelpers: ReadonlySet<string>;
   readonly checkAbort: () => void;
@@ -41,6 +40,7 @@ export type StatementStep =
 // a value-returning entry both fail closed. The core reports which happened and each driver decides.
 export type StatementWalkResult =
   | { readonly kind: 'returned'; readonly value: KernKirValue }
+  | { readonly kind: 'threw'; readonly value: KernKirValue }
   | { readonly kind: 'drained' };
 
 export interface StatementWalkPolicy {
@@ -156,20 +156,51 @@ function* statementValue(
   return yield Object.freeze({ arguments: Object.freeze(args), handler, kind: 'call' as const });
 }
 
-interface LoopState {
+interface ForLoopState {
   readonly counter: string;
+  readonly kind: 'for';
   readonly step: bigint;
   readonly to: bigint;
   current: bigint;
 }
 
+interface WhileLoopState {
+  readonly condition: LinkedKernKirExpression;
+  readonly kind: 'while';
+}
+
+type LoopState = ForLoopState | WhileLoopState;
+
+// The try statement is its own trap record: the frame that carries it needs exactly the clause
+// bodies and the binding the statement already declares.
+type TryTrap = Extract<LinkedKernKirStatement, { readonly kind: 'try' }>;
+
 interface WalkFrame {
+  readonly completion: StatementWalkResult | undefined;
   readonly loop: LoopState | undefined;
   readonly statements: readonly LinkedKernKirStatement[];
+  readonly trap: TryTrap | undefined;
   index: number;
 }
 
-function loopContinues(loop: LoopState): boolean {
+const walkFrame = (
+  statements: readonly LinkedKernKirStatement[],
+  loop?: LoopState,
+  trap?: TryTrap,
+  completion?: StatementWalkResult,
+): WalkFrame => ({ completion, index: 0, loop, statements, trap });
+
+export function clampThrowLabel(value: KernKirValue): string {
+  const entry = (key: string): KernKirValue | undefined =>
+    value.tag === 'record' ? value.value.find((item) => item.key === key)?.value : undefined;
+  const message = entry('message');
+  const code = entry('code');
+  if (message?.tag !== 'text') return '';
+  const label = message.value.slice(0, 256);
+  return code?.tag === 'text' ? `${label} [${code.value.slice(0, 64)}]` : label;
+}
+
+function loopContinues(loop: ForLoopState): boolean {
   return loop.step > 0n ? loop.current < loop.to : loop.current > loop.to;
 }
 
@@ -180,19 +211,50 @@ export function* walkStatements(
   runtime: ExpressionRuntime,
   policy: StatementWalkPolicy,
 ): Generator<StatementStep, StatementWalkResult, KernKirValue> {
-  const frames: WalkFrame[] = [{ index: 0, loop: undefined, statements: handler.statements }];
+  const frames: WalkFrame[] = [walkFrame(handler.statements)];
   const enterTrip = (loop: LoopState): void => {
     meter.step();
     runtime.checkAbort();
-    bindings.set(loop.counter, integerValue(loop.current, meter));
+    if (loop.kind === 'for') bindings.set(loop.counter, integerValue(loop.current, meter));
+  };
+  // A completion the enclosing traps may absorb: a user throw enters the nearest catch body, and any
+  // abrupt completion crossing a finally-bearing try runs that finally before it continues outward.
+  // Returns the completion only when nothing can absorb it, so the caller leaves the generator.
+  const settle = (completion: Exclude<StatementWalkResult, { kind: 'drained' }>): StatementWalkResult | undefined => {
+    const absorbs = (trap: TryTrap | undefined): boolean =>
+      trap !== undefined &&
+      (trap.finallyBody !== undefined || (completion.kind === 'threw' && trap.catchBody.length > 0));
+    let depth = frames.length - 1;
+    while (depth >= 0 && !absorbs(frames[depth].trap)) depth -= 1;
+    if (depth < 0) return completion;
+    const trap = frames[depth].trap as TryTrap;
+    frames.length = depth;
+    meter.step();
+    if (completion.kind === 'threw' && trap.catchBody.length > 0) {
+      if (trap.binding !== undefined) bindings.set(trap.binding, completion.value);
+      frames.push(walkFrame(trap.catchBody, undefined, { ...trap, catchBody: [] }));
+      return undefined;
+    }
+    frames.push(walkFrame(trap.finallyBody as readonly LinkedKernKirStatement[], undefined, undefined, completion));
+    return undefined;
   };
   while (frames.length > 0) {
     const frame = frames[frames.length - 1];
     if (frame.index >= frame.statements.length) {
-      const { loop } = frame;
+      const { completion, loop, trap } = frame;
       if (loop !== undefined) {
-        loop.current += loop.step;
-        if (loopContinues(loop)) {
+        let continues: boolean;
+        if (loop.kind === 'for') {
+          loop.current += loop.step;
+          continues = loopContinues(loop);
+        } else {
+          const condition = evaluateExpression(loop.condition, bindings, meter, runtime);
+          if (condition.tag !== 'boolean') {
+            throw new KernKirFault('unsupported-runtime-input', 'execution', 'while condition expects boolean');
+          }
+          continues = condition.value === true;
+        }
+        if (continues) {
           frame.index = 0;
           enterTrip(loop);
           continue;
@@ -200,6 +262,13 @@ export function* walkStatements(
         meter.step();
       }
       frames.pop();
+      if (trap?.finallyBody !== undefined) {
+        meter.step();
+        frames.push(walkFrame(trap.finallyBody, undefined, undefined, completion));
+      } else if (completion !== undefined && completion.kind !== 'drained') {
+        const settled = settle(completion);
+        if (settled !== undefined) return settled;
+      }
       continue;
     }
     const statement = frame.statements[frame.index];
@@ -208,6 +277,22 @@ export function* walkStatements(
     runtime.checkAbort();
     if (statement.kind === 'let') {
       bindings.set(statement.name, yield* statementValue(statement.value, bindings, meter, runtime));
+    } else if (statement.kind === 'break') {
+      let depth = frames.length - 1;
+      while (depth >= 0 && frames[depth].loop === undefined) depth -= 1;
+      if (depth < 0) {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_JUMP_WITHOUT_LOOP_FRAME');
+      }
+      frames.length = depth;
+      meter.step();
+    } else if (statement.kind === 'continue') {
+      let depth = frames.length - 1;
+      while (depth >= 0 && frames[depth].loop === undefined) depth -= 1;
+      if (depth < 0) {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_JUMP_WITHOUT_LOOP_FRAME');
+      }
+      frames.length = depth + 1;
+      frames[depth].index = frames[depth].statements.length;
     } else if (statement.kind === 'assign') {
       bindings.set(statement.target, yield* statementValue(statement.value, bindings, meter, runtime));
     } else if (statement.kind === 'capability') {
@@ -235,19 +320,38 @@ export function* walkStatements(
         throw new KernKirFault('unsupported-runtime-input', 'execution', 'if condition expects boolean');
       }
       const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
-      if (branch !== undefined) frames.push({ index: 0, loop: undefined, statements: branch });
+      if (branch !== undefined) frames.push(walkFrame(branch));
     } else if (statement.kind === 'for') {
       const from = integerOperand(evaluateExpression(statement.from, bindings, meter, runtime));
       const to = integerOperand(evaluateExpression(statement.to, bindings, meter, runtime));
       const step = integerOperand(evaluateExpression(statement.step, bindings, meter, runtime));
       if (step === 0n) throw new KernKirFault('unsupported-runtime-input', 'execution', 'ERR_KIR_LOOP_ZERO_STEP');
-      const loop: LoopState = { counter: statement.counter, current: from, step, to };
+      const loop: ForLoopState = { counter: statement.counter, current: from, kind: 'for', step, to };
       if (loopContinues(loop)) {
         enterTrip(loop);
-        frames.push({ index: 0, loop, statements: statement.body });
+        frames.push(walkFrame(statement.body, loop));
       } else {
         meter.step();
       }
+    } else if (statement.kind === 'while') {
+      const condition = evaluateExpression(statement.condition, bindings, meter, runtime);
+      if (condition.tag !== 'boolean') {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'while condition expects boolean');
+      }
+      if (condition.value === true) {
+        const loop: WhileLoopState = { condition: statement.condition, kind: 'while' };
+        enterTrip(loop);
+        frames.push(walkFrame(statement.body, loop));
+      } else {
+        meter.step();
+      }
+    } else if (statement.kind === 'throw') {
+      const value = yield* statementValue(statement.value, bindings, meter, runtime);
+      const settled = settle(Object.freeze({ kind: 'threw' as const, value }));
+      if (settled !== undefined) return settled;
+    } else if (statement.kind === 'try') {
+      meter.step();
+      frames.push(walkFrame(statement.body, undefined, statement));
     } else {
       const { returnType } = handler;
       if (returnType.kind === 'void') {
@@ -257,7 +361,8 @@ export function* walkStatements(
       if (!matchesType(value, returnType)) {
         throw new KernKirFault(policy.returnCode, 'execution', policy.returnMessage);
       }
-      return Object.freeze({ kind: 'returned' as const, value });
+      const settled = settle(Object.freeze({ kind: 'returned' as const, value }));
+      if (settled !== undefined) return settled;
     }
   }
   return Object.freeze({ kind: 'drained' as const });
@@ -277,6 +382,9 @@ function callHelper(
   if (!step.done) throw new KernKirFault('unsupported-runtime-input', 'execution', 'KIR_CALL_CALLEE_CAPABILITY');
   if (step.value.kind === 'drained') {
     throw new KernKirFault('handler-entry-unsupported', 'execution', 'helper did not return');
+  }
+  if (step.value.kind === 'threw') {
+    throw new KernKirFault('handler-link-error', 'execution', 'KIR_TRY_FAMILY_IN_HELPER');
   }
   return step.value.value;
 }

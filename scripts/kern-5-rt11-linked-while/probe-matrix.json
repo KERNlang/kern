@@ -1,0 +1,539 @@
+{
+  "fences": {
+    "fence-capability-in-body": {
+      "diagnostics": [],
+      "status": "rejected"
+    },
+    "fence-extra-property": {
+      "diagnostics": [],
+      "status": "rejected"
+    },
+    "fence-missing-cond": {
+      "diagnostics": [
+        "UNEXPECTED_TOKEN"
+      ],
+      "status": "rejected"
+    },
+    "fence-print-in-body": {
+      "diagnostics": [],
+      "status": "rejected"
+    }
+  },
+  "positions": {
+    "meter-cond-costly-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-cond-costly-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-fat-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-fat-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-trips-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-trips-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-2x2": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-2x3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-2x4": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-0": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-0-fat": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-trips-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-assign-in-body-async": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-break-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-cond-async": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-cond-binary-integer": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-cond-integer-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-cond-integer-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-cond-text-param": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-continue-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-each-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-empty-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-let-escapes": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-while-void-return-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-assign-one": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-let-literal": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets-assign": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets-cond-cheap": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets-cond-costly": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-assign-outer-persists": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-async-let-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-cap-via-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-cond-user-call": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-counted-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-early-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-false-never-runs": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-flag-param-false": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-for-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-helper-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-if-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-in-for-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-in-helper-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-in-if-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-in-if-then": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-let-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-nested-while": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-print-via-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-repeated-counter-name": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-true-exhausts-steps": {
+      "diagnostics": [],
+      "status": "projected"
+    }
+  },
+  "shapes": {
+    "neg-while-empty-body": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "while",
+        "properties": {
+          "cond": {
+            "kind": "boolean",
+            "value": false
+          }
+        }
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "while-counted-3": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "let",
+        "properties": {
+          "name": "i",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "while",
+        "properties": {
+          "cond": {
+            "kind": "binary",
+            "left": {
+              "kind": "identifier",
+              "name": "i"
+            },
+            "op": "<",
+            "right": {
+              "kind": "integer",
+              "value": "3"
+            }
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "acc"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "acc"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "identifier",
+                  "name": "i"
+                }
+              }
+            }
+          },
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "i"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "i"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "while-nested-while": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "let",
+        "properties": {
+          "name": "i",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "while",
+        "properties": {
+          "cond": {
+            "kind": "binary",
+            "left": {
+              "kind": "identifier",
+              "name": "i"
+            },
+            "op": "<",
+            "right": {
+              "kind": "integer",
+              "value": "2"
+            }
+          }
+        },
+        "children": [
+          {
+            "kind": "let",
+            "properties": {
+              "name": "j",
+              "value": {
+                "kind": "integer",
+                "value": "0"
+              }
+            }
+          },
+          {
+            "kind": "while",
+            "properties": {
+              "cond": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "j"
+                },
+                "op": "<",
+                "right": {
+                  "kind": "integer",
+                  "value": "2"
+                }
+              }
+            },
+            "children": [
+              {
+                "kind": "assign",
+                "properties": {
+                  "target": {
+                    "kind": "identifier",
+                    "name": "acc"
+                  },
+                  "value": {
+                    "kind": "binary",
+                    "left": {
+                      "kind": "identifier",
+                      "name": "acc"
+                    },
+                    "op": "+",
+                    "right": {
+                      "kind": "integer",
+                      "value": "1"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "assign",
+                "properties": {
+                  "target": {
+                    "kind": "identifier",
+                    "name": "j"
+                  },
+                  "value": {
+                    "kind": "binary",
+                    "left": {
+                      "kind": "identifier",
+                      "name": "j"
+                    },
+                    "op": "+",
+                    "right": {
+                      "kind": "integer",
+                      "value": "1"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "i"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "i"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ]
+  },
+  "structuralSchema": {
+    "while": {
+      "allowedChildren": [
+        "assign",
+        "branch",
+        "break",
+        "catch",
+        "clamp",
+        "coalesce",
+        "comment",
+        "continue",
+        "destructure",
+        "do",
+        "each",
+        "else",
+        "expression-v1",
+        "firstDefined",
+        "firstTruthy",
+        "fmt",
+        "fn",
+        "for",
+        "if",
+        "let",
+        "objectMerge",
+        "objectOmit",
+        "objectPick",
+        "return",
+        "throw",
+        "try",
+        "while",
+        "with"
+      ],
+      "disposition": "structural-candidate",
+      "kind": "while",
+      "properties": {
+        "cond": {
+          "disposition": "lowered-expression",
+          "required": true,
+          "schemaKind": "expression",
+          "values": null
+        }
+      },
+      "schemaStatus": "bound"
+    }
+  }
+}
