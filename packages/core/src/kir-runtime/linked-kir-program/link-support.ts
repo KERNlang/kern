@@ -8,6 +8,7 @@ import {
   type LinkedKernKirCrossCallType,
   type LinkedKernKirExpression,
   type LinkedKernKirHandler,
+  type LinkedKernKirParameterType,
   type LinkedKernKirStatement,
   type LinkedKernKirStaticType,
   statementSubBlocks,
@@ -81,9 +82,11 @@ export interface LinkScope {
   readonly calls: LinkedKernKirCallScope | undefined;
   readonly counters: Set<string>;
   readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
+  readonly eachBindings: Set<string>;
   readonly finallyDepth: number;
   readonly loopDepth: number;
   readonly loopFinallyDepth: number;
+  readonly parameters: ReadonlyMap<string, LinkedKernKirParameterType>;
   readonly payloads: Set<string>;
   readonly tryFamily: boolean;
   readonly types: Map<string, LinkedKernKirStaticType>;
@@ -106,9 +109,11 @@ export function branchScope(scope: LinkScope): LinkScope {
     calls: scope.calls,
     counters: new Set(scope.counters),
     crossCallTypes: new Map(scope.crossCallTypes),
+    eachBindings: new Set(scope.eachBindings),
     finallyDepth: scope.finallyDepth,
     loopDepth: scope.loopDepth,
     loopFinallyDepth: scope.loopFinallyDepth,
+    parameters: scope.parameters,
     payloads: new Set(scope.payloads),
     tryFamily: scope.tryFamily,
     types: new Map(scope.types),

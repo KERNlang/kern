@@ -16,7 +16,7 @@ import {
   propertySet,
   propertyText,
 } from './link-support.js';
-import { compileFor, compileWhile } from './loop-statements.js';
+import { compileEach, compileFor, compileWhile } from './loop-statements.js';
 
 const ABRUPT_KINDS = Object.freeze(['break', 'continue', 'return', 'throw']);
 
@@ -138,7 +138,11 @@ function compileStatement(
     const target = assignTargetName(properties.get('target'), `${label}.target`, meter);
     if (!scope.bindings.has(target)) fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_UNDECLARED ${target}`);
     if (!scope.assignable.has(target)) {
-      const reason = scope.counters.has(target) ? 'KIR_ASSIGN_TO_LOOP_COUNTER' : 'KIR_ASSIGN_TARGET_NOT_LET';
+      const reason = scope.eachBindings.has(target)
+        ? 'KIR_ASSIGN_TO_EACH_BINDING'
+        : scope.counters.has(target)
+          ? 'KIR_ASSIGN_TO_LOOP_COUNTER'
+          : 'KIR_ASSIGN_TARGET_NOT_LET';
       fault('handler-entry-unsupported', `${label}: ${reason} ${target}`);
     }
     const value = properties.get('value');
@@ -311,6 +315,10 @@ export function compileBlock(
     const childLabel = `${label}.children[${index}]`;
     const node = nodes[index];
     const kind = nodeKind(node, childLabel);
+    if (kind === 'each') {
+      statements.push(compileEach(node, scope, meter, childLabel, compileBranch));
+      continue;
+    }
     if (kind === 'for') {
       statements.push(compileFor(node, scope, meter, childLabel, compileBranch));
       continue;

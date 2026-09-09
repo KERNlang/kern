@@ -175,7 +175,8 @@ function leafSource(
       __events.push(Object.freeze({op:'stdout',text:__printed.value}));}`;
   }
   if (statement.kind === 'do') {
-    const value = statement.value === undefined ? '' : `\n      ${statementValueSource(statement.value, bindings, calls)};`;
+    const value =
+      statement.value === undefined ? '' : `\n      ${statementValueSource(statement.value, bindings, calls)};`;
     return `
       __meter.step(); __checkAbort();${value}`;
   }
@@ -210,6 +211,32 @@ function forSource(
       for(;${stride}>0n?${cursor}<${bound}:${cursor}>${bound};${cursor}+=${stride}){
       __meter.step(); __checkAbort();
       ${counter}=__intValue(${cursor},__meter);${blockSource(statement.body, body, calls, nextLocal, returnSource)}
+      }
+      __meter.step();`;
+}
+
+function eachSource(
+  statement: Extract<LinkedKernKirStatement, { kind: 'each' }>,
+  scope: Map<string, string>,
+  calls: CallLocals,
+  nextLocal: (prefix?: string) => string,
+  returnSource: (value: string, charged?: boolean) => string,
+): string {
+  const items = nextLocal();
+  const cursor = nextLocal();
+  const item = nextLocal();
+  const index = statement.index === undefined ? undefined : nextLocal();
+  const source = expressionSource({ kind: 'identifier', name: statement.source }, scope, calls);
+  const body = new Map(scope);
+  body.set(statement.item, item);
+  if (statement.index !== undefined && index !== undefined) body.set(statement.index, index);
+  return `
+      __meter.step();
+      ${items}=${source};
+      if(${items}.tag!=='list')throw new __Fault('unsupported-runtime-input','execution');
+      for(${cursor}=0;${cursor}<${items}.value.length;${cursor}+=1){
+      __meter.step(); __checkAbort();
+      ${item}=${items}.value[${cursor}];${index === undefined ? '' : `\n      ${index}=__intValue(BigInt(${cursor}),__meter);`}${blockSource(statement.body, body, calls, nextLocal, returnSource)}
       }
       __meter.step();`;
 }
@@ -249,6 +276,7 @@ export function blockSource(
         return `\n      __meter.step(); __checkAbort();\n      throw new __UserThrow(${statementValueSource(statement.value, scope, calls)});`;
       }
       if (statement.kind === 'assign') return assignSource(statement, scope, calls);
+      if (statement.kind === 'each') return eachSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'for') return forSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'while') return whileSource(statement, scope, calls, nextLocal, returnSource);
       if (statement.kind === 'try') {

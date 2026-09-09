@@ -252,6 +252,13 @@ export type LinkedKernKirStatement =
   | { readonly kind: 'break' }
   | { readonly kind: 'continue' }
   | { readonly kind: 'do'; readonly value?: LinkedKernKirExpression }
+  | {
+      readonly kind: 'each';
+      readonly source: string;
+      readonly item: string;
+      readonly index?: string;
+      readonly body: readonly LinkedKernKirStatement[];
+    }
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
       readonly kind: 'capability';
@@ -294,7 +301,7 @@ export function statementSubBlocks(statement: LinkedKernKirStatement): readonly 
   if (statement.kind === 'if') {
     return statement.elseBranch === undefined ? [statement.thenBranch] : [statement.thenBranch, statement.elseBranch];
   }
-  if (statement.kind === 'for' || statement.kind === 'while') return [statement.body];
+  if (statement.kind === 'each' || statement.kind === 'for' || statement.kind === 'while') return [statement.body];
   if (statement.kind === 'try') {
     return statement.finallyBody === undefined
       ? [statement.body, statement.catchBody]
@@ -307,7 +314,13 @@ export function statementSubExpressions(statement: LinkedKernKirStatement): read
   if (statement.kind === 'capability') return statement.input === undefined ? [] : [statement.input];
   if (statement.kind === 'if' || statement.kind === 'while') return [statement.condition];
   if (statement.kind === 'for') return [statement.from, statement.to, statement.step];
-  if (statement.kind === 'break' || statement.kind === 'continue' || statement.kind === 'try') return [];
+  if (
+    statement.kind === 'break' ||
+    statement.kind === 'continue' ||
+    statement.kind === 'each' ||
+    statement.kind === 'try'
+  )
+    return [];
   if (statement.kind === 'do') return statement.value === undefined ? [] : [statement.value];
   return [statement.value];
 }

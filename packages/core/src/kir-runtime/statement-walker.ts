@@ -75,12 +75,20 @@ interface ForLoopState {
   current: bigint;
 }
 
+interface EachLoopState {
+  readonly items: readonly KernKirValue[];
+  readonly item: string;
+  readonly indexBinding?: string;
+  readonly kind: 'each';
+  cursor: number;
+}
+
 interface WhileLoopState {
   readonly condition: LinkedKernKirExpression;
   readonly kind: 'while';
 }
 
-type LoopState = ForLoopState | WhileLoopState;
+type LoopState = EachLoopState | ForLoopState | WhileLoopState;
 
 // The try statement is its own trap record: the frame that carries it needs exactly the clause
 // bodies and the binding the statement already declares.
@@ -117,6 +125,10 @@ export function* walkStatements(
     meter.step();
     runtime.checkAbort();
     if (loop.kind === 'for') bindings.set(loop.counter, integerValue(loop.current, meter));
+    if (loop.kind === 'each') {
+      bindings.set(loop.item, loop.items[loop.cursor]);
+      if (loop.indexBinding !== undefined) bindings.set(loop.indexBinding, integerValue(BigInt(loop.cursor), meter));
+    }
   };
   // A completion the enclosing traps may absorb: a user throw enters the nearest catch body, and any
   // abrupt completion crossing a finally-bearing try runs that finally before it continues outward.
@@ -148,6 +160,9 @@ export function* walkStatements(
         if (loop.kind === 'for') {
           loop.current += loop.step;
           continues = loopContinues(loop);
+        } else if (loop.kind === 'each') {
+          loop.cursor += 1;
+          continues = loop.cursor < loop.items.length;
         } else {
           const condition = evaluateExpression(loop.condition, bindings, meter, runtime);
           if (condition.tag !== 'boolean') {
@@ -224,6 +239,19 @@ export function* walkStatements(
       }
       const branch = condition.value === true ? statement.thenBranch : statement.elseBranch;
       if (branch !== undefined) frames.push(walkFrame(branch));
+    } else if (statement.kind === 'each') {
+      const { index, item } = statement;
+      const source = evaluateExpression({ kind: 'identifier', name: statement.source }, bindings, meter, runtime);
+      if (source.tag !== 'list') {
+        throw new KernKirFault('unsupported-runtime-input', 'execution', 'each source expects list');
+      }
+      const loop: EachLoopState = { cursor: 0, indexBinding: index, item, items: source.value, kind: 'each' };
+      if (loop.items.length > 0) {
+        enterTrip(loop);
+        frames.push(walkFrame(statement.body, loop));
+      } else {
+        meter.step();
+      }
     } else if (statement.kind === 'for') {
       const from = integerOperand(evaluateExpression(statement.from, bindings, meter, runtime));
       const to = integerOperand(evaluateExpression(statement.to, bindings, meter, runtime));

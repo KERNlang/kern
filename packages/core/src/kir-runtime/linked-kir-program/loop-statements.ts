@@ -1,7 +1,7 @@
 import type { CanonicalValue } from '../../canonical-value/types.js';
 import type { StructuralKirNode } from '../../kir-structural/types.js';
 import type { RuntimeMeter } from '../inspect.js';
-import { nodeProperties } from '../inspect.js';
+import { canonicalRecord, nodeProperties } from '../inspect.js';
 import type { LinkedKernKirExpression, LinkedKernKirStatement } from './contracts.js';
 import { compileLinkedExpression, staticExpressionType } from './expression.js';
 import {
@@ -87,6 +87,66 @@ export function compileFor(
     kind: 'for' as const,
     step,
     to,
+  });
+}
+
+export function compileEach(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+  compileBranch: BranchCompiler,
+): LinkedKernKirStatement {
+  meter.step();
+  const properties = nodeProperties(node, label);
+  propertySet(
+    properties,
+    ['in', 'name'],
+    ['await', 'entries', 'entryKey', 'entryValue', 'index', 'pairKey', 'pairValue', 'trailingComment'],
+    label,
+  );
+  if (properties.has('await')) fault('handler-entry-unsupported', `${label}: KIR_EACH_AWAIT_UNSUPPORTED`);
+  if (properties.has('entries')) fault('handler-entry-unsupported', `${label}: KIR_EACH_ENTRIES_UNSUPPORTED`);
+  if (properties.has('entryKey') || properties.has('entryValue')) {
+    fault('handler-entry-unsupported', `${label}: KIR_EACH_ENTRY_MODE_UNSUPPORTED`);
+  }
+  if (properties.has('pairKey') || properties.has('pairValue')) {
+    fault('handler-entry-unsupported', `${label}: KIR_EACH_PAIR_MODE_UNSUPPORTED`);
+  }
+  const input = properties.get('in');
+  if (input === undefined) fault('handler-entry-unsupported', `${label}.in: missing property`);
+  const reference = canonicalRecord(input, ['form', 'source'], `${label}.in`);
+  const form = propertyText(reference, 'form', `${label}.in`, meter);
+  if (form !== 'binding') {
+    fault('handler-entry-unsupported', `${label}: KIR_EACH_RECORD_FIELD_UNSUPPORTED`);
+  }
+  const source = propertyText(reference, 'source', `${label}.in`, meter);
+  const sourceType = scope.parameters.get(source);
+  if (sourceType === undefined) fault('handler-entry-unsupported', `${label}: KIR_EACH_SOURCE_NOT_PARAMETER`);
+  if (sourceType.kind !== 'list') fault('handler-entry-unsupported', `${label}: KIR_EACH_SOURCE_NOT_LIST`);
+  const item = propertyText(properties, 'name', label, meter);
+  const index = properties.has('index') ? propertyText(properties, 'index', label, meter) : undefined;
+  if (scope.bindings.has(item) || (index !== undefined && (scope.bindings.has(index) || index === item))) {
+    fault('handler-entry-unsupported', `${label}: duplicate binding ${index === item ? index : item}`);
+  }
+  const bodyScope = {
+    ...branchScope(scope),
+    loopDepth: scope.loopDepth + 1,
+    loopFinallyDepth: scope.finallyDepth,
+  };
+  const staticType = sourceType.element === 'text' ? undefined : sourceType.element;
+  bindName(bodyScope, item, staticType, sourceType.element);
+  bodyScope.eachBindings.add(item);
+  if (index !== undefined) {
+    bindName(bodyScope, index, 'integer', 'integer');
+    bodyScope.eachBindings.add(index);
+  }
+  return Object.freeze({
+    body: compileBranch(node, bodyScope, meter, `${label}.body`),
+    ...(index === undefined ? {} : { index }),
+    item,
+    kind: 'each' as const,
+    source,
   });
 }
 

@@ -28,6 +28,7 @@ export const KIR_PYTHON_STATEMENT_LOWERING = Object.freeze({
   capability: 'lowered',
   continue: 'deferred',
   do: 'deferred',
+  each: 'deferred',
   for: 'lowered',
   if: 'lowered',
   let: 'lowered',
@@ -127,6 +128,8 @@ function statementDeferral(
       return statement.input === undefined ? undefined : expressionDeferral(statement.input, lowering);
     case 'do':
       return statement.value === undefined ? undefined : expressionDeferral(statement.value, lowering);
+    case 'each':
+      return statementsDeferral(statement.body, lowering);
     case 'assign':
     case 'let':
     case 'print':
