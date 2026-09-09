@@ -8,7 +8,7 @@ export const INT_LIST = Object.freeze([Object.freeze({ name: 'ns', type: 'intege
 export const BOOL_LIST = Object.freeze([Object.freeze({ name: 'bs', type: 'boolean[]' })]);
 export const TEXT_LIST_AND_SCALAR = Object.freeze([...TEXT_LIST, ...TEXT_T]);
 
-const CAPABILITY = 'capability namespace=fixture operation=resolve name=reply';
+export const CAPABILITY = 'capability namespace=fixture operation=resolve name=reply';
 
 export const INT_HELPER = Object.freeze({
   body: Object.freeze(['return value="a + 1"']),
@@ -119,11 +119,18 @@ export const EACH_POSITIONS = Object.freeze({
       '    assign target="acc" value="acc + 10"',
       RET_ACC,
     ]),
+  'each-capability-body': () => eachProgram([ACC, 'each name=x in="xs"', `  ${CAPABILITY}`, BUMP_ACC, RET_ACC]),
   'each-continue': () =>
     eachProgram([ACC, 'each name=x in="xs"', '  if cond="acc > 0"', '    continue', BUMP_ACC, RET_ACC]),
+  'each-do-async-body': () =>
+    eachProgram([ACC, 'each name=x in="xs"', '  do value="afi()"', BUMP_ACC, RET_ACC], {
+      helpers: [ASYNC_INT_HELPER],
+    }),
   'each-empty-body': () => eachProgram([ACC, 'each name=x in="xs"', RET_ACC]),
   'each-entries': () => eachProgram([ACC, 'each name=x in="xs" entries=true', BUMP_ACC, RET_ACC]),
+  'each-entry-key-only': () => eachProgram([ACC, 'each name=x in="xs" entryKey=k', BUMP_ACC, RET_ACC]),
   'each-entry-mode': () => eachProgram([ACC, 'each name=x in="xs" entryKey=k entryValue=v', BUMP_ACC, RET_ACC]),
+  'each-entry-value-only': () => eachProgram([ACC, 'each name=x in="xs" entryValue=v', BUMP_ACC, RET_ACC]),
   'each-in-try': () =>
     eachProgram([
       ACC,
@@ -180,7 +187,9 @@ export const EACH_POSITIONS = Object.freeze({
       '    assign target="acc" value="acc + 1"',
       RET_ACC,
     ]),
+  'each-pair-key-only': () => eachProgram([ACC, 'each name=x in="xs" pairKey=k', BUMP_ACC, RET_ACC]),
   'each-pair-mode': () => eachProgram([ACC, 'each name=x in="xs" pairKey=k pairValue=v', BUMP_ACC, RET_ACC]),
+  'each-pair-value-only': () => eachProgram([ACC, 'each name=x in="xs" pairValue=v', BUMP_ACC, RET_ACC]),
   'each-plain': () => eachProgram([ACC, 'each name=x in="xs"', BUMP_ACC, RET_ACC]),
   'each-plain-twin': () => eachProgram([ACC, RET_ACC]),
   'each-print-body': () =>

@@ -36,6 +36,26 @@
       ],
       "name": "each-print-body",
       "result": "3"
+    },
+    {
+      "args": "three-elements",
+      "events": [
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }
+      ],
+      "name": "each-capability-body",
+      "result": "3"
+    },
+    {
+      "args": "three-elements",
+      "events": [
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }
+      ],
+      "name": "each-do-async-body",
+      "result": "3"
     }
   ]
 }

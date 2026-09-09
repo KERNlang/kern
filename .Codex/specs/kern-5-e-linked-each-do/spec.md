@@ -7,6 +7,7 @@
 **Branch:** `feat/kern-5-e-linked-each-do`
 **Oracle:** `scripts/kern-5-e-linked-each-do/` — 11 test files + 12 fixture, pin, golden and measurement modules, **120 rows: 88 RED at base, 32 GREEN**, plus the self-drive's own 8 rows and 1 env-gated row. Measured 2026-09-09 with `node --test --test-reporter=tap` over the ten non-self-drive files. See "Oracle Inventory".
 **Landed:** three commits on the E.0 chain — *admit linked do statements*, *admit linked each loops over list parameters*, *pin the fourteen-kind union, the ledger and the prior-slice scans* — leaving the oracle at **120 rows: 120 GREEN, 0 RED**, the eight self-drive rows GREEN and the env-gated self-drive total and disjoint. Three implementation corrections are recorded in the Corrections Log.
+**Gap-closing (2026-09-09, reviewed at `687f2954`):** the 6-engine review and `agon mutate` found one review needs-check and two mechanical mutation survivors in the oracle (test gaps, not production bugs). Six rows added, no production code touched: the oracle now stands at **126 rows: 126 GREEN, 0 RED**. See the dated Corrections Log sub-table below.
 
 ## Executive Summary
 
@@ -348,17 +349,18 @@ non-self-drive files on 2026-09-09.
 | `extraction.test.mjs` | 6 | E.0 line budgets, the declarations each extracted module received, the frozen kernel concatenation, the Python byte-identity, the linked DAG, the walker cycle in both import orders |
 | `byte-identity.test.mjs` | 7 | the 42-program corpus: artifact, manifest, linked-program digest, Python decision, RT-1 envelope, both spliced artifacts, both kernel pins |
 | `compatibility.test.mjs` | 7 | kernel pins, `STILL_OUTSIDE`, the exhaustiveness table, rt10's amended `neg-each`, the E.0 chain stage, F5 untouched, the spec's own shape |
-| `type-gate.test.mjs` | 33 | 26 single-cause refusal rows plus the admitted set, the two-gate splits and the async statement-position split |
-| `behavior.test.mjs` | 30 | 26 two-leg byte-equality rows plus length-driven iteration, event order and the integer index |
+| `type-gate.test.mjs` | 37 | 30 single-cause refusal rows plus the admitted set, the two-gate splits and the async statement-position split |
+| `behavior.test.mjs` | 32 | 28 two-leg byte-equality rows plus length-driven iteration, event order and the integer index |
 | `metering.test.mjs` | 13 | the bare-`do` step, the zero-trip constant, the per-trip slope, the free index, and 8 step-exhaustion thresholds asserted on both legs |
 | `walker-coverage.test.mjs` | 8 | the 14-kind union, every walk arm, the two-checkpoint creep guard, the shared loop head, the three loop states, no derived type on the node, `statementSubBlocks` |
 | `python-deferral.test.mjs` | 4 | the two ledger rows, their spec paths, the `'deferred'` request table, the live Python refusals |
 | `reserved-labels.test.mjs` | 7 | label-set disjointness, one declaration site per spent label, the two unreachable labels absent from source, no `KIR_WITH_*` spent, `with` on the generic refusal |
-| `commit-rows.test.mjs` | 8 + 1 gated | the commit mapping, the abort comparison, the criteria/group coverage, and the leaf/aggregate/tier-contract wiring (excluded from the measured 120: it drives them) |
+| `commit-rows.test.mjs` | 8 + 1 gated | the commit mapping, the abort comparison, the criteria/group coverage, and the leaf/aggregate/tier-contract wiring (excluded from the measured 126: it drives them) |
 
-Commit mapping (`commit-rows.json`, measured by the same drive): **E0 32, E1 26, E2 57, E3 5**. The
-abort criterion compares the gated commit against the rest — 57 against 63 — so `cut: false` and
-`each` lands as one commit.
+Commit mapping (`commit-rows.json`, measured by the same drive): **E0 32, E1 26, E2 63, E3 5**. The
+abort criterion compares the gated commit against the rest — 63 against 63 — so `cut: false` and
+`each` lands as one commit, at the exact boundary (see the 2026-09-09 review/mutation Corrections
+Log entry: the criterion now has zero margin).
 
 **RED-at-base spot checks** — every RED row fails on its label, never on a crash:
 
@@ -571,11 +573,29 @@ Measured against the implementation, not deduced. Each row names the oracle or n
 | E's own pins carried no fault-census delta | `each` fails closed twice when its source value is not a list — a `__Fault` in the emitted cursor loop and a `KernKirFault` in the walk — and both d0 and slice D census those constructors as exact maps | Added `JAVASCRIPT_FAULT_SITE_DELTA` / `RUNTIME_FAULT_SITE_DELTA` to `scripts/kern-5-e-linked-each-do/pins.mjs`, mirroring slice D's, and made both censuses compose the slice deltas rather than one of them. `do` contributes none: it discards a value it never inspects |
 | Deploy Order step 6: "`pnpm write:kern-canonicalizer-coverage`, then re-pin `compiledCoreDigest` … by hand" | The two steps do not commute. `coverageImplementationDigest` hashes **every `.mjs` under `scripts/kern-canonicalizer`**, `coverage-prerequisite.test.mjs` included (`coverage-dependencies.mjs:993-1031`), so the hand re-pin invalidates the digest the same write just recorded | The write must run **again** after the hand re-pin, and it then converges — the second write records the new implementation digest and touches no `.mjs`. Recorded here because a single-pass run leaves `test:kern-canonicalizer` RED on two rows with no source change to blame |
 
+### Corrections found in review and mutation (2026-09-09, reviewed at 687f2954)
+
+Measured against the implementation at `687f2954`, from a 6-engine review (`agon review --risk auto`,
+one needs-check) and `agon mutate` on `loop-statements.ts` (mechanical mutants over
+type-gate/behavior/metering). No production code changed: every row below closed with an oracle row
+or a documented scope artifact.
+
+| Original claim | Reality | Ruling / impact |
+|---|---|---|
+| Review needs-check (`claude`, correctness, importance 0.60): no row places a `capability` statement inside an `each` body, and no row combines an async `do` inside an `each` body — exactly the path that breaks if `statementSubBlocks` lacked the `each` arm | `statementSubBlocks` already carries the `each` arm (`contracts.ts:304`, pinned by `walker-coverage.test.mjs`'s "statementSubBlocks reaches the each body"), and both combinations project, link and run byte-identically on both legs: a direct `capability` in an `each` body fires once per trip (3 trips → 3 identical events, result 3), and `do value="afi()"` (async, `ASYNC_INT_HELPER`) inside an `each` body likewise runs once per trip | Two new two-leg behavior rows: `each-capability-body`, `each-do-async-body` (both `three-elements`, result `3`, three identical capability events). The needs-check was a real gap in the oracle, not a bug in the implementation |
+| Mutation survivor `loop-statements.ts:110` — `properties.has('entryKey') \|\| properties.has('entryValue')` mutated to `&&` survived the suite, because every existing entry-mode fixture (`each-entry-mode`) sets BOTH keys, so the mutant still faults | Live F5 probes (2026-09-09) show all four single-key forms — `entryKey` alone, `entryValue` alone, `pairKey` alone, `pairValue` alone, each with `name=` present — project cleanly and reach the linker without needing `entries=true` or the paired key; none is F5-walled | Four new type-gate refusal rows: `each-entry-key-only`, `each-entry-value-only` → `KIR_EACH_ENTRY_MODE_UNSUPPORTED`; `each-pair-key-only`, `each-pair-value-only` → `KIR_EACH_PAIR_MODE_UNSUPPORTED`. Verified as the actual kill (see below): applying the `&&` mutation locally to line 110 turns `each-entry-key-only`/`each-entry-value-only` from refused to admitted, which the new rows catch |
+| Mutation survivor `loop-statements.ts:113` — the `pairKey \|\| pairValue` sibling of the same pattern, same reason | Same live-probe finding as above, mirrored for the pair-mode keys | Closed by `each-pair-key-only` / `each-pair-value-only` (same two rows cover both the entry and pair `\|\|`→`&&` mutants once each single-key fixture is admitted through F5) |
+| Mutation survivor `loop-statements.ts:49` — `assertAsyncCallPosition(compiled, scope, boundLabel, false)` in `loopBound` (used by `for`'s `from`/`to`/`step`) mutated `false`→`true` survived | This line is pre-existing `for`-bound code, untouched by slice E's `do`/`each` work. It is already killed by `scripts/kern-5-rt10-for/type-gate.test.mjs`'s `neg-async-bound-from`/`neg-async-bound-to` rows (fixtures at `k0-support.mjs:342-343`, asserting `KIR_ASYNC_CALL_EXPRESSION_POSITION`) — the survival is an artifact of `agon mutate`'s invocation scoping the re-run to this slice's own three test files (`type-gate.test.mjs behavior.test.mjs metering.test.mjs`) rather than the repo-wide suite | **Scope artifact, no new row.** The kill lives in slice `rt10-for`'s own oracle, outside this slice's blast radius |
+| `commit-rows.json`'s `abortCriterion` (E2 vs. E0+E1+E3) has no stated margin policy | Adding all six new E2-tagged rows plus the originally-planned metering row for `each-do-async-body` would have moved E2 from 57 to 64 against a fixed 63 preceding, flipping `cut` from `false` to `true` — the same gate the original commit-split decision used, now re-firing on unrelated post-landing gap-closing rows rather than a fresh split decision | The optional metering row ("at least one … if the harness makes it cheap") was dropped to hold E2 at exactly 63 against 63 preceding (`cut: false`, zero margin). `each-do-async-body`'s N-trip correctness is still asserted by its two-leg behavior row; only the redundant same-step-exhaustion metering assertion was cut. Flagged here because the margin is now zero: the next row assigned to E2 without a matching addition elsewhere will flip `cut` to `true` |
+| The mutate log (`mutate-sliceE.log`) reports a 12-mutant pool but stops at `[10/12]` | Mutants 11 and 12 have no recorded outcome (survived/killed/invalid) in the available log — evidence gap, not a closed row. Every mutant that DOES have a recorded `survived` outcome (`3/12` at L49, `8/12` at L110, `9/12` at L113) is accounted for above | Not closed: no claim is made about mutants 11/12 absent evidence. Re-running `agon mutate` to completion would be needed to resolve this, and is out of this task's scope (no `agon` launches permitted here) |
+
 ## Confidence
 
-**0.97 (implemented).** The pre-build confidence was 0.88, held there by the unwritten `each`
-linker arm and its cursor lowering. Both are written, the oracle's 120 rows are GREEN on the
-implementation, the self-drive reports the commit mapping total and disjoint, and the eight
-neighbour suites plus the canonicalizer chain are green with every moved pin narrowed rather than
-relaxed. What keeps it short of 1.0 is breadth, not doubt: the pin cascade slice E opened is fifteen
-rows wide across nine suites, and no independent reviewer has read the amendments yet.
+**0.97 (implemented), 0.95 (post gap-closing, 687f2954).** The pre-build confidence was 0.88, held
+there by the unwritten `each` linker arm and its cursor lowering. Both are written, the oracle's 126
+rows are GREEN on the implementation, the self-drive reports the commit mapping total and disjoint,
+and the eight neighbour suites plus the canonicalizer chain are green with every moved pin narrowed
+rather than relaxed. The 2026-09-09 review/mutation pass closed the one needs-check and both
+mechanical survivors it could reach with new rows, no production change; what keeps it short of 1.0
+is the same breadth as before plus one open item — mutants 11/12 in the truncated mutate log have no
+recorded outcome — and the `abortCriterion` margin is now exactly zero.
