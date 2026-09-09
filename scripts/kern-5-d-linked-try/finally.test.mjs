@@ -334,3 +334,57 @@ test('a deferred return charges its boundary before the cleanup, so both legs st
     );
   }
 });
+
+// The same boundary, one finally deeper, which is where the charge used to multiply: each nested
+// try's post-block tail hands its value to the NEXT try's deferral, and a tail that charged again
+// billed a return crossing N finallys N+1 times on the emitted leg against once on RT-1. Measured
+// before the fix: RT-1 succeeded at 18 execution steps, the emitted leg failed at 18 after only the
+// inner cleanup and needed 19.
+test('a return crossing two finallys is charged once, so the legs share the nested threshold', async () => {
+  const source = TRY_POSITIONS['try-finally-nested-print-return']();
+  await assertTryAdmitted('try-finally-nested-print-return', source);
+  const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', 'D_LINK_REFUSED: the fixture must emit an artifact');
+  const rt1 = await loopStepBudget(source, {}, 'd-nested-return-budget');
+  const legs = async (delta) => {
+    const direct = await executeKernKir(
+      verified,
+      stepRequest(`d-nested-starve-rt-${delta}`, {}, rt1.link + rt1.execution + delta),
+      provider([]),
+    );
+    const emitted = await executeJavaScriptChild(
+      javascript.artifact.bytes,
+      stepRequest(`d-nested-starve-js-${delta}`, {}, rt1.execution + delta),
+    );
+    return { direct, emitted: emitted.envelope };
+  };
+  const enough = await legs(0);
+  for (const [leg, envelope] of Object.entries(enough)) {
+    assert.equal(
+      envelope.outcome,
+      'success',
+      `D_METER_ORDER: ${leg} must succeed at RT-1's own count; a tail that charges again bills the return once per finally`,
+    );
+    assert.deepEqual(
+      envelope.events,
+      [
+        { op: 'stdout', text: 'inner' },
+        { op: 'stdout', text: 'outer' },
+      ],
+      `D_METER_ORDER: ${leg} must run both cleanups, innermost first, inside RT-1's own count`,
+    );
+  }
+  const starved = await legs(-1);
+  assert.equal(starved.direct.outcome, 'failure', 'D_LEG_CHARGE_DRIFT: RT-1 must fail one step under');
+  assert.deepEqual(
+    starved.direct.diagnostics.map((diagnostic) => diagnostic.code),
+    starved.emitted.diagnostics.map((diagnostic) => diagnostic.code),
+    'D_LEG_CHARGE_DRIFT: one step under, both legs must fail with the same diagnostic',
+  );
+  assert.deepEqual(
+    starved.emitted.events,
+    starved.direct.events,
+    'D_METER_ORDER: one step under, both legs must have committed the same cleanup prefix',
+  );
+});

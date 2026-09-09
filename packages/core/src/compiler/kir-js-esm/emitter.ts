@@ -294,10 +294,13 @@ function blockSource(
         // the envelope freezes the event array and charges maxBytes, so a finally that commits an
         // event would throw on the frozen array and escape the byte limit. The return breaks a
         // labeled block, the native finally runs on the way out, and the real return follows it.
+        // It is charged exactly once however many finallys it crosses: only the return SITE charges,
+        // and each tail hands the value outward uncharged, through the next `defer` out.
         let deferred = false;
-        const defer = (value: string): string => {
+        const defer = (value: string, charged = true): string => {
           deferred = true;
-          return `\n      __meter.step(); __checkAbort();\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
+          const boundary = charged ? '\n      __meter.step(); __checkAbort();' : '';
+          return `${boundary}\n      {${slot}=${value}; ${held}=true; break ${exit};}`;
         };
         const bodyReturn = cleanup === undefined ? returnSource : defer;
         const body = blockSource(statement.body, new Map(scope), calls, nextLocal, bodyReturn);

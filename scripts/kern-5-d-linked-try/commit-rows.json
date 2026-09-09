@@ -2,7 +2,7 @@
   "format": "kern.oracle.d-linked-try.commit-rows.v1",
   "abortCriterion": {
     "cut": false,
-    "gated": 44,
+    "gated": 45,
     "preceding": 183
   },
   "criteriaCount": 62,
@@ -249,6 +249,7 @@
       "a jump crossing a finally-bearing try is refused with the cross-try label",
       "a loop inside a finally-bearing try still permits its own break, because the depths are equal",
       "a return crossing a finally builds the envelope after the cleanup, with the cleanup event kept",
+      "a return crossing two finallys is charged once, so the legs share the nested threshold",
       "a return from the innermost body runs both finally bodies in order before the envelope",
       "a while inside a finally is admitted, which is the linker half of the F5 asymmetry",
       "for-inside-finally-bearing-try-break returns the frozen integer 3 byte-identically on both legs",
