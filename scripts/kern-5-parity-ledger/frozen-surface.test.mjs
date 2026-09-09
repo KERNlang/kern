@@ -6,6 +6,7 @@ import { TARGET_KERNEL_SHA256 as JAVASCRIPT_KERNEL } from '../../packages/core/d
 import { TARGET_KERNEL_SHA256 as PYTHON_KERNEL } from '../../packages/core/dist/compiler/kir-python/emitter.js';
 import { C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/c-py-1-lowering-historical-transition.mjs';
 import { D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/d0-contracts-split-historical-transition.mjs';
+import { E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/e0-loop-extraction-historical-transition.mjs';
 
 import {
   EXPRESSION_POSITIONS,
@@ -29,6 +30,7 @@ const FACADE_SHA256 = 'eade928a03649637cad48115a6e4023898765963739e27ca73aa5eca4
 const JAVASCRIPT_KERNEL_SHA256 = 'b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6';
 const PYTHON_KERNEL_SHA256 = 'f79a39633f58475124eafdec3c62a9fd042ffa50b1de637509d0f66e0f0cd18e';
 const COMPILED_CORE_COUNT = 357;
+const E0_LOOP_EXTRACTION_COUNT = 360;
 const PY_LOWERING_PREDECESSOR_COUNT = 354;
 
 const KIR_PYTHON_FILES = Object.freeze([
@@ -84,14 +86,17 @@ test('both target kernels are unchanged', () => {
   assert.equal(PYTHON_KERNEL, PYTHON_KERNEL_SHA256, 'PARITY_LEDGER_KERNEL_TOUCH: the Python kernel moved');
 });
 
-test('the compiled-core inventory stays at the attested 357 files', () => {
-  // D.0's split heads the c-py-1 stage (unedited, still the 354-file predecessor) with a new
-  // 357-file stage; this suite predates D.0 and must follow the live head, not the frozen one.
+test('the compiled-core inventory stays at the attested head-stage count', () => {
+  // D.0's split heads the c-py-1 stage (unedited, still the 354-file predecessor) with a 357-file
+  // stage, and slice E.0's extraction heads D.0 with a 360-file stage. This suite predates both and
+  // must follow the LIVE head, not a frozen one; what it still owns is that the ledger and the
+  // admission pass add no file of their own.
   assert.equal(C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, PY_LOWERING_PREDECESSOR_COUNT);
   assert.equal(D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, COMPILED_CORE_COUNT);
+  assert.equal(E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, E0_LOOP_EXTRACTION_COUNT);
   assert.equal(
     distJavaScriptCount(CORE_DIST),
-    COMPILED_CORE_COUNT,
+    E0_LOOP_EXTRACTION_COUNT,
     'PARITY_LEDGER_INVENTORY: the ledger and the admission pass must add no file under packages/core/src',
   );
 });

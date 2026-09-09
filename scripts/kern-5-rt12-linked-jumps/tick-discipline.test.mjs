@@ -11,7 +11,9 @@ import {
   jumpArtifact,
 } from './k0-support.mjs';
 
-const RT1_EVALUATOR_URL = new URL('../../packages/core/src/kir-runtime/expression.ts', import.meta.url);
+// Slice E.0 moved the walk out of expression.ts into statement-walker.ts byte for byte. Both
+// checkpoint sites travelled with it, so this scan follows the walk rather than the file name.
+const RT1_EVALUATOR_URL = new URL('../../packages/core/src/kir-runtime/statement-walker.ts', import.meta.url);
 
 const CHECKPOINT = '__checkAbort()';
 const SUSPENSION_TOKENS = Object.freeze(['setImmediate', 'queueMicrotask', 'new Promise', 'asyncio.create_task']);

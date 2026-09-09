@@ -96,14 +96,16 @@ test('the Python kernel raises _Fault over exactly nine codes', () => {
   );
 });
 
-test('the TypeScript runtime constructs KernKirFault at the pinned ten files plus slice D delta', () => {
+// Eleven files, not ten: E.0's byte-preserving extraction moves the walk out of expression.ts into
+// statement-walker.ts, so the census names one more file while its total is unchanged.
+test('the TypeScript runtime constructs KernKirFault at the pinned eleven files plus slice D delta', () => {
   assert.deepEqual(
     census('new KernKirFault('),
     withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA),
     'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved beyond the declared slice D delta',
   );
   assert.equal(total(RUNTIME_FAULT_SITES), FAULT_CENSUS_TOTALS.runtime);
-  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 10);
+  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 11);
   assert.deepEqual(
     Object.keys(RUNTIME_FAULT_SITE_DELTA).filter((path) => !Object.hasOwn(RUNTIME_FAULT_SITES, path)),
     [],

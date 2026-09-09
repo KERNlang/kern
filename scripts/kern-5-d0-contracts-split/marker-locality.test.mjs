@@ -6,6 +6,7 @@ import {
   CONTRACTS_SCRAPE_TESTS,
   LINK_RETAINED_MARKERS,
   LINK_SUPPORT_MARKERS,
+  LOOP_STATEMENTS_MARKERS,
   REPOINTED_SCRAPES,
   SETTLED_SCRAPES,
   STATEMENTS_MARKERS,
@@ -16,6 +17,7 @@ import { LINKED_DIR, between, exists, occurrences, readRepositoryText } from './
 const CONTRACTS = `${LINKED_DIR}/contracts.ts`;
 const LINK = `${LINKED_DIR}/link.ts`;
 const LINK_SUPPORT = `${LINKED_DIR}/link-support.ts`;
+const LOOP_STATEMENTS = `${LINKED_DIR}/loop-statements.ts`;
 const STATEMENTS = `${LINKED_DIR}/statements.ts`;
 const WALKERS = `${LINKED_DIR}/walkers.ts`;
 
@@ -150,6 +152,26 @@ test('the statement compilers move to statements.ts', () => {
   }
 });
 
+test('the loop compilers move to loop-statements.ts', () => {
+  assert.ok(exists(LOOP_STATEMENTS), `D0_LOOP_STATEMENTS_MISSING: ${LOOP_STATEMENTS} does not exist`);
+  const loops = readRepositoryText(LOOP_STATEMENTS);
+  for (const marker of LOOP_STATEMENTS_MARKERS) {
+    assert.equal(
+      occurrences(loops, marker),
+      1,
+      `D0_LOOP_STATEMENTS_MISSING: ${marker} must be declared exactly once in loop-statements.ts`,
+    );
+  }
+  const statements = readRepositoryText(STATEMENTS);
+  for (const marker of LOOP_STATEMENTS_MARKERS) {
+    assert.equal(
+      occurrences(statements, `\n${marker}`) + occurrences(statements, `\nexport ${marker}`),
+      0,
+      `D0_LOOP_STATEMENTS_RETAINED: ${marker} must not stay declared in statements.ts`,
+    );
+  }
+});
+
 test('link.ts keeps the handler and entry layer and sheds the moved layers', () => {
   const link = readRepositoryText(LINK);
   for (const marker of LINK_RETAINED_MARKERS) {
@@ -159,7 +181,7 @@ test('link.ts keeps the handler and entry layer and sheds the moved layers', () 
       `D0_LINK_LAYER_DRIFT: ${marker} must stay declared exactly once in link.ts`,
     );
   }
-  for (const marker of [...LINK_SUPPORT_MARKERS, ...STATEMENTS_MARKERS]) {
+  for (const marker of [...LINK_SUPPORT_MARKERS, ...LOOP_STATEMENTS_MARKERS, ...STATEMENTS_MARKERS]) {
     assert.equal(
       occurrences(link, `\n${marker}`) + occurrences(link, `\nexport ${marker}`),
       0,
