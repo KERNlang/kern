@@ -528,6 +528,13 @@ pnpm --filter @kernlang/core build && pnpm lint \
 
 `pnpm test:infra` runs separately and alone (its RSS caps make it hostile to a parallel run).
 
+**The evidence leaf is RED on this branch by design.** `test:kern-5-e-linked-each-do` is wired into
+`test:kern-5-script-family` and into the CI tier contract now, because `commit-rows.json` asserts
+that wiring and a leaf added later is a leaf nobody notices is missing. Its first three files pass at
+base (`probe-matrix`, `extraction`, `byte-identity`); the run then stops on the 88 RED rows E1..E3
+own. **This branch must not merge before E1, E2 and E3 land** — the RED leaf is the gate that says
+so, and turning it green by deleting rows is the one repair that is not allowed.
+
 ## Corrections Log
 
 | Original claim | Reality | Impact |
