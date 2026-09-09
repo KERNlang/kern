@@ -58,9 +58,9 @@ function syntheticLedger(surface, nodeKind) {
   };
 }
 
-// kern-5-rt11-linked-while landed the ledger's first row (RT11W-TD5, Corrections Log): the checked-
-// in ledger defers exactly `while`, and every `for`-shaped position these shared harnesses build
-// stays inert, because none of them contains a `while`.
+// kern-5-rt11-linked-while landed the ledger's first row (RT11W-TD5, Corrections Log) and every
+// union-widening slice since has appended its own. Every `for`-shaped position these shared
+// harnesses build stays inert, because none of them contains a deferred kind.
 test('the checked-in ledger defers exactly the linked statement rows awaiting Python lowering', async () => {
   assert.deepEqual(loadParityLedger().rows, [
     {
@@ -77,6 +77,22 @@ test('the checked-in ledger defers exactly the linked statement rows awaiting Py
       nodeKind: 'continue',
       since: 'kern-5-rt12-linked-jumps',
       spec: '.Codex/specs/kern-5-rt12-linked-jumps/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: [],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'do',
+      since: 'kern-5-e',
+      spec: '.Codex/specs/kern-5-e-linked-each-do/spec.md',
+      surface: 'statement',
+    },
+    {
+      blockedBy: [],
+      label: KIR_PYTHON_LEG_DEFERRED,
+      nodeKind: 'each',
+      since: 'kern-5-e',
+      spec: '.Codex/specs/kern-5-e-linked-each-do/spec.md',
       surface: 'statement',
     },
     {
@@ -105,7 +121,7 @@ test('the checked-in ledger defers exactly the linked statement rows awaiting Py
     },
   ]);
   const kinds = deferredNodeKinds();
-  assert.deepEqual([...kinds.statement], ['break', 'continue', 'throw', 'try', 'while']);
+  assert.deepEqual([...kinds.statement], ['break', 'continue', 'do', 'each', 'throw', 'try', 'while']);
   assert.deepEqual([...kinds.expression], []);
   for (const [name, build] of Object.entries({ ...STATEMENT_POSITIONS, ...EXPRESSION_POSITIONS })) {
     assert.equal(pythonDeferral(await linked(build())), undefined, `${name} must not be deferred today`);

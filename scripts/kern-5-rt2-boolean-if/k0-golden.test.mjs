@@ -20,6 +20,8 @@ const PROBE_BODIES = Object.freeze({
   capability: ['capability namespace=fixture operation=resolve name=reply'],
   catch: ['let name=x value="0"', 'catch name=e', '  assign target="x" value="1"'],
   continue: ['let name=x value="0"', 'for name=i from="0" to="1"', '  continue'],
+  do: ['do'],
+  each: ['each name=x in="xs"', '  print value="x"'],
   else: ['else', '  print value="\"f\""'],
   finally: ['let name=x value="0"', 'finally', '  assign target="x" value="1"'],
   for: ['let name=x value="0"', 'for name=i from="0" to="1"', '  assign target="x" value="x + 1"'],
@@ -48,6 +50,8 @@ const STATEMENT_PROBES = Object.freeze([
   'capability',
   'catch',
   'continue',
+  'do',
+  'each',
   'else',
   'finally',
   'for',
@@ -96,10 +100,21 @@ function catalogSchema(kind) {
   };
 }
 
+// `each` iterates a handler parameter, so its probe is the only one that needs a list in the
+// signature; every other kind keeps the shared boolean-only shape.
+const PROBE_PARAMETERS = Object.freeze({
+  each: Object.freeze([
+    Object.freeze({ name: 'flag', type: 'boolean' }),
+    Object.freeze({ name: 'xs', type: 'string[]' }),
+  ]),
+});
+
+const DEFAULT_PROBE_PARAMETERS = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
+
 async function probeAdmission(kind) {
   const source = handlerSource(
     'string',
-    [{ name: 'flag', type: 'boolean' }],
+    PROBE_PARAMETERS[kind] ?? DEFAULT_PROBE_PARAMETERS,
     [...PROBE_BODIES[kind], 'return value="\"done\""'],
   );
   const verified = await project(source);

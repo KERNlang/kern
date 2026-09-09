@@ -214,6 +214,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "neg-each-await": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "neg-empty-body": {
       "diagnostics": [],
       "status": "projected"

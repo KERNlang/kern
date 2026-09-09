@@ -110,6 +110,18 @@ export const REUSED_LABELS = Object.freeze([
 
 export const PYTHON_DEFERRAL_LABEL_KINDS = Object.freeze(['do', 'each']);
 
+// `each` fails closed when its source value is not a list, once per leg: a `__Fault` in the emitted
+// cursor loop and a `KernKirFault` in the walk. `do` adds none — it discards a value it never
+// inspects. Both deltas land in files the d0 census already names, so no new fault-bearing file
+// appears.
+export const JAVASCRIPT_FAULT_SITE_DELTA = Object.freeze({
+  'packages/core/src/compiler/kir-js-esm/statement-source.ts': 1,
+});
+
+export const RUNTIME_FAULT_SITE_DELTA = Object.freeze({
+  'packages/core/src/kir-runtime/statement-walker.ts': 1,
+});
+
 export const EVIDENCE_LEAF = 'test:kern-5-e-linked-each-do';
 
 export const PREDECESSOR_LEAF = 'test:kern-5-d-linked-try';

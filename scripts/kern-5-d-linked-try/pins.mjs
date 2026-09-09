@@ -180,7 +180,10 @@ export const RC_V1_AMENDMENT_COUNT = 3;
 
 export const ALPHA_RECEIPT_BINDING_COUNT = 125;
 
-export const LEDGER_NODE_KINDS = Object.freeze(['break', 'continue', 'throw', 'try', 'while']);
+// The whole ledger, not D's own contribution: kern-5-e appended `do` and `each` in sorted order, so
+// the rows that deepEqual against this list stay exact-set rows while `SPENDING_SLICE` keeps saying
+// which two of them D spent.
+export const LEDGER_NODE_KINDS = Object.freeze(['break', 'continue', 'do', 'each', 'throw', 'try', 'while']);
 
 // D-2h refuses the try family in a helper at link, so a `helper-body` deferral row would go RED for
 // the linker's reason instead of the deferral's. The omission gets its own oracle row.

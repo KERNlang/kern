@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   DEFERRAL_LABEL,
+  DO_ROW_POSITIONS,
+  EACH_ROW_POSITIONS,
   EXPRESSION_POSITIONS,
   JUMP_ROW_POSITIONS,
   POSITION_FENCES,
@@ -71,6 +73,8 @@ test('each ledger row refuses in every position of its surface', async () => {
   const table = await loweringTable();
   for (const row of ledgerRows()) {
     const statementPositions = {
+      do: DO_ROW_POSITIONS,
+      each: EACH_ROW_POSITIONS,
       throw: THROW_ROW_POSITIONS,
       try: TRY_ROW_POSITIONS,
       while: WHILE_ROW_POSITIONS,

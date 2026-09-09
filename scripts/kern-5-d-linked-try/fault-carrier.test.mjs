@@ -11,6 +11,10 @@ import {
 } from '../kern-5-d0-contracts-split/pins.mjs';
 import { occurrences, sourceFilesUnder, readRepositoryText } from '../kern-5-d0-contracts-split/support.mjs';
 import {
+  JAVASCRIPT_FAULT_SITE_DELTA as E_JAVASCRIPT_FAULT_SITE_DELTA,
+  RUNTIME_FAULT_SITE_DELTA as E_RUNTIME_FAULT_SITE_DELTA,
+} from '../kern-5-e-linked-each-do/pins.mjs';
+import {
   CLAMP_CODE_UNITS,
   CLAMP_MESSAGE_UNITS,
   JAVASCRIPT_FAULT_SITE_DELTA,
@@ -44,9 +48,11 @@ function census(constructor) {
   return rows;
 }
 
-function withDelta(base, delta) {
+function withDelta(base, ...deltas) {
   const rows = { ...base };
-  for (const [path, added] of Object.entries(delta)) rows[path] = (rows[path] ?? 0) + added;
+  for (const delta of deltas) {
+    for (const [path, added] of Object.entries(delta)) rows[path] = (rows[path] ?? 0) + added;
+  }
   return rows;
 }
 
@@ -54,8 +60,12 @@ function total(sites) {
   return Object.values(sites).reduce((sum, count) => sum + count, 0);
 }
 
-const EXPECTED_RUNTIME_SITES = withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA);
-const EXPECTED_JAVASCRIPT_SITES = withDelta(JAVASCRIPT_FAULT_SITES, JAVASCRIPT_FAULT_SITE_DELTA);
+const EXPECTED_RUNTIME_SITES = withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA, E_RUNTIME_FAULT_SITE_DELTA);
+const EXPECTED_JAVASCRIPT_SITES = withDelta(
+  JAVASCRIPT_FAULT_SITES,
+  JAVASCRIPT_FAULT_SITE_DELTA,
+  E_JAVASCRIPT_FAULT_SITE_DELTA,
+);
 const EXPECTED_PYTHON_SITES = withDelta(PYTHON_FAULT_SITES, PYTHON_FAULT_SITE_DELTA);
 
 // D-2j, ruled. `new __UserThrow(` matches none of the three census patterns, so the only rows that
@@ -66,7 +76,10 @@ test('the KernKirFault census equals D.0 plus exactly the three runtime sites D 
     EXPECTED_RUNTIME_SITES,
     'D_FAULT_CENSUS: the runtime fault sites moved by something other than the ruled D-2j delta',
   );
-  assert.equal(total(EXPECTED_RUNTIME_SITES), FAULT_CENSUS_TOTALS.runtime + total(RUNTIME_FAULT_SITE_DELTA));
+  assert.equal(
+    total(EXPECTED_RUNTIME_SITES),
+    FAULT_CENSUS_TOTALS.runtime + total(RUNTIME_FAULT_SITE_DELTA) + total(E_RUNTIME_FAULT_SITE_DELTA),
+  );
 });
 
 test('the JavaScript __Fault census gains exactly one emitter site, for the uncaught conversion', () => {

@@ -43,17 +43,18 @@ const KIR_PYTHON_FILES = Object.freeze([
   'target-json.ts',
 ]);
 
-// rt2, rt3 and rt9 carry the kern-5-rt11-linked-while licensed golden cascade (a while row added to
-// `linkedStatementKinds`, rt3's carried `rt2GoldenSha256`, rt9's `control-while` admission), so
-// their pins move with it; rt10-cross-call-integer, rt10-pre-linked-arithmetic and rt6-void-
-// fallthrough scrape no statement surface the cascade touches and stay frozen.
+// rt2, rt3 and rt9 carry the same licensed golden cascade every union-widening slice opens (rows
+// added to `linkedStatementKinds`, rt3's carried `rt2GoldenSha256`, rt9's control admission), most
+// recently kern-5-e's `do` and `each`, so their pins move with it; rt10-cross-call-integer,
+// rt10-pre-linked-arithmetic and rt6-void-fallthrough scrape no statement surface the cascade
+// touches and stay frozen.
 const NEIGHBOUR_GOLDENS = Object.freeze({
   'kern-5-rt10-cross-call-integer': '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf',
   'kern-5-rt10-pre-linked-arithmetic': '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718',
-  'kern-5-rt2-boolean-if': 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b',
-  'kern-5-rt3-binary-expression': 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b',
+  'kern-5-rt2-boolean-if': '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8',
+  'kern-5-rt3-binary-expression': '5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df',
   'kern-5-rt6-void-fallthrough': '429de5ebbb5e606acfd48764b506d38b6abc4c5c6270bca883b34aa027306e81',
-  'kern-5-rt9-linked-assign': 'd8e561eeb4e5331424de77ee2f3b9e8abf6ea47ec90443a1b0a317400d0600be',
+  'kern-5-rt9-linked-assign': '355f4b05a28a86a5a348d1c537eec4c70dbf98ed7d26e09f3327c0d1f330bec9',
 });
 
 function distJavaScriptCount(directory) {

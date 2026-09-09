@@ -7,8 +7,8 @@ const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
 // The seals RT-9 re-pinned in the rt4/rt5/rt6 compatibility guards.
-const RT2_GOLDEN_SHA256 = 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b';
-const RT3_GOLDEN_SHA256 = 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b';
+const RT2_GOLDEN_SHA256 = '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8';
+const RT3_GOLDEN_SHA256 = '5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df';
 
 // The pre-images those seals replaced, preserved here rather than in the frozen guards they left:
 // spec Corrections Log, resolution (A) plus its rider.
@@ -36,12 +36,24 @@ test('undoing the two RT-9 edits reproduces the pre-RT-9 RT-2 K0 golden byte for
     break: _breakAdmission,
     continue: _continueAdmission,
     catch: _catchAdmission,
+    do: _doAdmission,
+    each: _eachAdmission,
     finally: _finallyAdmission,
     throw: _throwAdmission,
     try: _tryAdmission,
     ...admissionBeforeFor
   } = golden.admission;
-  const ADDED_SINCE = Object.freeze(['assign', 'break', 'continue', 'for', 'throw', 'try', 'while']);
+  const ADDED_SINCE = Object.freeze([
+    'assign',
+    'break',
+    'continue',
+    'do',
+    'each',
+    'for',
+    'throw',
+    'try',
+    'while',
+  ]);
   const preRt9 = {
     ...golden,
     admission: { ...admissionBeforeFor, assign: 'projection-rejected', while: 'projection-rejected' },

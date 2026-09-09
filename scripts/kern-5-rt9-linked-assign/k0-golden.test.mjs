@@ -19,6 +19,7 @@ const ADMITTED = Object.freeze([
   'call-typed-literal',
   'call-typed-positive',
   'capability-to-capability',
+  'control-each',
   'control-for',
   'control-while',
   'helper-body-assign',
@@ -97,13 +98,15 @@ test('the RT-9 K0 golden pins linker admission, the statement union and the assi
   );
 });
 
-test('assign, jumps, for, while and the try family are linked statement kinds, and the loop kinds still are not', async () => {
+test('assign, jumps, loops, do and the try family are linked statement kinds, and set still is not', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.deepEqual(golden.linkedStatementKinds, [
     'assign',
     'break',
     'capability',
     'continue',
+    'do',
+    'each',
     'for',
     'if',
     'let',
@@ -113,7 +116,7 @@ test('assign, jumps, for, while and the try family are linked statement kinds, a
     'try',
     'while',
   ]);
-  for (const kind of ['each', 'set']) {
+  for (const kind of ['set']) {
     assert.ok(!golden.linkedStatementKinds.includes(kind), `${kind} must stay outside RT-1 in this slice`);
   }
 });
@@ -127,11 +130,11 @@ test('every admitted assign position links on all three legs', async () => {
   assert.deepEqual(admitted, [...ADMITTED].sort());
 });
 
-test('control-for and control-while moved to admitted, while each remains outside and set stays excluded', async () => {
+test('control-for, control-while and control-each moved to admitted while set stays excluded', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.equal(golden.admission['control-for'], 'admitted');
   assert.equal(golden.admission['control-while'], 'admitted');
-  assert.equal(golden.admission['control-each'], 'handler-entry-unsupported');
+  assert.equal(golden.admission['control-each'], 'admitted');
   assert.equal(golden.admission['control-set'], 'not-projected');
 });
 

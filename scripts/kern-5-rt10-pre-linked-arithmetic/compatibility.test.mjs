@@ -13,7 +13,7 @@ const RT9_COMPATIBILITY_URL = new URL('../kern-5-rt9-linked-assign/compatibility
 const F5_POLICY_URL = new URL('../kern-frontend-f5-projection/policy.json', import.meta.url);
 
 // The RT-2 golden scrapes the statement union only, so this slice may not move it at all.
-const RT2_GOLDEN_SHA256 = 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b';
+const RT2_GOLDEN_SHA256 = '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8';
 
 // The frontend is frozen in this slice: no composition, policy or amendment moves.
 const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877bad90dbd942';

@@ -211,17 +211,14 @@ for (const script of CONTRACT_WALL_SCRIPTS) {
 }
 
 // rt12 measured `STILL_OUTSIDE` as already `['each','set']` in all three neighbour suites: the try
-// family was never in them, so nothing shrinks and no edit is licensed. This row pins that, so a
-// later slice cannot claim D narrowed a list it never touched.
-test('the STILL_OUTSIDE lists are untouched, because the try family was never in them', () => {
+// family was never in them, so slice D shrinks nothing. Slice E admits `each` and takes it out, and
+// `set` is what is left -- so what this row still pins is that D licensed no edit of its own: the
+// list may only ever lose a kind the admitting slice names, never gain one.
+test('the STILL_OUTSIDE lists never gained a kind, and hold only what is still outside', () => {
   for (const suite of ['kern-5-rt10-for', 'kern-5-rt11-linked-while', 'kern-5-rt12-linked-jumps']) {
     const source = repositoryText(`scripts/${suite}/compatibility.test.mjs`);
     const list = source.slice(source.indexOf('STILL_OUTSIDE'), source.indexOf('STILL_OUTSIDE') + 120);
-    assert.match(
-      list,
-      /\['each', 'set'\]/u,
-      `D_SCOPE_CREEP: ${suite} STILL_OUTSIDE must stay exactly ['each','set']`,
-    );
+    assert.match(list, /\['set'\]/u, `D_SCOPE_CREEP: ${suite} STILL_OUTSIDE must stay exactly ['set']`);
   }
 });
 
