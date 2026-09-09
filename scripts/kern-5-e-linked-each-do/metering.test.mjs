@@ -82,6 +82,7 @@ for (const [name, args] of [
   ['each-index', 'three-elements'],
   ['each-break', 'three-elements'],
   ['each-continue', 'three-elements'],
+  ['each-do-async-body', 'three-elements'],
   ['each-try-finally-in-body', 'three-elements'],
 ]) {
   test(`${name} at ${args} exhausts at the same step on both legs`, async () => {

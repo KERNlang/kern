@@ -45,6 +45,10 @@ test('exactly the three pinned fixtures are walled by F5', () => {
   assert.deepEqual(walled.sort(), [...F5_WALLED_POSITIONS], 'E_F5_WALL_DRIFT: the F5-walled fixture set moved');
 });
 
+// Beyond comparing the two live legs to each other, every field is re-derived the same way
+// measure-probe-matrix.mjs derives it and checked against the pinned row, so a stale
+// probe-matrix.json turns RED here instead of surviving because the live legs merely agree with
+// each other.
 test('a projected fixture reports the same link decision on RT-1 and on the JavaScript leg', async () => {
   for (const name of POSITION_NAMES) {
     const row = pinned(name);
@@ -55,6 +59,26 @@ test('a projected fixture reports the same link decision on RT-1 and on the Java
     const javascript = compileJavaScript(verified);
     const js = javascript.outcome === 'failure' ? javascript.code : 'admitted';
     assert.equal(rt1, js, `E_LEG_ADMISSION_SPLIT: ${name} links on one leg and not the other`);
+    assert.equal(rt1, row.rt1, `E_PIN_DRIFT_RT1: ${name} moved off its pinned rt1 decision`);
+    assert.equal(js, row.javascript, `E_PIN_DRIFT_JAVASCRIPT: ${name} moved off its pinned javascript decision`);
+
+    const python = compilePython(verified);
+    const py = python.outcome === 'failure' ? python.code : 'admitted';
+    assert.equal(py, row.python, `E_PIN_DRIFT_PYTHON: ${name} moved off its pinned python decision`);
+
+    let linkMessage = null;
+    if (linked.outcome !== 'success') {
+      try {
+        const { RuntimeMeter } = await import('../../packages/core/dist/kir-runtime/inspect.js');
+        const { linkVerifiedKernKirProgramOrThrow } = await import(
+          '../../packages/core/dist/kir-runtime/linked-kir-program/index.js'
+        );
+        linkVerifiedKernKirProgramOrThrow(verified, ENTRY, new RuntimeMeter(LIMITS));
+      } catch (error) {
+        linkMessage = error.message;
+      }
+    }
+    assert.equal(linkMessage, row.linkMessage, `E_PIN_DRIFT_LINK_MESSAGE: ${name} moved off its pinned link message`);
   }
 });
 

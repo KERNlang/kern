@@ -8,6 +8,7 @@
 **Oracle:** `scripts/kern-5-e-linked-each-do/` — 11 test files + 12 fixture, pin, golden and measurement modules, **120 rows: 88 RED at base, 32 GREEN**, plus the self-drive's own 8 rows and 1 env-gated row. Measured 2026-09-09 with `node --test --test-reporter=tap` over the ten non-self-drive files. See "Oracle Inventory".
 **Landed:** three commits on the E.0 chain — *admit linked do statements*, *admit linked each loops over list parameters*, *pin the fourteen-kind union, the ledger and the prior-slice scans* — leaving the oracle at **120 rows: 120 GREEN, 0 RED**, the eight self-drive rows GREEN and the env-gated self-drive total and disjoint. Three implementation corrections are recorded in the Corrections Log.
 **Gap-closing (2026-09-09, reviewed at `687f2954`):** the 6-engine review and `agon mutate` found one review needs-check and two mechanical mutation survivors in the oracle (test gaps, not production bugs). Six rows added, no production code touched: the oracle now stands at **126 rows: 126 GREEN, 0 RED**. See the dated Corrections Log sub-table below.
+**Re-checked (2026-09-09, reviewed at `52a11946`):** a codex review found `probe-matrix.test.mjs`'s leg-comparison row compared the two live legs only to each other, never against the pinned `rt1`/`javascript`/`python`/`linkMessage` fields, and that `each-do-async-body` (added at `687f2954`) carried a two-leg behavior row but no step-threshold parity row. No production code touched: the leg-comparison test now also asserts every projected fixture's live fields against its pinned row (no new row — folded into the existing test), and one new step-threshold row was added to `metering.test.mjs`, tagged **E1** because it exercises `do`'s async metering in a nested position, a `do` property, not an `each` one. The oracle now stands at **127 rows: 127 GREEN, 0 RED**. See the Corrections Log sub-table re-checked at `52a11946`.
 
 ## Executive Summary
 
@@ -345,22 +346,23 @@ non-self-drive files on 2026-09-09.
 
 | File | Rows | What it owns |
 |---|---|---|
-| `probe-matrix.test.mjs` | 5 | every fixture's F5 status pinned, so a RED row elsewhere is a *link* refusal and not a missing projection |
+| `probe-matrix.test.mjs` | 5 | every fixture's F5 status pinned, so a RED row elsewhere is a *link* refusal and not a missing projection; the leg-parity row also re-derives `rt1`/`javascript`/`python`/`linkMessage` against the pinned row, so `probe-matrix.json` itself cannot drift unnoticed |
 | `extraction.test.mjs` | 6 | E.0 line budgets, the declarations each extracted module received, the frozen kernel concatenation, the Python byte-identity, the linked DAG, the walker cycle in both import orders |
 | `byte-identity.test.mjs` | 7 | the 42-program corpus: artifact, manifest, linked-program digest, Python decision, RT-1 envelope, both spliced artifacts, both kernel pins |
 | `compatibility.test.mjs` | 7 | kernel pins, `STILL_OUTSIDE`, the exhaustiveness table, rt10's amended `neg-each`, the E.0 chain stage, F5 untouched, the spec's own shape |
 | `type-gate.test.mjs` | 37 | 30 single-cause refusal rows plus the admitted set, the two-gate splits and the async statement-position split |
 | `behavior.test.mjs` | 32 | 28 two-leg byte-equality rows plus length-driven iteration, event order and the integer index |
-| `metering.test.mjs` | 13 | the bare-`do` step, the zero-trip constant, the per-trip slope, the free index, and 8 step-exhaustion thresholds asserted on both legs |
+| `metering.test.mjs` | 14 | the bare-`do` step, the zero-trip constant, the per-trip slope, the free index, and 9 step-exhaustion thresholds asserted on both legs |
 | `walker-coverage.test.mjs` | 8 | the 14-kind union, every walk arm, the two-checkpoint creep guard, the shared loop head, the three loop states, no derived type on the node, `statementSubBlocks` |
 | `python-deferral.test.mjs` | 4 | the two ledger rows, their spec paths, the `'deferred'` request table, the live Python refusals |
 | `reserved-labels.test.mjs` | 7 | label-set disjointness, one declaration site per spent label, the two unreachable labels absent from source, no `KIR_WITH_*` spent, `with` on the generic refusal |
-| `commit-rows.test.mjs` | 8 + 1 gated | the commit mapping, the abort comparison, the criteria/group coverage, and the leaf/aggregate/tier-contract wiring (excluded from the measured 126: it drives them) |
+| `commit-rows.test.mjs` | 8 + 1 gated | the commit mapping, the abort comparison, the criteria/group coverage, and the leaf/aggregate/tier-contract wiring (excluded from the measured 127: it drives them) |
 
-Commit mapping (`commit-rows.json`, measured by the same drive): **E0 32, E1 26, E2 63, E3 5**. The
-abort criterion compares the gated commit against the rest — 63 against 63 — so `cut: false` and
-`each` lands as one commit, at the exact boundary (see the 2026-09-09 review/mutation Corrections
-Log entry: the criterion now has zero margin).
+Commit mapping (`commit-rows.json`, measured by the same drive): **E0 32, E1 27, E2 63, E3 5**. The
+abort criterion compares the gated commit against the rest — 63 against 64 — so `cut: false` and
+`each` lands as one commit, with a margin of one (see the 2026-09-09 review/mutation Corrections Log
+entry for the zero-margin history and the `52a11946` re-check entry for why the new row was tagged
+E1 rather than E2).
 
 **RED-at-base spot checks** — every RED row fails on its label, never on a crash:
 
@@ -589,13 +591,24 @@ or a documented scope artifact.
 | `commit-rows.json`'s `abortCriterion` (E2 vs. E0+E1+E3) has no stated margin policy | Adding all six new E2-tagged rows plus the originally-planned metering row for `each-do-async-body` would have moved E2 from 57 to 64 against a fixed 63 preceding, flipping `cut` from `false` to `true` — the same gate the original commit-split decision used, now re-firing on unrelated post-landing gap-closing rows rather than a fresh split decision | The optional metering row ("at least one … if the harness makes it cheap") was dropped to hold E2 at exactly 63 against 63 preceding (`cut: false`, zero margin). `each-do-async-body`'s N-trip correctness is still asserted by its two-leg behavior row; only the redundant same-step-exhaustion metering assertion was cut. Flagged here because the margin is now zero: the next row assigned to E2 without a matching addition elsewhere will flip `cut` to `true` |
 | The mutate log (`mutate-sliceE.log`) reports a 12-mutant pool but stops at `[10/12]` | Mutants 11 and 12 have no recorded outcome (survived/killed/invalid) in the available log — evidence gap, not a closed row. Every mutant that DOES have a recorded `survived` outcome (`3/12` at L49, `8/12` at L110, `9/12` at L113) is accounted for above | Not closed: no claim is made about mutants 11/12 absent evidence. Re-running `agon mutate` to completion would be needed to resolve this, and is out of this task's scope (no `agon` launches permitted here) |
 
+### Corrections found in review (re-checked at 52a11946)
+
+Measured against the implementation at `52a11946`, from a codex review of the oracle. No production code changed.
+
+| Original claim | Reality | Ruling / impact |
+|---|---|---|
+| `probe-matrix.test.mjs:48-57`'s "same link decision on RT-1 and JavaScript" row compares the two *live* legs to each other but never against the pinned `probe-matrix.json` fields, so the golden file can drift stale while the suite stays green | Confirmed: the row derived `rt1`/`js` fresh and asserted only `rt1 === js`, never `rt1 === row.rt1` or `js === row.javascript`. `python` and `linkMessage` were pinned but never checked against anything live at all | The existing test now also asserts, per projected fixture: live `rt1` against pinned `rt1`, live JavaScript decision against pinned `javascript`, live `compilePython(verified)` decision (the same helper `python-deferral.test.mjs` uses, reporting `KIR_PYTHON_LEG_DEFERRED` for deferred rows) against pinned `python`, and the live link message (recovered the same way `measure-probe-matrix.mjs` recovers it, via `linkVerifiedKernKirProgramOrThrow`) against pinned `linkMessage`. No new row: folded into the existing test so it stays the single owner of leg-vs-pin agreement. Verified discriminating by corrupting `probe-matrix.json`'s `do-async-call.rt1` to a bogus value and confirming the test fails on `E_PIN_DRIFT_RT1` before reverting; `measure-probe-matrix.mjs` remains the single source of truth for the pinned fields |
+| `metering.test.mjs:75-86`'s `assertStepThreshold` list has no row for `each-do-async-body` (added at `687f2954`), which carries an output-parity behavior row but no step-threshold parity row | Confirmed: the row was deliberately dropped at `687f2954` to hold `commit-rows.json`'s `abortCriterion` at zero margin (`E2` 63 vs. preceding 63) — see the entry above. It is a real oracle gap now that the row is worth restoring | Added `['each-do-async-body', 'three-elements']` to the `assertStepThreshold` list. Tagged **E1**, not **E2**, in `commit-rows.json`: the row exercises `do`'s async metering in a nested (`each`-body) position, which is a property of `do`'s step charge, not of `each`'s iteration charge. `E1` moves 26 → 27, so `preceding` moves 63 → 64 while `E2` stays 63 — `cut` stays `false` and the margin moves from zero to **one**. `E_MEASURE_ROWS=1 pnpm test:kern-5-e-linked-each-do` is green: total, disjoint, `cut: false` |
+
 ## Confidence
 
-**0.97 (implemented), 0.95 (post gap-closing, 687f2954).** The pre-build confidence was 0.88, held
-there by the unwritten `each` linker arm and its cursor lowering. Both are written, the oracle's 126
-rows are GREEN on the implementation, the self-drive reports the commit mapping total and disjoint,
-and the eight neighbour suites plus the canonicalizer chain are green with every moved pin narrowed
-rather than relaxed. The 2026-09-09 review/mutation pass closed the one needs-check and both
-mechanical survivors it could reach with new rows, no production change; what keeps it short of 1.0
-is the same breadth as before plus one open item — mutants 11/12 in the truncated mutate log have no
-recorded outcome — and the `abortCriterion` margin is now exactly zero.
+**0.97 (implemented), 0.95 (post gap-closing, 687f2954), 0.96 (post re-check, 52a11946).** The
+pre-build confidence was 0.88, held there by the unwritten `each` linker arm and its cursor lowering.
+Both are written, the oracle's 127 rows are GREEN on the implementation, the self-drive reports the
+commit mapping total and disjoint, and the eight neighbour suites plus the canonicalizer chain are
+green with every moved pin narrowed rather than relaxed. The 2026-09-09 review/mutation pass closed
+the one needs-check and both mechanical survivors it could reach with new rows, no production
+change. The `52a11946` re-check closed the pin-staleness gap in the leg-comparison row and restored
+`each-do-async-body`'s dropped step-threshold row, moving the `abortCriterion` margin from zero to
+one; what keeps confidence short of 1.0 is the same breadth as before plus one open item — mutants
+11/12 in the truncated mutate log have no recorded outcome.

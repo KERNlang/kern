@@ -3,7 +3,7 @@
   "abortCriterion": {
     "cut": false,
     "gated": 63,
-    "preceding": 63
+    "preceding": 64
   },
   "criteriaCount": 35,
   "groups": {
@@ -90,7 +90,8 @@
       "do-sync-call at one-element returns 1 identically on RT-1 and the emitted JavaScript",
       "do-text-call at one-element returns 1 identically on RT-1 and the emitted JavaScript",
       "do-unary is refused at link with KIR_DO_EXPRESSION_NOT_USER_CALL",
-      "do-void-call is refused at link with KIR_VOID_HANDLER_NO_CALL_FORM"
+      "do-void-call is refused at link with KIR_VOID_HANDLER_NO_CALL_FORM",
+      "each-do-async-body at three-elements exhausts at the same step on both legs"
     ],
     "E2": [
       "a do fixture and an each fixture each name only their own label",
