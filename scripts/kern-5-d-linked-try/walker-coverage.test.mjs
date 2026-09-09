@@ -69,8 +69,10 @@ test('catch and finally are try clauses, not union members, so the union gains e
   }
 });
 
+// Slice E.0 moved the walk out of expression.ts into statement-walker.ts byte for byte, so the
+// three scans below follow the walk rather than the file name.
 test('StatementWalkResult gains a threw variant, so an uncaught throw is a completion not an exception', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   const result = source.slice(
     source.indexOf('export type StatementWalkResult ='),
     source.indexOf('export interface StatementWalkPolicy'),
@@ -84,7 +86,7 @@ test('StatementWalkResult gains a threw variant, so an uncaught throw is a compl
 });
 
 test('WalkFrame gains a trap field and TryTrap carries the binding and both clause bodies', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   const frame = source.slice(source.indexOf('interface WalkFrame'), source.indexOf('function loopContinues'));
   assert.ok(frame.length > 0, 'WalkFrame must be locatable');
   assert.ok(
@@ -179,7 +181,7 @@ test('the async driver converts an entry threw and fails closed on a helper thre
 // D-5b. GREEN at base and must stay GREEN: the whole-file count is pinned in two prior suites and D
 // adds no third observation point.
 test('the RT-1 evaluator still carries exactly two checkAbort sites, and the try family adds none', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   assert.equal(
     occurrencesOf(source, 'checkAbort()'),
     CHECK_ABORT_SITES,

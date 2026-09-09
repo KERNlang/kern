@@ -5,7 +5,7 @@
 **Confidence:** 0.88
 **Base:** `2d2167564d23bcbbb417539aeb624a1309cddf60` (slice D tip, unmerged)
 **Branch:** `feat/kern-5-e-linked-each-do`
-**Oracle:** `scripts/kern-5-e-linked-each-do/` — 11 test files + 6 data/support modules, **120 rows: 88 RED at base, 32 GREEN**, plus the self-drive's own 8 rows and 1 env-gated row. Measured 2026-09-09 with `node --test --test-reporter=tap` over the ten non-self-drive files. See "Oracle Inventory".
+**Oracle:** `scripts/kern-5-e-linked-each-do/` — 11 test files + 12 fixture, pin, golden and measurement modules, **120 rows: 88 RED at base, 32 GREEN**, plus the self-drive's own 8 rows and 1 env-gated row. Measured 2026-09-09 with `node --test --test-reporter=tap` over the ten non-self-drive files. See "Oracle Inventory".
 
 ## Executive Summary
 
