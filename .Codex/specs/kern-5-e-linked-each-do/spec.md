@@ -549,6 +549,7 @@ so, and turning it green by deleting rows is the one repair that is not allowed.
 | Facts file: "kir-js-esm/emitter.ts 497/500 (AT CAP)" and `statements.ts` 440/440 | Both true at base; after E.0 they are 181 and 325 | E1/E2 have real headroom; `LINE_BUDGETS` pins it at 450, not 500 |
 | Facts file: "pins to move when `each` is admitted" listed `STILL_OUTSIDE`, exhaustiveness, ledger, rt10 `neg-each` | Incomplete for E.0: the **extraction alone** moves d0's file set, import-edge DAG, line budgets, marker locality, the runtime and JavaScript fault censuses, rt12's checkpoint scan, and the whole canonicalizer inventory chain (new head stage + omitted list + `compiledCoreDigest`) | E.0 is three commits, not one; the pin moves are enumerated in the Commit Plan and the Blast Radius |
 | Verdict: "ledger 5→7 rows + SHA recompute" | Confirmed: `parity-ledger.json` carries exactly 5 rows today (`break`, `continue`, `throw`, `try`, `while`) and `LEDGER_SHA256` is `2329d569…` (`ledger-support.mjs:40`) | E3 appends `do` and `each` in sorted order and re-pins the digest |
+| Behavior table: `do-async-call` emits no events | Its async helper contains a capability statement, and both RT-1 and emitted JS preserve that capability event even though `do` discards the helper's return value | Narrowed the row's `events` field to the exact existing capability event; result and admission expectations are unchanged |
 
 ## Confidence
 

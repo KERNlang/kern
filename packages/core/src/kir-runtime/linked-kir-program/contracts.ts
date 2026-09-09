@@ -251,6 +251,7 @@ export type LinkedKernKirStatement =
   | { readonly kind: 'assign'; readonly target: string; readonly value: LinkedKernKirExpression }
   | { readonly kind: 'break' }
   | { readonly kind: 'continue' }
+  | { readonly kind: 'do'; readonly value?: LinkedKernKirExpression }
   | { readonly kind: 'let'; readonly name: string; readonly value: LinkedKernKirExpression }
   | {
       readonly kind: 'capability';
@@ -307,6 +308,7 @@ export function statementSubExpressions(statement: LinkedKernKirStatement): read
   if (statement.kind === 'if' || statement.kind === 'while') return [statement.condition];
   if (statement.kind === 'for') return [statement.from, statement.to, statement.step];
   if (statement.kind === 'break' || statement.kind === 'continue' || statement.kind === 'try') return [];
+  if (statement.kind === 'do') return statement.value === undefined ? [] : [statement.value];
   return [statement.value];
 }
 

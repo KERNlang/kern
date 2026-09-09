@@ -174,6 +174,11 @@ function leafSource(
       if(__events.length+1>__request.limits.maxEvents)throw new __Fault('runtime-limit-exceeded','execution');
       __events.push(Object.freeze({op:'stdout',text:__printed.value}));}`;
   }
+  if (statement.kind === 'do') {
+    const value = statement.value === undefined ? '' : `\n      ${statementValueSource(statement.value, bindings, calls)};`;
+    return `
+      __meter.step(); __checkAbort();${value}`;
+  }
   throw new Error('return statements are emitted by the specialized handler');
 }
 

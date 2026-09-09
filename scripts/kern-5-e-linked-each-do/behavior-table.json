@@ -3,7 +3,7 @@
   "note": "Two legs only: both new kinds are Python-deferred by ledger row. `result` is the integer the entry returns; `events` is the exact stdout sequence. Every row is derived from the spec contract, not measured, because no leg admits these kinds yet.",
   "rows": [
     { "args": "one-element", "events": [], "name": "do-sync-call", "result": "1" },
-    { "args": "one-element", "events": [], "name": "do-async-call", "result": "1" },
+    { "args": "one-element", "events": [{ "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }], "name": "do-async-call", "result": "1" },
     { "args": "one-element", "events": [], "name": "do-bare", "result": "1" },
     { "args": "one-element", "events": [], "name": "do-text-call", "result": "1" },
     { "args": "one-element", "events": [], "name": "do-in-for", "result": "2" },

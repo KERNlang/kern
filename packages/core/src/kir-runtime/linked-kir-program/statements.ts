@@ -66,6 +66,28 @@ function compileStatement(
   const kind = nodeKind(node, label);
   const properties = nodeProperties(node, label);
   assertLeaf(node, label);
+  if (kind === 'do') {
+    propertySet(properties, [], ['trailingComment', 'value'], label);
+    const raw = properties.get('value');
+    if (raw === undefined) return Object.freeze({ kind: 'do' as const });
+    let value: LinkedKernKirExpression;
+    try {
+      value = compileLinkedExpression(raw, scope, meter, `${label}.value`);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('unsupported intrinsic')) {
+        fault('handler-entry-unsupported', `${label}: KIR_DO_MEMBER_CALL_UNSUPPORTED`);
+      }
+      throw error;
+    }
+    if (value.kind === 'json-call') {
+      fault('handler-entry-unsupported', `${label}: KIR_DO_JSON_INTRINSIC_UNSUPPORTED`);
+    }
+    if (value.kind !== 'user-call') {
+      fault('handler-entry-unsupported', `${label}: KIR_DO_EXPRESSION_NOT_USER_CALL`);
+    }
+    assertAsyncCallPosition(value, scope, `${label}.value`, true);
+    return Object.freeze({ kind: 'do' as const, value });
+  }
   if (kind === 'break' || kind === 'continue') {
     propertySet(properties, [], ['trailingComment'], label);
     if (scope.loopDepth === 0) {

@@ -215,6 +215,8 @@ export function* walkStatements(
         throw new KernKirFault('runtime-limit-exceeded', 'execution', 'event limit exceeded');
       }
       runtime.events.push(Object.freeze({ op: 'stdout', text: value.value }));
+    } else if (statement.kind === 'do') {
+      if (statement.value !== undefined) yield* statementValue(statement.value, bindings, meter, runtime);
     } else if (statement.kind === 'if') {
       const condition = evaluateExpression(statement.condition, bindings, meter, runtime);
       if (condition.tag !== 'boolean') {
