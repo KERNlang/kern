@@ -8,6 +8,8 @@ const STATEMENT_KINDS = Object.freeze([
   'break',
   'capability',
   'continue',
+  'do',
+  'each',
   'for',
   'if',
   'let',

@@ -24,6 +24,7 @@ import { SPEC_PATH } from './pins.mjs';
 
 export * from './fixtures.mjs';
 export {
+  DEFERRAL_LABEL,
   ENTRY,
   LIMITS,
   admission,

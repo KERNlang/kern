@@ -21,9 +21,12 @@ const REFUSALS = Object.freeze([
   ['neg-async-bound-to', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-async-bound-from', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-async-assign-in-body', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
+  ['neg-each-await', 'KIR_EACH_AWAIT_UNSUPPORTED'],
 ]);
 
-const LEAF_REFUSALS = Object.freeze([['neg-each', 'statement must be a leaf']]);
+// `neg-each` was this list's only member, and slice E admits `each`: no position rt10 projects
+// reaches `assertLeaf` any more, so the each refusal it gained is an ordinary link row above.
+const LEAF_REFUSALS = Object.freeze([]);
 
 const ADMITTED = Object.freeze([
   ...TABLE_ROWS.map((row) => row.name),
@@ -35,6 +38,10 @@ const ADMITTED = Object.freeze([
 // `break` and `continue` link on RT-1 and JavaScript, but the parity ledger defers both on the
 // Python leg, so they cannot join `ADMITTED`'s three-leg check without hiding that deferral.
 const JUMP_ADMITTED = Object.freeze(['neg-break-in-body', 'neg-continue-in-body']);
+
+// Slice E admitted `each`, so this position stopped being a refusal. It keeps its `neg-` name so
+// the row it used to prove is still traceable, and it is Python-deferred for the same reason.
+const EACH_ADMITTED = Object.freeze(['neg-each']);
 
 async function assertAdmitted(position) {
   const row = await admission(POSITIONS[position]());
@@ -59,6 +66,16 @@ test('every admitted loop position links on all three legs, so no row is satisfi
 
 test('break and continue link on RT-1 and JavaScript inside a loop body but stay Python-deferred', async () => {
   for (const position of JUMP_ADMITTED) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'projected', position);
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    pythonLegAdmissionColumn(row, position);
+  }
+});
+
+test('each links on RT-1 and JavaScript since slice E but stays Python-deferred', async () => {
+  for (const position of EACH_ADMITTED) {
     const row = await admission(POSITIONS[position]());
     assert.equal(row.projection, 'projected', position);
     assert.equal(row.rt1, 'admitted', position);

@@ -37,7 +37,7 @@ export {
 export const LEDGER_URL = new URL('./parity-ledger.json', import.meta.url);
 export const LEDGER_FORMAT = PARITY_LEDGER_FORMAT;
 export const DEFERRAL_LABEL = KIR_PYTHON_LEG_DEFERRED;
-export const LEDGER_SHA256 = '2329d569c6d4fa65b0e5f7b6562bb26d1aa59c8052391e0ec77d5ba203f1bf73';
+export const LEDGER_SHA256 = 'c9b1419482ba8820f56f62127c0027e8fc4c4134170f81b99778cff68ab9d8c9';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
 export const ROW_KEYS = Object.freeze(['blockedBy', 'label', 'nodeKind', 'since', 'spec', 'surface']);

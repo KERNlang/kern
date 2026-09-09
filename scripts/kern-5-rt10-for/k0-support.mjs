@@ -360,6 +360,16 @@ export const POSITIONS = Object.freeze({
       ['let name=acc value="0"', 'each name=x in="xs"', '  assign target="acc" value="acc + 1"', 'return value="acc"'],
       { parameters: Object.freeze([Object.freeze({ name: 'xs', type: 'integer[]' })]) },
     ),
+  'neg-each-await': () =>
+    program(
+      [
+        'let name=acc value="0"',
+        'each name=x in="xs" await=true',
+        '  assign target="acc" value="acc + 1"',
+        'return value="acc"',
+      ],
+      { parameters: Object.freeze([Object.freeze({ name: 'xs', type: 'integer[]' })]) },
+    ),
   'neg-empty-body': () => program(['let name=acc value="0"', 'for name=i from="0" to="3"', 'return value="acc"']),
   'neg-shadow-let': () =>
     program([

@@ -61,7 +61,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
 
 // The statement kinds this slice must leave outside the union. `for` is deliberately absent: it is
 // what the slice adds, and `walker-coverage.test.mjs` asserts it arrives.
-const STILL_OUTSIDE = Object.freeze(['each', 'set']);
+const STILL_OUTSIDE = Object.freeze(['set']);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');

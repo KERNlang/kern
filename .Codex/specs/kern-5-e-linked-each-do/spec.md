@@ -1,11 +1,12 @@
 # KERN 5 slice E — linked `each` + `do` (`with` deferred)
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED
 **Date:** 2026-09-09
 **Confidence:** 0.88
 **Base:** `2d2167564d23bcbbb417539aeb624a1309cddf60` (slice D tip, unmerged)
 **Branch:** `feat/kern-5-e-linked-each-do`
 **Oracle:** `scripts/kern-5-e-linked-each-do/` — 11 test files + 12 fixture, pin, golden and measurement modules, **120 rows: 88 RED at base, 32 GREEN**, plus the self-drive's own 8 rows and 1 env-gated row. Measured 2026-09-09 with `node --test --test-reporter=tap` over the ten non-self-drive files. See "Oracle Inventory".
+**Landed:** three commits on the E.0 chain — *admit linked do statements*, *admit linked each loops over list parameters*, *pin the fourteen-kind union, the ledger and the prior-slice scans* — leaving the oracle at **120 rows: 120 GREEN, 0 RED**, the eight self-drive rows GREEN and the env-gated self-drive total and disjoint. Three implementation corrections are recorded in the Corrections Log.
 
 ## Executive Summary
 
@@ -21,8 +22,11 @@ metering shapes.** Every admitted construct's meter trace is pointwise construct
 shape — `do` is `print` minus the event, `each` is `for` with a cursor over a list instead of a
 counter over a range. Any fixture whose GREEN requires a novel charge is a RED by construction.
 
-E.0 has landed. E1 (`do`), E2 (`each`) and E3 (pins) are specified here and their acceptance criteria
-are already written as RED oracle rows.
+E.0, E1 (`do`), E2 (`each`) and E3 (pins) have all landed. The oracle is fully GREEN: **120 rows,
+0 RED**, plus the 8 self-drive rows and the env-gated self-drive, measured 2026-09-09 on the
+implementation. `E_MEASURE_ROWS=1 pnpm test:kern-5-e-linked-each-do` reports the commit mapping as
+total and disjoint. Three commits carry E1..E3 on top of the E.0 chain, and the corrections found
+while implementing are recorded below.
 
 ## Current State
 
@@ -414,47 +418,47 @@ off-by-one, index typed decimal, `for…of` over a mutated array, arbitrary `do`
 Binary; each becomes an oracle row.
 
 **E.0 — extraction (GREEN guards)**
-- [ ] Every corpus program emits a byte-identical JavaScript artifact and manifest vs base.
-- [ ] Every corpus program keeps its base `linkedProgramSha256`.
-- [ ] Every corpus program keeps its base Python compile decision.
-- [ ] Every corpus program keeps its base RT-1 envelope and outcome.
-- [ ] Both spliced linked programs emit byte-identical artifacts.
-- [ ] `TARGET_KERNEL_SHA256` equals the frozen pin on both legs.
-- [ ] `kir-python/emitter.ts` has an empty `git diff` against base.
-- [ ] Every file named in `LINE_BUDGETS` is at or under its budget and under 450 lines.
-- [ ] `linked-kir-program/` remains an acyclic import DAG.
-- [ ] The `kir-runtime` walker cycle loads in both import orders and exports every walk name.
+- [x] Every corpus program emits a byte-identical JavaScript artifact and manifest vs base.
+- [x] Every corpus program keeps its base `linkedProgramSha256`.
+- [x] Every corpus program keeps its base Python compile decision.
+- [x] Every corpus program keeps its base RT-1 envelope and outcome.
+- [x] Both spliced linked programs emit byte-identical artifacts.
+- [x] `TARGET_KERNEL_SHA256` equals the frozen pin on both legs.
+- [x] `kir-python/emitter.ts` has an empty `git diff` against base.
+- [x] Every file named in `LINE_BUDGETS` is at or under its budget and under 450 lines.
+- [x] `linked-kir-program/` remains an acyclic import DAG.
+- [x] The `kir-runtime` walker cycle loads in both import orders and exports every walk name.
 
 **E1 — `do`**
-- [ ] `do` with a non-void sync `user-call` links, runs on RT-1 and on the emitted JS leg, and both envelopes agree byte for byte.
-- [ ] `do` with a non-void async `user-call` links and both legs agree; the same call in an argument position refuses with `KIR_ASYNC_CALL_EXPRESSION_POSITION`.
-- [ ] Bare `do` links, is a no-op, and charges exactly one step more than the same program without it.
-- [ ] `do` of a `void` helper refuses with `KIR_VOID_HANDLER_NO_CALL_FORM`.
-- [ ] `do value="1"` (literal), `do value="x"` (identifier), `do value="1 + 1"` (binary), `do value="r.a"` (member) each refuse with `KIR_DO_EXPRESSION_NOT_USER_CALL`, single cause.
-- [ ] `do value="Json.stringify(t)"` and `do value="Json.parse(t)"` refuse with `KIR_DO_JSON_INTRINSIC_UNSUPPORTED`.
-- [ ] `do` inside a `for`, a `while`, an `each` and a `try` body all link.
-- [ ] The Python leg refuses every `do` fixture with `KIR_PYTHON_LEG_DEFERRED`.
+- [x] `do` with a non-void sync `user-call` links, runs on RT-1 and on the emitted JS leg, and both envelopes agree byte for byte.
+- [x] `do` with a non-void async `user-call` links and both legs agree; the same call in an argument position refuses with `KIR_ASYNC_CALL_EXPRESSION_POSITION`.
+- [x] Bare `do` links, is a no-op, and charges exactly one step more than the same program without it.
+- [x] `do` of a `void` helper refuses with `KIR_VOID_HANDLER_NO_CALL_FORM`.
+- [x] `do value="1"` (literal), `do value="x"` (identifier), `do value="1 + 1"` (binary), `do value="r.a"` (member) each refuse with `KIR_DO_EXPRESSION_NOT_USER_CALL`, single cause.
+- [x] `do value="Json.stringify(t)"` and `do value="Json.parse(t)"` refuse with `KIR_DO_JSON_INTRINSIC_UNSUPPORTED`.
+- [x] `do` inside a `for`, a `while`, an `each` and a `try` body all link.
+- [x] The Python leg refuses every `do` fixture with `KIR_PYTHON_LEG_DEFERRED`.
 
 **E2 — `each`**
-- [ ] `each` over a `list<text>` parameter links, runs, and both legs agree byte for byte; the item's cross-call type is `text` and it may be passed to a `text` helper.
-- [ ] `each` over `list<boolean>` and `list<integer>` parameters link, and the item's static type is `boolean` / `integer` respectively (a `boolean` item is accepted as an `if` condition; an `integer` item is accepted as a `for` bound).
-- [ ] `each … index=i` binds `i` as `integer` (accepted as a `for` bound; **rejected** where a decimal would be accepted) and costs zero extra steps.
-- [ ] A zero-length list runs zero trips and charges exactly 2 structural steps plus the source expression — the same constant a zero-trip `for` and `while` charge.
-- [ ] An N-element list charges exactly N `enterTrip` steps, verified at the exact step-exhaustion boundary (succeeds at RT-1's count, fails one below it) on both legs.
-- [ ] `break` and `continue` inside an `each` body behave as in `for`, including inside a nested `for`/`while` and an `each` nested in an `each`.
-- [ ] An `each` inside a `try` body links; a `try`/`finally` inside an `each` body links; a `break` crossing a finally-bearing `try` inside an `each` refuses with `KIR_LOOP_JUMP_CROSSES_TRY`.
-- [ ] `assign` to the item binding and to the index binding each refuse with `KIR_ASSIGN_TO_EACH_BINDING`, single cause.
-- [ ] `in=` naming a `let` binding refuses `KIR_EACH_SOURCE_NOT_PARAMETER`; `in=` naming a scalar parameter refuses `KIR_EACH_SOURCE_NOT_LIST`; a one-level field reference refuses `KIR_EACH_RECORD_FIELD_UNSUPPORTED`.
-- [ ] `pairKey`/`pairValue`, `entryKey`/`entryValue`, `entries=true`, `await=true` each refuse with their own label, single cause.
-- [ ] `each … type=…` and `each … in="[1,2]"` and `each … in="mk()"` stay **not projected**: the F5 wall is asserted, and no link label is spent on them.
-- [ ] The Python leg refuses every `each` fixture with `KIR_PYTHON_LEG_DEFERRED`.
+- [x] `each` over a `list<text>` parameter links, runs, and both legs agree byte for byte; the item's cross-call type is `text` and it may be passed to a `text` helper.
+- [x] `each` over `list<boolean>` and `list<integer>` parameters link, and the item's static type is `boolean` / `integer` respectively (a `boolean` item is accepted as an `if` condition; an `integer` item is accepted as a `for` bound).
+- [x] `each … index=i` binds `i` as `integer` (accepted as a `for` bound; **rejected** where a decimal would be accepted) and costs zero extra steps.
+- [x] A zero-length list runs zero trips and charges exactly 2 structural steps plus the source expression — the same constant a zero-trip `for` and `while` charge.
+- [x] An N-element list charges exactly N `enterTrip` steps, verified at the exact step-exhaustion boundary (succeeds at RT-1's count, fails one below it) on both legs.
+- [x] `break` and `continue` inside an `each` body behave as in `for`, including inside a nested `for`/`while` and an `each` nested in an `each`.
+- [x] An `each` inside a `try` body links; a `try`/`finally` inside an `each` body links; a `break` crossing a finally-bearing `try` inside an `each` refuses with `KIR_LOOP_JUMP_CROSSES_TRY`.
+- [x] `assign` to the item binding and to the index binding each refuse with `KIR_ASSIGN_TO_EACH_BINDING`, single cause.
+- [x] `in=` naming a `let` binding refuses `KIR_EACH_SOURCE_NOT_PARAMETER`; `in=` naming a scalar parameter refuses `KIR_EACH_SOURCE_NOT_LIST`; a one-level field reference refuses `KIR_EACH_RECORD_FIELD_UNSUPPORTED`.
+- [x] `pairKey`/`pairValue`, `entryKey`/`entryValue`, `entries=true`, `await=true` each refuse with their own label, single cause.
+- [x] `each … type=…` and `each … in="[1,2]"` and `each … in="mk()"` stay **not projected**: the F5 wall is asserted, and no link label is spent on them.
+- [x] The Python leg refuses every `each` fixture with `KIR_PYTHON_LEG_DEFERRED`.
 
 **E3 — pins and ledger**
-- [ ] The linked statement union is exactly 14 kinds and the parity-ledger exhaustiveness table covers all 14.
-- [ ] `parity-ledger.json` carries `do` and `each` rows with `since: 'kern-5-e'`, this spec's path, `label: KIR_PYTHON_LEG_DEFERRED`, and `blockedBy` validated by ledger support; `LEDGER_SHA256` is re-pinned.
-- [ ] `STILL_OUTSIDE` in rt10/rt11/rt12 drops `each` and keeps `set`.
-- [ ] rt10's `neg-each` row is amended to a positive admission row and a **new** refusal row is appended.
-- [ ] No slice-E source path emits any `KIR_WITH_*` label.
+- [x] The linked statement union is exactly 14 kinds and the parity-ledger exhaustiveness table covers all 14.
+- [x] `parity-ledger.json` carries `do` and `each` rows with `since: 'kern-5-e'`, this spec's path, `label: KIR_PYTHON_LEG_DEFERRED`, and `blockedBy` validated by ledger support; `LEDGER_SHA256` is re-pinned.
+- [x] `STILL_OUTSIDE` in rt10/rt11/rt12 drops `each` and keeps `set`.
+- [x] rt10's `neg-each` row is amended to a positive admission row and a **new** refusal row is appended.
+- [x] No slice-E source path emits any `KIR_WITH_*` label.
 
 ## Out of Scope
 
@@ -551,6 +555,16 @@ so, and turning it green by deleting rows is the one repair that is not allowed.
 | Verdict: "ledger 5→7 rows + SHA recompute" | Confirmed: `parity-ledger.json` carries exactly 5 rows today (`break`, `continue`, `throw`, `try`, `while`) and `LEDGER_SHA256` is `2329d569…` (`ledger-support.mjs:40`) | E3 appends `do` and `each` in sorted order and re-pins the digest |
 | Behavior table: `do-async-call` emits no events | Its async helper contains a capability statement, and both RT-1 and emitted JS preserve that capability event even though `do` discards the helper's return value | Narrowed the row's `events` field to the exact existing capability event; result and admission expectations are unchanged |
 | Blast Radius omitted `linked-kir-program/link.ts` and `link-support.ts` | `each` must distinguish parameters from other bindings and admit `list<integer>`, while the existing cross-call map deliberately has no `list<integer>` member | Added a linker-only parameter-type map to `LinkScope`; the linked node and runtime contracts remain exactly as specified |
+
+### Corrections found while implementing (2026-09-09, base `c1db112b`)
+
+Measured against the implementation, not deduced. Each row names the oracle or neighbour pin it moved.
+
+| Original claim | Reality | Ruling / impact |
+|---|---|---|
+| `python-deferral.test.mjs`'s live-refusal row expected `python.code === 'handler-entry-unsupported'` for every `do`/`each` fixture | The Python leg returns the deferral code, not the link code: `compilePythonKernKir` short-circuits on `pythonLoweringDeferral` and answers `failure(KIR_PYTHON_LEG_DEFERRED_CODE)` (`packages/core/src/compiler/kir-python/index.ts:69`, `contracts.ts:9`), which is what `assertPythonDeferralRefusal` already asserts for `throw`/`try`/`while` (`scripts/kern-5-parity-ledger/support.mjs:81`) | Row **narrowed**, not weakened: it now pins the exact `DEFERRAL_LABEL` constant instead of the generic refusal family, so a `do` fixture that refused for an unrelated link reason would fail it. `DEFERRAL_LABEL` is re-exported from the slice's `k0-support.mjs` |
+| E3's rt10 amendment was stated as "`neg-each` becomes positive; a new refusal row is appended" without saying where the appended row lands | `each` is admitted, so nothing rt10 projects reaches `assertLeaf` any more and the appended refusal is an ordinary link decision. The oracle's own row locates the list by `between(typeGate, 'const LEAF_REFUSALS', ']')`, so the declaration cannot be deleted | rt10 gains fixture `neg-each-await` and the `REFUSALS` row `['neg-each-await', 'KIR_EACH_AWAIT_UNSUPPORTED']`; `neg-each` moves to a new two-leg `EACH_ADMITTED` group (RT-1 + JavaScript admitted, Python-deferred, the `JUMP_ADMITTED` shape) and `LEAF_REFUSALS` survives as an empty pinned list with the reason in place |
+| `LINE_BUDGETS` treated `statement-walker.ts` ≤ 300 as headroom E2 would not reach | E2 lands it at exactly **300**: `EachLoopState`, the shared `enterTrip` binding, the frame-exhaustion cursor arm and the dispatch arm are 30 lines together, and biome's 120-column formatter forbids the one-line loop-state literal | The dispatch arm destructures `{ index, item }` from the statement so the literal fits one line; the budget is met at its cap rather than by raising it |
 
 ## Confidence
 

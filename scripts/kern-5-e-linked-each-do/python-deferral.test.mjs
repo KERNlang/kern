@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { LEDGER_E_ROWS, POSITIONS, compilePython, project, repositoryText } from './k0-support.mjs';
+import { DEFERRAL_LABEL, LEDGER_E_ROWS, POSITIONS, compilePython, project, repositoryText } from './k0-support.mjs';
 import { PYTHON_DEFERRAL_LABEL_KINDS, SPEC_PATH } from './pins.mjs';
 
 const LEDGER = 'scripts/kern-5-parity-ledger/parity-ledger.json';
@@ -57,6 +57,6 @@ test('the Python leg refuses every do and each fixture', async () => {
     assert.ok(verified !== undefined, `E_PROJECTION_LOST: ${name} must project`);
     const python = compilePython(verified);
     assert.equal(python.outcome, 'failure', `E_PYTHON_ADMITTED: ${name} must stay deferred on the Python leg`);
-    assert.equal(python.code, 'handler-entry-unsupported', name);
+    assert.equal(python.code, DEFERRAL_LABEL, name);
   }
 });
