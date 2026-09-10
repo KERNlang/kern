@@ -1,0 +1,605 @@
+{
+  "format": "kern.kern-5-f.probe-matrix.v1",
+  "rows": [
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "do-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "each-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "for-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "if-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-assign-binding",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-async-cleanup-no-flag",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-async-in-argument",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-async-value-no-flag",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-body-let-read-after",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "neg-with-break-crosses",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-binary",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-identifier",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-json",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-literal",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-member-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-reads-body-let",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-cleanup-void-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "neg-with-continue-crosses",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement kind with is outside RT-1",
+      "name": "neg-with-empty-body",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-flag-without-async-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "helper.wrapped.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-in-helper",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-no-cleanup",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-protocol-no-cleanup",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-protocol-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-read-after",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-rebind-in-body",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-return-in-void-handler",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "neg-with-shadow-counter",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[2]: statement must be a leaf",
+      "name": "neg-with-shadow-let",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-shadow-outer-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-shadow-parameter",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "neg-with-value-reads-own-binding",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "print-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "throw-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-async-acquire",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-async-cleanup",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-break-inner-loop",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-caught-throw",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-continue-inner-loop",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-fallthrough",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-nested",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-return",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-return-through-outer-finally",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "twin-uncaught-throw",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-capability-in-with",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-try-in-with",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-catch-child",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-cleanup-propagate",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-extra-prop",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-no-name",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-no-value",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "wall-with-value-propagate",
+      "projection": "not-projected",
+      "python": "not-projected",
+      "rt1": "not-projected"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[2]: statement must be a leaf",
+      "name": "while-in-with",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-async-acquire",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-async-cleanup",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-async-false",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-break-inner-loop",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "with-caught-throw",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-continue-inner-loop",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-fallthrough",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].catch.children[0]: statement must be a leaf",
+      "name": "with-in-catch",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "with-in-each",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].finally.children[0]: statement must be a leaf",
+      "name": "with-in-finally",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "with-in-for",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].then.children[0]: statement must be a leaf",
+      "name": "with-in-if",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "with-in-try",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[2].body.children[1]: statement must be a leaf",
+      "name": "with-in-while",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-nested",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-protocol-empty",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-protocol-omitted",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-return",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "name": "with-return-through-outer-finally",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-sibling-reuse",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-uncaught-throw",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "name": "with-value-visible",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    }
+  ]
+}
