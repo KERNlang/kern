@@ -45,7 +45,7 @@ test('the D.0 leaf builds core and runs every oracle file exactly once', () => {
 
 // Moved by slice D, the first leaf that legitimately runs after D.0. The invariant was never "last"
 // but "after every prior slice", and only a declared successor may follow it.
-const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-d-linked-try', 'test:kern-5-e-linked-each-do']);
+const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-d-linked-try', 'test:kern-5-e-linked-each-do', 'test:kern-5-f-linked-with']);
 
 test('the evidence aggregate appends the D.0 leaf exactly once, before its declared successors only', () => {
   const family = segments(scripts()['test:kern-5-script-family']);

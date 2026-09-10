@@ -13,7 +13,7 @@ export const LINE_BUDGETS = Object.freeze({
   'packages/core/src/compiler/kir-js-esm/statement-source.ts': 380,
   'packages/core/src/kir-runtime/expression.ts': 300,
   'packages/core/src/kir-runtime/linked-kir-program/loop-statements.ts': 200,
-  'packages/core/src/kir-runtime/linked-kir-program/statements.ts': 380,
+  'packages/core/src/kir-runtime/linked-kir-program/statements.ts': 430,
   'packages/core/src/kir-runtime/statement-walker.ts': 300,
 });
 
@@ -92,15 +92,9 @@ export const F5_WALLED_POSITIONS = Object.freeze([
   'each-type-annotation',
 ]);
 
-// Reserved by the deferred `with` design, spent by no slice-E code path. A label that appears in
-// source before its slice lands is a label whose contract nobody has written.
-export const RESERVED_WITH_LABELS = Object.freeze([
-  'KIR_WITH_ACQUIRE_UNSUPPORTED',
-  'KIR_WITH_CLEANUP_REQUIRED',
-  'KIR_WITH_CLEANUP_UNSUPPORTED',
-  'KIR_WITH_PROPAGATION_UNSUPPORTED',
-  'KIR_WITH_PROTOCOL_UNSUPPORTED',
-]);
+// Reserved by the deferred `with` design and still unspent after slice F: neither gate is reachable
+// from a projectable source, so a label that appears in source is a label whose contract nobody wrote.
+export const RESERVED_WITH_LABELS = Object.freeze(['KIR_WITH_ACQUIRE_UNSUPPORTED', 'KIR_WITH_PROPAGATION_UNSUPPORTED']);
 
 export const REUSED_LABELS = Object.freeze([
   'KIR_ASYNC_CALL_EXPRESSION_POSITION',

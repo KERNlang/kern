@@ -60,23 +60,23 @@ test('the two unreachable labels appear in no source file', () => {
   }
 });
 
-test('no KIR_WITH_ label is spent by slice E', () => {
+// Slice F spent three of the five labels E reserved; the two that remain are unreachable from any
+// projectable source and must stay unspelled. The F oracle owns the spent set.
+test('the with labels still reserved after slice F appear in no source file', () => {
   for (const label of RESERVED_WITH_LABELS) {
     for (const file of sources()) {
       assert.equal(
         file.text.includes(label),
         false,
-        `E_WITH_LABEL_SPENT: ${label} belongs to the deferred with slice, and ${file.path} spells it`,
+        `E_WITH_LABEL_SPENT: ${label} has no reachable gate, and ${file.path} spells it`,
       );
     }
   }
-  const spelled = sources().some((file) => /KIR_WITH_[A-Z_]+/u.test(file.text));
-  assert.equal(spelled, false, 'E_WITH_LABEL_SPENT: slice E must mint no with label at all');
 });
 
-// `with` stays outside the union, which means it keeps the ordinary outside-RT-1 refusal and NOT a
-// with-specific one. If a future edit gives it a private label without a contract, this row fires.
-test('with is still refused by the generic outside-RT-1 gate', async () => {
+// `with` now has its own contract (slice F), so the E-era fixture must refuse on a with label and
+// never on the generic outside-RT-1 gate it kept while deferred.
+test('with is refused by its own contract, not by the generic outside-RT-1 gate', async () => {
   const source = [
     'fn name=route export=true returns=integer',
     '  handler lang=kern',
@@ -89,11 +89,11 @@ test('with is still refused by the generic outside-RT-1 gate', async () => {
   const { admission } = await import('./k0-support.mjs');
   const row = await admission(source);
   if (row.projection !== 'projected') return;
-  const message = await assertLinkLabel(source, 'statement must be a leaf');
+  const message = await assertLinkLabel(source, 'KIR_WITH_CLEANUP_UNSUPPORTED');
   assert.equal(
-    /KIR_WITH_[A-Z_]+/u.test(message),
+    message.includes('statement must be a leaf'),
     false,
-    'E_WITH_LABEL_SPENT: with must keep the generic refusal until its own slice writes a contract',
+    'E_WITH_GENERIC_REFUSAL: with must refuse on its own label once slice F owns it',
   );
 });
 

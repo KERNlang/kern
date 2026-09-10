@@ -16,7 +16,7 @@ const SKIP_REASON = 'set D_MEASURE_ROWS=1 to run the D-7f self-drive';
 
 const SUITE_DIRECTORY = 'scripts/kern-5-d-linked-try';
 
-const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-e-linked-each-do']);
+const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-e-linked-each-do', 'test:kern-5-f-linked-with']);
 
 function oracleFiles() {
   return readdirSync(new URL('./', import.meta.url))

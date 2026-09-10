@@ -327,6 +327,21 @@ pnpm --filter @kernlang/core build && pnpm lint \
 | Oracle: `try` with `catch`/`finally` and `capability` inside a `with` body do not project (F5 `allowedChildren`) | **Spec corrected** (F-5e); pinned as wall rows |
 | `statements.ts` lands at exactly 430/430 lines; the next slice touching it must extract first | recorded; QF-3 holds |
 
+### Corrections found in the six-engine review (2026-09-10, reviewed at `f648c53e`, `~/.agon/runs/review-1789055961020-6vqovm-kern5-f-with`)
+
+6/6 ok, 0 verified blockers, 8 needs-check, 24 nits. Routing widened to high risk (primary `claude`).
+
+| Finding | Disposition |
+|---|---|
+| `compileWith` classified cleanup failures by catching any Error containing `unsupported intrinsic` and hard-coding the detail `member` (5 reviewers); `cleanup="r.close()"` actually fell through to `intrinsic arity` | **Fixed:** the cleanup is classified from the RAW record before compiling (kind, then callee kind); no catch remains, so a refusal raised inside an argument keeps its own label and path. Two type-gate rows added (`r.close()` → `member`; `bump(xs.length)` → the argument's own refusal). `Json.x` callees report `member` |
+| The cancellation/timeout fault row ran RT-1 only and its controls fired before the body | **Oracle fixed:** split into a mid-body cancellation row (abort at the body's capability, both legs, cleanup marker absent, body marker present) and a pre-body row on both legs |
+| The `protocol=""` byte-identity row compared events and result only, under two request ids | **Oracle fixed:** full envelope bytes under one request id, both legs |
+| The ten twin rows compared the direct leg only | **Oracle fixed:** direct and JavaScript envelopes, surface vs twin |
+| `probe-matrix.test.mjs` re-projected every fixture (~8 min) | **Oracle fixed:** `project()` memoised per source; 506 s → 315 s |
+| `behavior-table.json` note said rows were unmeasured | **Oracle fixed** |
+| Missing `value` refuses with a bare path, not a label | **Accepted as is:** unreachable (F5 requires `value`), mirrors the `let` arm |
+| The commit-rows abort criterion is vacuous (`F1` rows measured GREEN on the landed tree) | **Recorded:** the mapping is measured on the landed tree; the RED-at-base split (134/28) is recorded in the header |
+
 ## Confidence
 
 0.92. Both residuals from the pre-build estimate resolved: the oracle measured 134 RED at base for
