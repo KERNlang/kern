@@ -90,6 +90,7 @@ export interface LinkScope {
   readonly payloads: Set<string>;
   readonly tryFamily: boolean;
   readonly types: Map<string, LinkedKernKirStaticType>;
+  readonly withBindings: Set<string>;
 }
 
 export interface ModuleContext {
@@ -117,6 +118,7 @@ export function branchScope(scope: LinkScope): LinkScope {
     payloads: new Set(scope.payloads),
     tryFamily: scope.tryFamily,
     types: new Map(scope.types),
+    withBindings: new Set(scope.withBindings),
   };
 }
 

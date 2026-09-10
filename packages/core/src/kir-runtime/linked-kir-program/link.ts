@@ -201,6 +201,7 @@ function compileHandler(
     payloads: new Set<string>(),
     tryFamily: requireExport,
     types: new Map<string, LinkedKernKirStaticType>(),
+    withBindings: new Set<string>(),
   };
   for (let index = 0; index < children.length; index += 1) {
     const child = children[index];

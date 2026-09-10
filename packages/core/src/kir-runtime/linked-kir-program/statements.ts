@@ -1,9 +1,14 @@
 import type { CanonicalValue } from '../../canonical-value/types.js';
 import type { StructuralKirNode } from '../../kir-structural/types.js';
 import type { RuntimeMeter } from '../inspect.js';
-import { nodeChildren, nodeProperties } from '../inspect.js';
+import { nodeChildren, nodeProperties, plainRecord } from '../inspect.js';
 import type { LinkedKernKirExpression, LinkedKernKirStatement } from './contracts.js';
-import { compileLinkedExpression, crossCallExpressionType, staticExpressionType } from './expression.js';
+import {
+  compileLinkedExpression,
+  containsAsyncCall,
+  crossCallExpressionType,
+  staticExpressionType,
+} from './expression.js';
 import {
   assertAsyncCallPosition,
   assertLeaf,
@@ -13,10 +18,11 @@ import {
   fault,
   type LinkScope,
   nodeKind,
+  propertyBool,
   propertySet,
   propertyText,
 } from './link-support.js';
-import { compileEach, compileFor, compileWhile } from './loop-statements.js';
+import { type BranchCompiler, compileEach, compileFor, compileWhile } from './loop-statements.js';
 
 const ABRUPT_KINDS = Object.freeze(['break', 'continue', 'return', 'throw']);
 
@@ -138,11 +144,13 @@ function compileStatement(
     const target = assignTargetName(properties.get('target'), `${label}.target`, meter);
     if (!scope.bindings.has(target)) fault('handler-entry-unsupported', `${label}: KIR_ASSIGN_UNDECLARED ${target}`);
     if (!scope.assignable.has(target)) {
-      const reason = scope.eachBindings.has(target)
-        ? 'KIR_ASSIGN_TO_EACH_BINDING'
-        : scope.counters.has(target)
-          ? 'KIR_ASSIGN_TO_LOOP_COUNTER'
-          : 'KIR_ASSIGN_TARGET_NOT_LET';
+      const reason = scope.withBindings.has(target)
+        ? 'KIR_ASSIGN_TO_WITH_BINDING'
+        : scope.eachBindings.has(target)
+          ? 'KIR_ASSIGN_TO_EACH_BINDING'
+          : scope.counters.has(target)
+            ? 'KIR_ASSIGN_TO_LOOP_COUNTER'
+            : 'KIR_ASSIGN_TARGET_NOT_LET';
       fault('handler-entry-unsupported', `${label}: ${reason} ${target}`);
     }
     const value = properties.get('value');
@@ -304,6 +312,69 @@ function compileIf(
   return Object.freeze({ kind: 'if' as const, condition, thenBranch, elseBranch });
 }
 
+// `with` has no linked kind and never gains one: it expands here into the `let` and the
+// finally-bearing `try` the union already carries, so both legs meter it as the hand-written twin.
+function compileWith(
+  node: StructuralKirNode,
+  scope: LinkScope,
+  meter: RuntimeMeter,
+  label: string,
+  branch: BranchCompiler,
+): readonly LinkedKernKirStatement[] {
+  meter.step();
+  const properties = nodeProperties(node, label);
+  propertySet(properties, ['name', 'value'], ['async', 'cleanup', 'protocol', 'trailingComment'], label);
+  if (!scope.tryFamily) fault('handler-entry-unsupported', `${label}: KIR_WITH_IN_HELPER`);
+  const rawProtocol = properties.get('protocol');
+  // `propertyText` refuses empty text, so the normalised-away protocol is read off the raw record.
+  if (rawProtocol !== undefined) {
+    const record = plainRecord(rawProtocol, `${label}.protocol`);
+    if (record.tag !== 'text' || record.value !== '') {
+      fault('handler-entry-unsupported', `${label}: KIR_WITH_PROTOCOL_UNSUPPORTED`);
+    }
+  }
+  const rawCleanup = properties.get('cleanup');
+  if (rawCleanup === undefined) fault('handler-entry-unsupported', `${label}: KIR_WITH_CLEANUP_REQUIRED`);
+  const name = propertyText(properties, 'name', label, meter);
+  if (scope.bindings.has(name)) fault('handler-entry-unsupported', `${label}: duplicate binding ${name}`);
+  const rawValue = properties.get('value');
+  if (rawValue === undefined) fault('handler-entry-unsupported', `${label}.value`);
+  const value = compileLinkedExpression(rawValue, scope, meter, `${label}.value`);
+  assertAsyncCallPosition(value, scope, `${label}.value`, true);
+  const withScope = { ...branchScope(scope), finallyDepth: scope.finallyDepth + 1 };
+  bindName(withScope, name, staticExpressionType(value, scope), crossCallExpressionType(value, scope));
+  withScope.withBindings.add(name);
+  const cleanupLabel = `${label}.cleanup`;
+  // The expansion materializes a `do`, and the twin pays a link step for it.
+  meter.step();
+  let compiled: LinkedKernKirExpression | undefined;
+  try {
+    compiled = compileLinkedExpression(rawCleanup, withScope, meter, cleanupLabel);
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('unsupported intrinsic'))) throw error;
+  }
+  if (compiled === undefined || compiled.kind !== 'user-call') {
+    const detail = compiled === undefined ? 'member' : compiled.kind;
+    fault('handler-entry-unsupported', `${cleanupLabel}: KIR_WITH_CLEANUP_UNSUPPORTED ${detail}`);
+  }
+  const cleanup = compiled;
+  assertAsyncCallPosition(cleanup, withScope, cleanupLabel, true);
+  const flag = properties.has('async') && propertyBool(properties, 'async', label);
+  if (flag !== (containsAsyncCall(value, scope) || containsAsyncCall(cleanup, withScope))) {
+    fault('handler-entry-unsupported', `${label}: KIR_WITH_ASYNC_MISMATCH`);
+  }
+  const body = branch(node, branchScope(withScope), meter, label);
+  return Object.freeze([
+    Object.freeze({ kind: 'let' as const, name, value }),
+    Object.freeze({
+      body,
+      catchBody: Object.freeze([]),
+      finallyBody: Object.freeze([Object.freeze({ kind: 'do' as const, value: cleanup })]),
+      kind: 'try' as const,
+    }),
+  ]);
+}
+
 export function compileBlock(
   nodes: readonly StructuralKirNode[],
   scope: LinkScope,
@@ -325,6 +396,10 @@ export function compileBlock(
     }
     if (kind === 'while') {
       statements.push(compileWhile(node, scope, meter, childLabel, compileBranch));
+      continue;
+    }
+    if (kind === 'with') {
+      statements.push(...compileWith(node, scope, meter, childLabel, compileBranch));
       continue;
     }
     if (kind === 'try') {
