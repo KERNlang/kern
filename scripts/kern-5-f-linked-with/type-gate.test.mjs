@@ -22,6 +22,7 @@ const SURFACE_REFUSALS = Object.freeze([
 
 const CLEANUP_REFUSALS = Object.freeze([
   ['neg-with-cleanup-member-call', 'KIR_WITH_CLEANUP_UNSUPPORTED'],
+  ['neg-with-cleanup-binding-member-call', 'KIR_WITH_CLEANUP_UNSUPPORTED'],
   ['neg-with-cleanup-json', 'KIR_WITH_CLEANUP_UNSUPPORTED'],
   ['neg-with-cleanup-literal', 'KIR_WITH_CLEANUP_UNSUPPORTED'],
   ['neg-with-cleanup-identifier', 'KIR_WITH_CLEANUP_UNSUPPORTED'],
@@ -142,6 +143,28 @@ test('an async acquire is a statement position while its arguments are not', asy
     message.includes('KIR_WITH_ASYNC_MISMATCH'),
     false,
     'F_LABEL_COMPOUND: an async argument is a position refusal, not a flag mismatch',
+  );
+});
+
+// The cleanup gate judges the FORM of the cleanup expression, and nothing deeper. A member call is
+// the wrong form and carries the with label with the offending kind; an unsupported expression inside
+// an ARGUMENT of a well-formed user call is the argument's problem, and overwriting it with the with
+// label would hide which of the two gates actually fired.
+test('the cleanup gate names the form, and never speaks for an argument it does not own', async () => {
+  const member = await assertLinkLabel(
+    POSITIONS['neg-with-cleanup-binding-member-call'](),
+    'KIR_WITH_CLEANUP_UNSUPPORTED member',
+  );
+  assert.equal(
+    member.includes('intrinsic'),
+    false,
+    'F_LABEL_BORROWED: a member call cleanup must be refused by the cleanup gate, not by intrinsic dispatch',
+  );
+  const nested = await assertLinkLabel(POSITIONS['neg-with-cleanup-nested-member'](), 'KIR_CALL_ARGUMENT_TYPE');
+  assert.equal(
+    nested.includes('KIR_WITH_CLEANUP_UNSUPPORTED'),
+    false,
+    'F_LABEL_COMPOUND: an unsupported argument inside a valid user-call cleanup keeps its own refusal',
   );
 });
 

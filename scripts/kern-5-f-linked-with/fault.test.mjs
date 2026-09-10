@@ -3,10 +3,13 @@ import test from 'node:test';
 
 import {
   POSITIONS,
+  abortingProvider,
   assertWithAdmitted,
+  compileJavaScript,
   diagnosticCodes,
   envelopeBytes,
   eventTexts,
+  executeJavaScriptChild,
   executeKernKir,
   fixtureArguments,
   legRunner,
@@ -144,27 +147,63 @@ test('a fault inside the cleanup wins over a propagating uncaught throw', async 
   }
 });
 
-// Cancellation and timeout are the other two envelope faults D pinned; the cleanup must be skipped
-// for the same reason and the two legs must agree on the code.
-test('cancellation and timeout bypass the cleanup entirely', async () => {
-  const source = POSITIONS['with-fallthrough']();
-  await assertWithAdmitted('with-fallthrough', source);
+// D-5d/D-5e's other two envelope faults, proved where they matter. A pre-cancel or a 1ms timeout
+// terminates before the body is entered, so on its own it says nothing about the cleanup; the
+// cancellation that DOES prove the bypass is raised from inside the body, at the only suspension
+// point a with body can carry -- the capability inside the async helper the body calls. RT-1 aborts
+// through a provider that shares its signal with the driver, the emitted leg through the child
+// driver's own capability abort, so both legs stop at the same statement.
+test('a cancellation raised inside the body bypasses the cleanup on both legs', async () => {
+  const name = 'with-capability-in-body';
+  const source = POSITIONS[name]();
+  await assertWithAdmitted(name, source);
   const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', `F_LINK_REFUSED: ${name} failed the JavaScript compile`);
+  const args = fixtureArguments(source, 'one-element');
+  const request = runtimeRequest('f-fault-cancel-mid-body', args);
+
+  const uninterrupted = await executeKernKir(verified, request, provider([]));
+  assert.deepEqual(
+    eventTexts(uninterrupted),
+    ['body', 'cleanup'],
+    'F_FAULT_PROBE: uninterrupted, the fixture must reach its body marker and then its cleanup',
+  );
+
+  const calls = [];
+  const direct = await executeKernKir(verified, request, abortingProvider(calls));
+  const emitted = (
+    await executeJavaScriptChild(javascript.artifact.bytes, request, { abortOnCapability: true })
+  ).envelope;
+  assert.equal(calls.length, 1, 'F_FAULT_PROBE: the abort must be raised at the capability the body reached');
+  assertBothLegs({ direct, emitted }, {
+    codes: ['execution-cancelled'],
+    label: 'F_CLEANUP_ON_ABORT',
+    texts: ['body'],
+  });
+  for (const [leg, envelope] of Object.entries({ direct, emitted })) {
+    assert.equal(envelope.outcome, 'failure', `F_CLEANUP_ON_ABORT: ${leg} must fail`);
+    assert.deepEqual(envelope.result, { presence: 'absent' }, `F_CLEANUP_ON_ABORT: ${leg} must deliver no value`);
+  }
+});
+
+// The pre-body half, named for what it proves: both controls terminate before the body is entered,
+// so neither marker is committed and the two legs must still agree on the code.
+test('a pre-cancel and a timeout terminate before the body, committing nothing, on both legs', async () => {
+  const name = 'with-capability-in-body';
+  const source = POSITIONS[name]();
+  await assertWithAdmitted(name, source);
+  const verified = await project(source);
+  const javascript = compileJavaScript(verified);
+  assert.equal(javascript.outcome, 'success', `F_LINK_REFUSED: ${name} failed the JavaScript compile`);
   const args = fixtureArguments(source, 'one-element');
   for (const [control, code] of [
     [{ preCancelled: true, timeoutMs: null }, 'execution-cancelled'],
     [{ preCancelled: false, timeoutMs: 1 }, 'execution-timeout'],
   ]) {
-    const envelope = await executeKernKir(
-      verified,
-      { ...runtimeRequest('f-fault-abort', args), control },
-      provider([]),
-    );
-    assert.deepEqual(diagnosticCodes(envelope), [code], `F_CLEANUP_ON_ABORT: ${code} must bypass the cleanup`);
-    assert.equal(
-      eventTexts(envelope).includes('cleanup'),
-      false,
-      `F_CLEANUP_ON_ABORT: ${code} must not let the cleanup event escape`,
-    );
+    const request = { ...runtimeRequest(`f-fault-abort-${code}`, args), control };
+    const direct = await executeKernKir(verified, request, provider([]));
+    const emitted = (await executeJavaScriptChild(javascript.artifact.bytes, request)).envelope;
+    assertBothLegs({ direct, emitted }, { codes: [code], label: `F_CLEANUP_ON_${code}`, texts: [] });
   }
 });

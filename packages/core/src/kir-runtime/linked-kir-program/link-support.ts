@@ -135,6 +135,19 @@ export function bindName(
   else scope.crossCallTypes.set(name, crossCall);
 }
 
+export function rawCalleeKind(
+  expression: ReadonlyMap<string, CanonicalValue>,
+  label: string,
+  meter: RuntimeMeter,
+): string {
+  const fields = expression.get('fields');
+  if (fields === undefined) fault('handler-entry-unsupported', `${label}.fields: missing record`);
+  const callee = canonicalRecord(fields, ['args', 'callee', 'optional'], `${label}.fields`).get('callee');
+  if (callee === undefined) fault('handler-entry-unsupported', `${label}.fields.callee: missing record`);
+  const at = `${label}.fields.callee`;
+  return propertyText(canonicalRecord(callee, ['fields', 'kind'], at), 'kind', at, meter);
+}
+
 export function assignTargetName(value: CanonicalValue | undefined, label: string, meter: RuntimeMeter): string {
   if (value === undefined) fault('handler-entry-unsupported', `${label}: missing target`);
   const target = canonicalRecord(value, ['fields', 'kind'], label);

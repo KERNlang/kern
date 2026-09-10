@@ -2,40 +2,40 @@
   "format": "kern.kern-5-f.probe-matrix.v1",
   "rows": [
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "do-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "each-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "for-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "if-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].children[0]: KIR_ASSIGN_TO_WITH_BINDING r",
       "name": "neg-with-assign-binding",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -43,7 +43,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_ASYNC_MISMATCH",
       "name": "neg-with-async-cleanup-no-flag",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -51,7 +51,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].value: KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)",
       "name": "neg-with-async-in-argument",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -59,7 +59,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_ASYNC_MISMATCH",
       "name": "neg-with-async-value-no-flag",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -67,7 +67,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[2].value: unknown identifier inner",
       "name": "neg-with-body-let-read-after",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -75,7 +75,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].body.children[0].children[0].then.children[0]: KIR_LOOP_JUMP_CROSSES_TRY",
       "name": "neg-with-break-crosses",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -83,7 +83,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED binary",
       "name": "neg-with-cleanup-binary",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -91,7 +91,15 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED member",
+      "name": "neg-with-cleanup-binding-member-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED identifier",
       "name": "neg-with-cleanup-identifier",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -99,7 +107,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED member",
       "name": "neg-with-cleanup-json",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -107,7 +115,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED integer",
       "name": "neg-with-cleanup-literal",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -115,7 +123,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_WITH_CLEANUP_UNSUPPORTED member",
       "name": "neg-with-cleanup-member-call",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -123,7 +131,15 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_CALL_ARGUMENT_TYPE",
+      "name": "neg-with-cleanup-nested-member",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].cleanup.args[0]: unknown identifier inner",
       "name": "neg-with-cleanup-reads-body-let",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -131,7 +147,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].cleanup: KIR_VOID_HANDLER_NO_CALL_FORM",
       "name": "neg-with-cleanup-void-call",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -139,7 +155,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].body.children[0].children[0].then.children[0]: KIR_LOOP_JUMP_CROSSES_TRY",
       "name": "neg-with-continue-crosses",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -147,7 +163,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement kind with is outside RT-1",
+      "linkMessage": "entry.function.handler.children[1]: branch block is empty",
       "name": "neg-with-empty-body",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -155,7 +171,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_ASYNC_MISMATCH",
       "name": "neg-with-flag-without-async-call",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -163,7 +179,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "helper.wrapped.handler.children[1]: statement must be a leaf",
+      "linkMessage": "helper.wrapped.handler.children[1]: KIR_WITH_IN_HELPER",
       "name": "neg-with-in-helper",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -171,7 +187,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_CLEANUP_REQUIRED",
       "name": "neg-with-no-cleanup",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -179,7 +195,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_PROTOCOL_UNSUPPORTED",
       "name": "neg-with-protocol-no-cleanup",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -187,7 +203,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: KIR_WITH_PROTOCOL_UNSUPPORTED",
       "name": "neg-with-protocol-with",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -195,7 +211,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[2].value: unknown identifier r",
       "name": "neg-with-read-after",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -203,7 +219,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].children[0]: duplicate binding r",
       "name": "neg-with-rebind-in-body",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -211,7 +227,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function: KIR_VOID_HANDLER_VALUE_RETURN",
       "name": "neg-with-return-in-void-handler",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -219,7 +235,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: duplicate binding i",
       "name": "neg-with-shadow-counter",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -227,7 +243,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[2]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[2]: duplicate binding r",
       "name": "neg-with-shadow-let",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -235,7 +251,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].children[0]: duplicate binding r",
       "name": "neg-with-shadow-outer-with",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -243,7 +259,7 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1]: duplicate binding xs",
       "name": "neg-with-shadow-parameter",
       "projection": "projected",
       "python": "handler-entry-unsupported",
@@ -251,27 +267,27 @@
     },
     {
       "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "linkMessage": "entry.function.handler.children[1].value.args[0]: unknown identifier r",
       "name": "neg-with-value-reads-own-binding",
       "projection": "projected",
       "python": "handler-entry-unsupported",
       "rt1": "handler-entry-unsupported"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "print-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "throw-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
       "javascript": "admitted",
@@ -418,188 +434,196 @@
       "rt1": "not-projected"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[2]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "while-in-with",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-async-acquire",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-async-cleanup",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-async-false",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-break-inner-loop",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "with-capability-in-body",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-caught-throw",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-continue-inner-loop",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-fallthrough",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].catch.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-catch",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-each",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].finally.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-finally",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-for",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].then.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-if",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-try",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[2].body.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-in-while",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-nested",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-protocol-empty",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-protocol-omitted",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-return",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1].body.children[0]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-return-through-outer-finally",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-sibling-reuse",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-uncaught-throw",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     },
     {
-      "javascript": "handler-entry-unsupported",
-      "linkMessage": "entry.function.handler.children[1]: statement must be a leaf",
+      "javascript": "admitted",
+      "linkMessage": null,
       "name": "with-value-visible",
       "projection": "projected",
-      "python": "handler-entry-unsupported",
-      "rt1": "handler-entry-unsupported"
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
     }
   ]
 }

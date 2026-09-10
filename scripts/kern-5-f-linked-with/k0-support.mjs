@@ -7,6 +7,7 @@ import { DEFERRAL_LABEL } from '../kern-5-parity-ledger/ledger-support.mjs';
 import {
   ENTRY,
   LIMITS,
+  abortingProvider,
   admission,
   compileJavaScript,
   compilePython,
@@ -14,7 +15,7 @@ import {
   executeJavaScriptChild,
   executeKernKir,
   linkVerifiedKernKirProgram,
-  project,
+  project as projectOnce,
   provider,
   pythonLegAdmissionColumn,
   runtimeRequest,
@@ -32,6 +33,7 @@ export {
   ENTRY,
   LIMITS,
   PROBE_MATRIX_FORMAT,
+  abortingProvider,
   admission,
   assertLinkLabel,
   between,
@@ -43,12 +45,25 @@ export {
   fixtureArguments,
   linkVerifiedKernKirProgram,
   loopStepBudget,
-  project,
   provider,
   pythonLegAdmissionColumn,
   runtimeRequest,
   stepRequest,
 };
+
+// Projection is the dominant cost in this suite and every fixture is a pure function of its source
+// text, so each distinct source is projected once per process. The promise, not the value, is
+// cached: two callers racing on the same source must share one projection, never start two.
+const PROJECTIONS = new Map();
+
+export function project(source) {
+  let pending = PROJECTIONS.get(source);
+  if (pending === undefined) {
+    pending = projectOnce(source);
+    PROJECTIONS.set(source, pending);
+  }
+  return pending;
+}
 
 const require = createRequire(import.meta.url);
 

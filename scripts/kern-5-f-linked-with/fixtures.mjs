@@ -152,6 +152,13 @@ export const WITH_POSITIONS = Object.freeze({
       RET_ACC,
     ]),
   'with-async-false': () => withProgram([ACC, ...withLines([SET_R], { properties: ' async=false' }), RET_ACC]),
+  // The only suspension point a `with` body can carry: the capability lives inside the async helper,
+  // because `capability` itself is not among `with`'s allowedChildren. It is what lets an abort land
+  // strictly between the body's own effect and the cleanup, on both legs.
+  'with-capability-in-body': () =>
+    withProgram([ACC, ...withLines([NOTE('body'), 'do value="afi()"', SET_R]), RET_ACC], {
+      helpers: ASYNC_HELPERS,
+    }),
   'with-in-catch': () =>
     withProgram([ACC, 'try', `  ${THROW_BOOM}`, 'catch name=e', ...indent(withLines([SET_R])), RET_ACC]),
   'with-in-each': () => withProgram([ACC, 'each name=x in="xs"', ...indent(withLines([BUMP_ACC])), RET_ACC]),
@@ -219,8 +226,14 @@ export const WITH_REFUSALS = Object.freeze({
       parameters: TEXT_LIST_AND_SCALAR,
     }),
   'neg-with-cleanup-literal': () => withProgram([ACC, ...withLines([SET_R], { cleanup: '1' }), RET_ACC]),
+  'neg-with-cleanup-binding-member-call': () =>
+    withProgram([ACC, ...withLines([SET_R], { cleanup: 'r.close()' }), RET_ACC]),
   'neg-with-cleanup-member-call': () =>
     withProgram([ACC, ...withLines([SET_R], { cleanup: 'xs.push(1)' }), RET_ACC]),
+  // The cleanup IS a user call; the unsupported member sits in one of its ARGUMENTS, so the refusal
+  // belongs to the expression compiler and the with gate must not overwrite it.
+  'neg-with-cleanup-nested-member': () =>
+    withProgram([ACC, ...withLines([SET_R], { cleanup: 'bump(xs.length)' }), RET_ACC]),
   'neg-with-cleanup-reads-body-let': () =>
     withProgram([ACC, ...withLines(['let name=inner value="1"', SET_R], { cleanup: 'bump(inner)' }), RET_ACC]),
   'neg-with-cleanup-void-call': () =>

@@ -1,7 +1,7 @@
 import type { CanonicalValue } from '../../canonical-value/types.js';
 import type { StructuralKirNode } from '../../kir-structural/types.js';
 import type { RuntimeMeter } from '../inspect.js';
-import { nodeChildren, nodeProperties, plainRecord } from '../inspect.js';
+import { canonicalRecord, nodeChildren, nodeProperties, plainRecord } from '../inspect.js';
 import type { LinkedKernKirExpression, LinkedKernKirStatement } from './contracts.js';
 import {
   compileLinkedExpression,
@@ -21,6 +21,7 @@ import {
   propertyBool,
   propertySet,
   propertyText,
+  rawCalleeKind,
 } from './link-support.js';
 import { type BranchCompiler, compileEach, compileFor, compileWhile } from './loop-statements.js';
 
@@ -312,6 +313,11 @@ function compileIf(
   return Object.freeze({ kind: 'if' as const, condition, thenBranch, elseBranch });
 }
 
+// Classified from the RAW record before compiling, so a refusal from inside an argument stays its own.
+function cleanupUnsupported(label: string, detail: string): never {
+  fault('handler-entry-unsupported', `${label}: KIR_WITH_CLEANUP_UNSUPPORTED ${detail}`);
+}
+
 // `with` has no linked kind and never gains one: it expands here into the `let` and the
 // finally-bearing `try` the union already carries, so both legs meter it as the hand-written twin.
 function compileWith(
@@ -327,11 +333,9 @@ function compileWith(
   if (!scope.tryFamily) fault('handler-entry-unsupported', `${label}: KIR_WITH_IN_HELPER`);
   const rawProtocol = properties.get('protocol');
   // `propertyText` refuses empty text, so the normalised-away protocol is read off the raw record.
-  if (rawProtocol !== undefined) {
-    const record = plainRecord(rawProtocol, `${label}.protocol`);
-    if (record.tag !== 'text' || record.value !== '') {
-      fault('handler-entry-unsupported', `${label}: KIR_WITH_PROTOCOL_UNSUPPORTED`);
-    }
+  const protocol = rawProtocol === undefined ? undefined : plainRecord(rawProtocol, `${label}.protocol`);
+  if (protocol !== undefined && (protocol.tag !== 'text' || protocol.value !== '')) {
+    fault('handler-entry-unsupported', `${label}: KIR_WITH_PROTOCOL_UNSUPPORTED`);
   }
   const rawCleanup = properties.get('cleanup');
   if (rawCleanup === undefined) fault('handler-entry-unsupported', `${label}: KIR_WITH_CLEANUP_REQUIRED`);
@@ -347,17 +351,12 @@ function compileWith(
   const cleanupLabel = `${label}.cleanup`;
   // The expansion materializes a `do`, and the twin pays a link step for it.
   meter.step();
-  let compiled: LinkedKernKirExpression | undefined;
-  try {
-    compiled = compileLinkedExpression(rawCleanup, withScope, meter, cleanupLabel);
-  } catch (error) {
-    if (!(error instanceof Error && error.message.includes('unsupported intrinsic'))) throw error;
-  }
-  if (compiled === undefined || compiled.kind !== 'user-call') {
-    const detail = compiled === undefined ? 'member' : compiled.kind;
-    fault('handler-entry-unsupported', `${cleanupLabel}: KIR_WITH_CLEANUP_UNSUPPORTED ${detail}`);
-  }
-  const cleanup = compiled;
+  const record = canonicalRecord(rawCleanup, ['fields', 'kind'], cleanupLabel);
+  const cleanupKind = propertyText(record, 'kind', cleanupLabel, meter);
+  if (cleanupKind !== 'call') cleanupUnsupported(cleanupLabel, cleanupKind);
+  if (rawCalleeKind(record, cleanupLabel, meter) !== 'identifier') cleanupUnsupported(cleanupLabel, 'member');
+  const cleanup = compileLinkedExpression(rawCleanup, withScope, meter, cleanupLabel);
+  if (cleanup.kind !== 'user-call') cleanupUnsupported(cleanupLabel, cleanup.kind);
   assertAsyncCallPosition(cleanup, withScope, cleanupLabel, true);
   const flag = properties.has('async') && propertyBool(properties, 'async', label);
   if (flag !== (containsAsyncCall(value, scope) || containsAsyncCall(cleanup, withScope))) {

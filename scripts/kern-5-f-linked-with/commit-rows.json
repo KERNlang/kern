@@ -3,7 +3,7 @@
   "abortCriterion": {
     "cut": false,
     "gated": 0,
-    "preceding": 162
+    "preceding": 165
   },
   "criteriaCount": 21,
   "groups": {
@@ -26,12 +26,14 @@
       "F5 is byte-identical to base: no schema, catalog or structural edit is bought",
       "a budget that expires inside the acquire runs no cleanup on either leg",
       "a budget that expires inside the body runs no cleanup on either leg",
+      "a cancellation raised inside the body bypasses the cleanup on both legs",
       "a fallthrough runs the body before the cleanup, never after",
       "a fault inside the cleanup wins over a propagating uncaught throw",
       "a linked with carries no with kind anywhere in the entry handler",
       "a loop inside the body adds only the loop cost, never a second cleanup charge",
       "a loop inside the body leaves the cleanup running exactly once, after the loop",
       "a nested with expands innermost-first, so the inner try is inside the outer try body",
+      "a pre-cancel and a timeout terminate before the body, committing nothing, on both legs",
       "a projected fixture reports the same link decision on RT-1 and on the JavaScript leg",
       "a return through the cleanup is charged exactly once",
       "a sibling with reusing the name runs both blocks and both cleanups in order",
@@ -42,7 +44,6 @@
       "an empty protocol is absent, not a protocol request",
       "an empty protocol is byte-identical to omitting it",
       "both kernel digests are the frozen pins, recomputed at module load",
-      "cancellation and timeout bypass the cleanup entirely",
       "do-in-with at one-element behaves identically on RT-1 and the emitted JavaScript",
       "each with fixture names only its own label",
       "each-in-with at three-elements behaves identically on RT-1 and the emitted JavaScript",
@@ -66,6 +67,7 @@
       "neg-with-body-let-read-after is refused at link with unknown identifier inner",
       "neg-with-break-crosses is refused at link with KIR_LOOP_JUMP_CROSSES_TRY",
       "neg-with-cleanup-binary is refused at link with KIR_WITH_CLEANUP_UNSUPPORTED",
+      "neg-with-cleanup-binding-member-call is refused at link with KIR_WITH_CLEANUP_UNSUPPORTED",
       "neg-with-cleanup-identifier is refused at link with KIR_WITH_CLEANUP_UNSUPPORTED",
       "neg-with-cleanup-json is refused at link with KIR_WITH_CLEANUP_UNSUPPORTED",
       "neg-with-cleanup-literal is refused at link with KIR_WITH_CLEANUP_UNSUPPORTED",
@@ -117,6 +119,7 @@
       "the caught-throw with exhausts at the same step on both legs",
       "the caught-throw with expands to exactly its hand-written let/try/finally twin",
       "the checkAbort census does not move",
+      "the cleanup gate names the form, and never speaks for an argument it does not own",
       "the continue-inner-loop with and its expansion twin produce identical envelopes on both legs",
       "the continue-inner-loop with charges exactly what its expansion twin charges on RT-1",
       "the continue-inner-loop with exhausts at the same step on both legs",

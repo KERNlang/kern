@@ -73,11 +73,13 @@ for (const shape of SHAPE_NAMES) {
     const request = runtimeRequest(`f-twin-${shape}`, fixtureArguments(surfaceSource, 'one-element'));
     const surface = await withTwoLegBytes(surfaceSource, request);
     const twin = await withTwoLegBytes(twinSource, request);
-    assert.deepEqual(
-      Buffer.from(envelopeBytes(twin.legs.direct.envelope)),
-      Buffer.from(envelopeBytes(surface.legs.direct.envelope)),
-      `F_TWIN_DIVERGENCE: the ${shape} with and its expansion twin produced different envelopes`,
-    );
+    for (const leg of ['direct', 'javascript']) {
+      assert.deepEqual(
+        Buffer.from(envelopeBytes(twin.legs[leg].envelope)),
+        Buffer.from(envelopeBytes(surface.legs[leg].envelope)),
+        `F_TWIN_DIVERGENCE: the ${shape} with and its expansion twin diverged on the ${leg} leg`,
+      );
+    }
   });
 }
 
@@ -144,18 +146,23 @@ test('the binding is readable with the acquire value in the body and in the clea
 });
 
 // `protocol=""` is the same source meaning as omitting it, so the two must be indistinguishable in
-// the envelope -- not merely both admitted.
+// the envelope -- every byte of it, under one request id, on both legs. Comparing only the events and
+// the result would let a difference in diagnostics or completion through.
 test('an empty protocol is byte-identical to omitting it', async () => {
-  const empty = requestFor('with-protocol-empty', 'one-element');
-  const omitted = requestFor('with-protocol-omitted', 'one-element');
-  const emptyRun = await withTwoLegBytes(empty.source, empty.request);
-  const omittedRun = await withTwoLegBytes(omitted.source, omitted.request);
-  assert.deepEqual(
-    emptyRun.legs.direct.envelope.events.map((event) => event.text),
-    omittedRun.legs.direct.envelope.events.map((event) => event.text),
-    'F_PROTOCOL_EMPTY: protocol="" must run exactly as the omitted spelling does',
-  );
-  assert.deepEqual(emptyRun.legs.direct.envelope.result, omittedRun.legs.direct.envelope.result);
+  const emptySource = POSITIONS['with-protocol-empty']();
+  const omittedSource = POSITIONS['with-protocol-omitted']();
+  assert.ok(emptySource.includes('protocol=""'), 'F_PROTOCOL_EMPTY: the fixture must actually spell protocol=""');
+  assert.equal(omittedSource.includes('protocol='), false, 'F_PROTOCOL_EMPTY: the twin must omit the property');
+  const request = runtimeRequest('f-protocol-empty', fixtureArguments(emptySource, 'one-element'));
+  const empty = await withTwoLegBytes(emptySource, request);
+  const omitted = await withTwoLegBytes(omittedSource, request);
+  for (const leg of ['direct', 'javascript']) {
+    assert.deepEqual(
+      Buffer.from(envelopeBytes(empty.legs[leg].envelope)),
+      Buffer.from(envelopeBytes(omitted.legs[leg].envelope)),
+      `F_PROTOCOL_EMPTY: protocol="" diverged from the omitted spelling on the ${leg} leg`,
+    );
+  }
 });
 
 // A sibling reuse is legal precisely because the binding dies with its block. Both cleanups must

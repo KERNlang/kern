@@ -1,6 +1,6 @@
 {
   "format": "kern.kern-5-f.behavior-table.v1",
-  "note": "Two legs only: `with` expands into `try` and `do`, both Python-deferred by ledger row, so no row can claim a third leg. `result` is the integer the entry returns; `events` is the exact envelope event sequence. Every row is derived from the spec contract, not measured, because no leg admits `with` yet.",
+  "note": "Two legs only: `with` expands into `try` and `do`, both Python-deferred by ledger row, so no row can claim a third leg. `result` is the integer the entry returns; `events` is the exact envelope event sequence. Every row is measured against the landed implementation (2026-09-10) and re-derived whenever the contract it pins changes.",
   "rows": [
     { "args": "one-element", "events": [{ "op": "stdout", "text": "body" }, { "op": "stdout", "text": "cleanup" }], "name": "with-fallthrough", "outcome": "success", "result": "2" },
     { "args": "one-element", "events": [{ "op": "stdout", "text": "body" }, { "op": "stdout", "text": "cleanup" }], "name": "with-return", "outcome": "success", "result": "2" },
