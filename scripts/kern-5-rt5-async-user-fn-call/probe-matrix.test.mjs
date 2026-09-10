@@ -13,6 +13,7 @@ import {
   admission,
   entryFn,
   moduleSource,
+  pythonLegAdmissionColumn,
 } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./probe-matrix.json', import.meta.url);
@@ -66,7 +67,7 @@ async function probeMatrix() {
     positions[name] = {
       javascript: row.javascript,
       projection: row.projection,
-      python: row.python,
+      python: pythonLegAdmissionColumn(row, name),
       rt1: row.rt1,
     };
   }

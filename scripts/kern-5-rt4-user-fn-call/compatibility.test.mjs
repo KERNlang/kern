@@ -9,8 +9,8 @@ import { compileJavaScript, compilePython, entryFn, linkedProgram, moduleSource,
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
-const RT2_GOLDEN_SHA256 = '6d6754e75d5d9846a1201101831a528dfc7021374d4f1f6d5eacc0d6e0b8bff2';
-const RT3_PRE_SLICE_SHA256 = 'b73f6416caa953728fc4fae0af6926043a251283138ec4c16906fccd49400821';
+const RT2_GOLDEN_SHA256 = '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8';
+const RT3_PRE_SLICE_SHA256 = '7ada2a448cb34d8f19914706d5cdb01298b502de3aa243f0bb9344bf709d41be';
 
 const BOOLEAN_FLAG = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
 const TEXT_INPUT = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);

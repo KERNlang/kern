@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { CONTROL_POSITIONS, POSITIONS, admission } from './k0-support.mjs';
+import { CONTROL_POSITIONS, POSITIONS, admission, assertAdmissionRowAgreement } from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
@@ -19,7 +19,9 @@ const ADMITTED = Object.freeze([
   'call-typed-literal',
   'call-typed-positive',
   'capability-to-capability',
+  'control-each',
   'control-for',
+  'control-while',
   'helper-body-assign',
   'integer-from-identifier',
   'list-assign',
@@ -72,9 +74,7 @@ function catalogSchema(kind) {
 async function admissionRow(name, source) {
   const row = await admission(source);
   if (row.projection === 'not-projected') return 'not-projected';
-  assert.equal(row.javascript, row.python, `both targets share one linker; ${name} diverged`);
-  assert.equal(row.rt1, row.javascript, `RT-1 and the emitters share one linker; ${name} diverged`);
-  return row.rt1;
+  return assertAdmissionRowAgreement(row, name);
 }
 
 async function recompute() {
@@ -98,10 +98,25 @@ test('the RT-9 K0 golden pins linker admission, the statement union and the assi
   );
 });
 
-test('assign and for are linked statement kinds, and the other loop kinds still are not', async () => {
+test('assign, jumps, loops, do and the try family are linked statement kinds, and set still is not', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
-  assert.deepEqual(golden.linkedStatementKinds, ['assign', 'capability', 'for', 'if', 'let', 'print', 'return']);
-  for (const kind of ['each', 'set', 'while']) {
+  assert.deepEqual(golden.linkedStatementKinds, [
+    'assign',
+    'break',
+    'capability',
+    'continue',
+    'do',
+    'each',
+    'for',
+    'if',
+    'let',
+    'print',
+    'return',
+    'throw',
+    'try',
+    'while',
+  ]);
+  for (const kind of ['set']) {
     assert.ok(!golden.linkedStatementKinds.includes(kind), `${kind} must stay outside RT-1 in this slice`);
   }
 });
@@ -115,11 +130,11 @@ test('every admitted assign position links on all three legs', async () => {
   assert.deepEqual(admitted, [...ADMITTED].sort());
 });
 
-test('control-for moved to admitted, the other loop control rows did not move and set is still an excluded host', async () => {
+test('control-for, control-while and control-each moved to admitted while set stays excluded', async () => {
   const golden = JSON.parse(await readFile(GOLDEN_URL, 'utf8'));
   assert.equal(golden.admission['control-for'], 'admitted');
-  assert.equal(golden.admission['control-while'], 'handler-entry-unsupported');
-  assert.equal(golden.admission['control-each'], 'handler-entry-unsupported');
+  assert.equal(golden.admission['control-while'], 'admitted');
+  assert.equal(golden.admission['control-each'], 'admitted');
   assert.equal(golden.admission['control-set'], 'not-projected');
 });
 

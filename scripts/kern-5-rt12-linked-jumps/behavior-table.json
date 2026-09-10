@@ -1,0 +1,155 @@
+{
+  "format": "kern.oracle.rt12-linked-jumps.behavior.v1",
+  "rows": [
+    {
+      "name": "for-break",
+      "program": "for i 0..3 { break }",
+      "expected": "0",
+      "trips": 1
+    },
+    {
+      "name": "for-break-after-leaf",
+      "program": "for i 0..3 { acc += 1; break }",
+      "expected": "1",
+      "trips": 1
+    },
+    {
+      "name": "for-break-dead-tail",
+      "program": "for i 0..3 { break; acc += 1 }",
+      "expected": "0",
+      "trips": 1
+    },
+    {
+      "name": "for-break-dead-return",
+      "program": "for i 0..3 { break; return 99 }",
+      "expected": "0",
+      "trips": 1
+    },
+    {
+      "name": "for-break-under-if",
+      "program": "for i 0..5 { if i == 2 { break }; acc += 1 }",
+      "expected": "2",
+      "trips": 3
+    },
+    {
+      "name": "for-break-if-else",
+      "program": "for i 0..4 { if i == 2 { break } else { acc += 1 } }",
+      "expected": "2",
+      "trips": 3
+    },
+    {
+      "name": "for-break-trailing-comment",
+      "program": "for i 0..3 { break # done }",
+      "expected": "0",
+      "trips": 1
+    },
+    {
+      "name": "for-continue",
+      "program": "for i 0..3 { continue }",
+      "expected": "0",
+      "trips": 3
+    },
+    {
+      "name": "for-continue-after-leaf",
+      "program": "for i 0..3 { acc += 1; continue }",
+      "expected": "3",
+      "trips": 3
+    },
+    {
+      "name": "for-continue-dead-tail",
+      "program": "for i 0..3 { continue; acc += 1 }",
+      "expected": "0",
+      "trips": 3
+    },
+    {
+      "name": "for-continue-under-if",
+      "program": "for i 0..4 { if i == 2 { continue }; acc += 1 }",
+      "expected": "3",
+      "trips": 4
+    },
+    {
+      "name": "for-continue-if-else",
+      "program": "for i 0..4 { if i == 2 { continue } else { acc += 1 } }",
+      "expected": "3",
+      "trips": 4
+    },
+    {
+      "name": "for-continue-last-trip",
+      "program": "for i 0..3 { acc += 1; if i == 2 { continue }; acc += 10 }",
+      "expected": "23",
+      "trips": 3
+    },
+    {
+      "name": "for-continue-trailing-comment",
+      "program": "for i 0..3 { continue # again }",
+      "expected": "0",
+      "trips": 3
+    },
+    {
+      "name": "while-break",
+      "program": "while i < 3 { i += 1; break }",
+      "expected": "0",
+      "trips": 1
+    },
+    {
+      "name": "while-break-under-if",
+      "program": "while i < 5 { i += 1; if i == 2 { break }; acc += 1 }",
+      "expected": "1",
+      "trips": 2
+    },
+    {
+      "name": "while-continue",
+      "program": "while i < 3 { acc += 1; i += 1; continue }",
+      "expected": "3",
+      "trips": 3
+    },
+    {
+      "name": "while-continue-under-if",
+      "program": "while i < 4 { i += 1; if i == 2 { continue }; acc += 1 }",
+      "expected": "3",
+      "trips": 4
+    },
+    {
+      "name": "while-true-break-counter",
+      "program": "while true { i += 1; if i == 3 { break } }; return i",
+      "expected": "3",
+      "trips": 3
+    },
+    {
+      "name": "nested-inner-break",
+      "program": "for o 0..3 { for n 0..5 { acc += 1; break } }",
+      "expected": "3",
+      "trips": 3
+    },
+    {
+      "name": "nested-inner-continue",
+      "program": "for o 0..3 { for n 0..2 { acc += 1; continue } }",
+      "expected": "6",
+      "trips": 3
+    },
+    {
+      "name": "nested-outer-break",
+      "program": "for o 0..3 { for n 0..2 { acc += 1 }; break }",
+      "expected": "2",
+      "trips": 1
+    },
+    {
+      "name": "for-in-while-break",
+      "program": "while i < 2 { for k 0..3 { acc += 1; break }; i += 1 }",
+      "expected": "2",
+      "trips": 2
+    },
+    {
+      "name": "while-in-for-break",
+      "program": "for o 0..2 { let j = 0; while j < 3 { acc += 1; break } }",
+      "expected": "2",
+      "trips": 2
+    },
+    {
+      "name": "jump-in-loop-in-helper",
+      "program": "return jl() where jl loops and breaks after one trip",
+      "expected": "1",
+      "trips": 1
+    }
+  ]
+}

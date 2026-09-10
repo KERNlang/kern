@@ -56,7 +56,7 @@
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

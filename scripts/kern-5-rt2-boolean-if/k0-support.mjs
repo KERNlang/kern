@@ -13,8 +13,10 @@ import {
   compileKernKirToPython,
 } from '../../packages/core/dist/compiler-kir-python.js';
 import { projectKernModules, verifyKernProjection } from '../../packages/core/dist/frontend-projection.js';
+import { linkVerifiedKernKirProgram } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
 import { KERN_KIR_RUNTIME_FORMAT, executeKernKir } from '../../packages/core/dist/runtime-kir.js';
 import { nativeExecute } from '../kern-5-c-py-1-contract/support.mjs';
+import { assertPythonLegCompiled } from '../kern-5-parity-ledger/support.mjs';
 
 export const LIMITS = Object.freeze({
   maxBytes: 100_000,
@@ -85,6 +87,31 @@ export function provider(calls) {
   };
 }
 
+// The RT-1 mirror of `abortOnCapability`: a provider that aborts the signal it shares with the
+// driver, so the cancellation happens after the handler body has already committed an event.
+export function abortingProvider(calls) {
+  const controller = new AbortController();
+  return {
+    invoke: async (call) => {
+      calls.push(call);
+      controller.abort();
+      return { presence: 'value', value: { tag: 'text', value: 'reply-value' } };
+    },
+    signal: controller.signal,
+  };
+}
+
+// The RT-1 mirror of `capabilityFails`: a provider that throws a plain error, which `execute.ts`
+// converts into `capability-error` without it ever re-entering the walk.
+export function failingProvider(calls) {
+  return {
+    invoke: async (call) => {
+      calls.push(call);
+      throw new Error('capability provider failed');
+    },
+  };
+}
+
 export function normalizeEnvelope(envelope) {
   assert.ok(envelope && typeof envelope === 'object' && !Array.isArray(envelope));
   assert.deepEqual(Object.keys(envelope).sort(), ENVELOPE_KEYS.slice().sort());
@@ -109,19 +136,28 @@ export function envelopeBytes(envelope) {
   return encoder.encode(canonicalJson(normalizeEnvelope(envelope)));
 }
 
-function javascriptDriver(abortAfterMicrotasks) {
+// `capabilityFails` is what makes a capability fault reachable on the emitted leg: the emitted
+// invoke wraps the provider call in its own try/catch and converts any non-fault throw into
+// `capability-error`, exactly as the RT-1 driver does. Default off, so no existing row moves.
+// `abortOnCapability` cancels from INSIDE the handler body, which is the only way to reach an abort
+// that the request boundary has not already rejected: `preCancelled` never enters the handler at all.
+function javascriptDriver(abortAfterMicrotasks, capabilityFails = false, abortOnCapability = false) {
   return [
     "import { readFile, writeFile } from 'node:fs/promises';",
     'const [entryPath, inputPath, outputPath] = process.argv.slice(2);',
     'const module = await import(entryPath);',
     'const request = JSON.parse(await readFile(inputPath, "utf8"));',
     'const calls = [];',
+    ...(abortOnCapability ? ['const capabilityAbort = new AbortController();'] : []),
     'const options = {',
     '  invoke: async (call) => {',
     '    calls.push({ namespace: call.namespace, operation: call.operation });',
+    ...(abortOnCapability ? ['    capabilityAbort.abort();'] : []),
+    ...(capabilityFails ? ['    throw new Error("capability provider failed");'] : []),
     '    return { presence: "value", value: { tag: "text", value: "reply-value" } };',
     '  },',
     '};',
+    ...(abortOnCapability ? ['options.signal = capabilityAbort.signal;'] : []),
     ...(abortAfterMicrotasks === undefined
       ? []
       : [
@@ -164,7 +200,10 @@ export async function executeJavaScriptChild(bytes, request, options = {}) {
     const output = join(directory, 'output.json');
     await Promise.all([
       writeFile(entry, bytes),
-      writeFile(driver, javascriptDriver(options.abortAfterMicrotasks)),
+      writeFile(
+        driver,
+        javascriptDriver(options.abortAfterMicrotasks, options.capabilityFails, options.abortOnCapability),
+      ),
       writeFile(input, JSON.stringify(request)),
     ]);
     const node22 = process.env.KERN_NODE22 ?? process.execPath;
@@ -216,7 +255,11 @@ export async function threeLegs(source, request) {
   const javascript = compileJavaScript(verified);
   const python = compilePython(verified);
   assert.equal(javascript.outcome, 'success', `javascript compile failed: ${javascript.code}`);
-  assert.equal(python.outcome, 'success', `python compile failed: ${python.code}`);
+  const link = linkVerifiedKernKirProgram(verified, ENTRY, LIMITS);
+  assertPythonLegCompiled({
+    linkedProgram: link.outcome === 'success' ? link.program : undefined,
+    python,
+  });
   const directCalls = [];
   const direct = await executeKernKir(verified, request, provider(directCalls));
   const javascriptRun = await executeJavaScriptChild(javascript.artifact.bytes, request);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { POSITIONS, TABLE_ROWS, admission, assertLinkLabel } from './k0-support.mjs';
+import { POSITIONS, TABLE_ROWS, admission, assertLinkLabel, pythonLegAdmissionColumn } from './k0-support.mjs';
 
 // Every row is (position, label). The link code is closed and identical for all of them, so the
 // label text is the only thing that says which gate fired.
@@ -21,16 +21,12 @@ const REFUSALS = Object.freeze([
   ['neg-async-bound-to', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-async-bound-from', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
   ['neg-async-assign-in-body', 'KIR_ASYNC_CALL_EXPRESSION_POSITION'],
-  ['neg-break-in-body', 'statement kind break is outside RT-1'],
-  ['neg-continue-in-body', 'statement kind continue is outside RT-1'],
+  ['neg-each-await', 'KIR_EACH_AWAIT_UNSUPPORTED'],
 ]);
 
-// `while` and `each` are refused by `assertLeaf` before any kind branch runs, and this slice must
-// not change that: they stay outside RT-1 with the same message they carry at base.
-const LEAF_REFUSALS = Object.freeze([
-  ['neg-while', 'statement must be a leaf'],
-  ['neg-each', 'statement must be a leaf'],
-]);
+// `neg-each` was this list's only member, and slice E admits `each`: no position rt10 projects
+// reaches `assertLeaf` any more, so the each refusal it gained is an ordinary link row above.
+const LEAF_REFUSALS = Object.freeze([]);
 
 const ADMITTED = Object.freeze([
   ...TABLE_ROWS.map((row) => row.name),
@@ -38,6 +34,14 @@ const ADMITTED = Object.freeze([
   'for-step-zero-dynamic-param',
   'for-async-let-in-body',
 ]);
+
+// `break` and `continue` link on RT-1 and JavaScript, but the parity ledger defers both on the
+// Python leg, so they cannot join `ADMITTED`'s three-leg check without hiding that deferral.
+const JUMP_ADMITTED = Object.freeze(['neg-break-in-body', 'neg-continue-in-body']);
+
+// Slice E admitted `each`, so this position stopped being a refusal. It keeps its `neg-` name so
+// the row it used to prove is still traceable, and it is Python-deferred for the same reason.
+const EACH_ADMITTED = Object.freeze(['neg-each']);
 
 async function assertAdmitted(position) {
   const row = await admission(POSITIONS[position]());
@@ -57,6 +61,26 @@ for (const [position, label] of [...REFUSALS, ...LEAF_REFUSALS]) {
 test('every admitted loop position links on all three legs, so no row is satisfied by a shared refusal', async () => {
   for (const position of ADMITTED) {
     await assertAdmitted(position);
+  }
+});
+
+test('break and continue link on RT-1 and JavaScript inside a loop body but stay Python-deferred', async () => {
+  for (const position of JUMP_ADMITTED) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'projected', position);
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    pythonLegAdmissionColumn(row, position);
+  }
+});
+
+test('each links on RT-1 and JavaScript since slice E but stays Python-deferred', async () => {
+  for (const position of EACH_ADMITTED) {
+    const row = await admission(POSITIONS[position]());
+    assert.equal(row.projection, 'projected', position);
+    assert.equal(row.rt1, 'admitted', position);
+    assert.equal(row.javascript, 'admitted', position);
+    pythonLegAdmissionColumn(row, position);
   }
 });
 
@@ -109,21 +133,6 @@ test('an async call in a bound reports the position label alone', async () => {
     const message = await assertLinkLabel(POSITIONS[position](), 'KIR_ASYNC_CALL_EXPRESSION_POSITION');
     assert.ok(message.includes('KIR_CALL_CALLEE_CAPABILITY'), `${position}: RT-5 emits both labels together`);
     assert.ok(!message.includes('KIR_FOR_BOUND_NOT_INTEGER'), `${position}: an async integer call is still an integer`);
-  }
-});
-
-// `break` and `continue` project and reach the body block, so their refusal proves the body is
-// compiled by the ordinary statement path and not by a permissive loop-local one.
-test('break and continue reach the ordinary statement refusal inside a loop body', async () => {
-  for (const [position, keyword] of [
-    ['neg-break-in-body', 'break'],
-    ['neg-continue-in-body', 'continue'],
-  ]) {
-    const message = await assertLinkLabel(POSITIONS[position](), `statement kind ${keyword} is outside RT-1`);
-    assert.ok(
-      !message.includes('statement must be a leaf'),
-      `${position}: the body must be compiled, so the leaf gate cannot be what refuses`,
-    );
   }
 });
 

@@ -1,0 +1,61 @@
+{
+  "format": "kern.kern-5-e.behavior-table.v1",
+  "note": "Two legs only: both new kinds are Python-deferred by ledger row. `result` is the integer the entry returns; `events` is the exact stdout sequence. Every row is derived from the spec contract, not measured, because no leg admits these kinds yet.",
+  "rows": [
+    { "args": "one-element", "events": [], "name": "do-sync-call", "result": "1" },
+    { "args": "one-element", "events": [{ "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }], "name": "do-async-call", "result": "1" },
+    { "args": "one-element", "events": [], "name": "do-bare", "result": "1" },
+    { "args": "one-element", "events": [], "name": "do-text-call", "result": "1" },
+    { "args": "one-element", "events": [], "name": "do-in-for", "result": "2" },
+    { "args": "three-elements", "events": [], "name": "do-in-each", "result": "3" },
+    { "args": "one-element", "events": [], "name": "do-in-try", "result": "0" },
+    { "args": "one-element", "events": [], "name": "do-in-while", "result": "2" },
+    { "args": "empty-list", "events": [], "name": "each-plain", "result": "0" },
+    { "args": "one-element", "events": [], "name": "each-plain", "result": "1" },
+    { "args": "three-elements", "events": [], "name": "each-plain", "result": "3" },
+    { "args": "three-elements", "events": [], "name": "each-index", "result": "3" },
+    { "args": "three-elements", "events": [], "name": "each-index-as-for-bound", "result": "3" },
+    { "args": "three-elements", "events": [], "name": "each-int-item-sum", "result": "6" },
+    { "args": "three-elements", "events": [], "name": "each-int-item-as-for-bound", "result": "6" },
+    { "args": "three-elements", "events": [], "name": "each-bool-item-condition", "result": "2" },
+    { "args": "three-elements", "events": [], "name": "each-bool-item-cross-call", "result": "2" },
+    { "args": "three-elements", "events": [], "name": "each-break", "result": "1" },
+    { "args": "three-elements", "events": [], "name": "each-continue", "result": "1" },
+    { "args": "three-elements", "events": [], "name": "each-nested-each", "result": "9" },
+    { "args": "three-elements", "events": [], "name": "each-nested-for-break", "result": "6" },
+    { "args": "three-elements", "events": [], "name": "each-nested-while-continue", "result": "1" },
+    { "args": "three-elements", "events": [], "name": "each-in-try", "result": "3" },
+    { "args": "three-elements", "events": [], "name": "each-try-finally-in-body", "result": "33" },
+    { "args": "three-elements", "events": [], "name": "each-text-item-cross-call", "result": "3" },
+    {
+      "args": "three-elements",
+      "events": [
+        { "op": "stdout", "text": "e0" },
+        { "op": "stdout", "text": "e1" },
+        { "op": "stdout", "text": "e2" }
+      ],
+      "name": "each-print-body",
+      "result": "3"
+    },
+    {
+      "args": "three-elements",
+      "events": [
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }
+      ],
+      "name": "each-capability-body",
+      "result": "3"
+    },
+    {
+      "args": "three-elements",
+      "events": [
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } },
+        { "input": { "presence": "absent" }, "namespace": "fixture", "op": "capability", "operation": "resolve", "result": { "presence": "value", "value": { "tag": "text", "value": "reply-value" } } }
+      ],
+      "name": "each-do-async-body",
+      "result": "3"
+    }
+  ]
+}

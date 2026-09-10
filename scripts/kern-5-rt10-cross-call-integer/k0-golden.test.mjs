@@ -10,7 +10,13 @@ import {
   LINKED_KIR_UNARY_OPERATORS,
   linkedKirCrossCallType,
 } from '../../packages/core/dist/kir-runtime/linked-kir-program/index.js';
-import { BEHAVIOR_TABLE_RAW, POSITIONS, TABLE_ROWS, admission } from './k0-support.mjs';
+import {
+  BEHAVIOR_TABLE_RAW,
+  POSITIONS,
+  TABLE_ROWS,
+  admission,
+  assertAdmissionRowAgreement,
+} from './k0-support.mjs';
 
 const GOLDEN_URL = new URL('./k0-golden.json', import.meta.url);
 const CONTRACTS_URL = new URL('../../packages/core/src/kir-runtime/linked-kir-program/contracts.ts', import.meta.url);
@@ -52,9 +58,7 @@ function resolverBody(source, name) {
 async function admissionRow(name, source) {
   const row = await admission(source);
   if (row.projection === 'not-projected') return 'not-projected';
-  assert.equal(row.javascript, row.python, `both targets share one linker; ${name} diverged`);
-  assert.equal(row.rt1, row.javascript, `RT-1 and the emitters share one linker; ${name} diverged`);
-  return row.rt1;
+  return assertAdmissionRowAgreement(row, name);
 }
 
 async function recompute() {

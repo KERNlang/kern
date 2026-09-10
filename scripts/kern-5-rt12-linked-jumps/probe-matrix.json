@@ -1,0 +1,532 @@
+{
+  "fences": {
+    "fence-break-property": {
+      "diagnostics": [],
+      "status": "rejected"
+    },
+    "fence-continue-property": {
+      "diagnostics": [],
+      "status": "rejected"
+    }
+  },
+  "positions": {
+    "for-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-after-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-bound-1": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-bound-10": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-bound-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-dead-return": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-dead-tail": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-if-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-trailing-comment": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-break-under-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-after-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-dead-tail": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-if-else": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-last-trip": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-trailing-comment": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-continue-under-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "for-in-while-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "jump-in-loop-in-helper": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-1-leaf-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-break-bound-10": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-break-bound-3": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-break-dead-tail": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-continue-dead-tail": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-for-3-leaf-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-3x2-leaf-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-nested-3x5-leaf-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-while-1-leaf-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "meter-while-3-leaf-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-after-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-in-helper-from-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-in-if-else-outside-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-in-if-outside-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-top-level": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-with-children-in-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-break-with-children-top-level": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-after-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-in-helper-from-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-in-if-outside-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-top-level": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-continue-with-children-in-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-return-then-break-top-level": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-return-then-continue-top-level": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "neg-void-return-in-for-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "nested-inner-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "nested-inner-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "nested-outer-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-for-1-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-for-1-two-leaves": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-for-3-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-nested-3x1-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-nested-3x2-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-two-lets": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-while-1-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-while-3-leaf": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "twin-while-never-entered": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "void-break-in-loop": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-break-under-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-continue": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-continue-skips-increment": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-continue-under-if": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-in-for-break": {
+      "diagnostics": [],
+      "status": "projected"
+    },
+    "while-true-break-counter": {
+      "diagnostics": [],
+      "status": "projected"
+    }
+  },
+  "shapes": {
+    "for-break": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "break",
+            "properties": {}
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "for-break-trailing-comment": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "3"
+          }
+        },
+        "children": [
+          {
+            "kind": "break",
+            "properties": {}
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "neg-break-with-children-in-loop": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "acc",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "for",
+        "properties": {
+          "from": {
+            "kind": "integer",
+            "value": "0"
+          },
+          "name": "i",
+          "to": {
+            "kind": "integer",
+            "value": "1"
+          }
+        },
+        "children": [
+          {
+            "kind": "break",
+            "properties": {},
+            "children": [
+              {
+                "kind": "assign",
+                "properties": {
+                  "target": {
+                    "kind": "identifier",
+                    "name": "acc"
+                  },
+                  "value": {
+                    "kind": "binary",
+                    "left": {
+                      "kind": "identifier",
+                      "name": "acc"
+                    },
+                    "op": "+",
+                    "right": {
+                      "kind": "integer",
+                      "value": "1"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "acc"
+          }
+        }
+      }
+    ],
+    "while-true-break-counter": [
+      {
+        "kind": "let",
+        "properties": {
+          "name": "i",
+          "value": {
+            "kind": "integer",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "kind": "while",
+        "properties": {
+          "cond": {
+            "kind": "boolean",
+            "value": true
+          }
+        },
+        "children": [
+          {
+            "kind": "assign",
+            "properties": {
+              "target": {
+                "kind": "identifier",
+                "name": "i"
+              },
+              "value": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "i"
+                },
+                "op": "+",
+                "right": {
+                  "kind": "integer",
+                  "value": "1"
+                }
+              }
+            }
+          },
+          {
+            "kind": "if",
+            "properties": {
+              "cond": {
+                "kind": "binary",
+                "left": {
+                  "kind": "identifier",
+                  "name": "i"
+                },
+                "op": "==",
+                "right": {
+                  "kind": "integer",
+                  "value": "3"
+                }
+              }
+            },
+            "children": [
+              {
+                "kind": "break",
+                "properties": {}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "return",
+        "properties": {
+          "value": {
+            "kind": "identifier",
+            "name": "i"
+          }
+        }
+      }
+    ]
+  },
+  "structuralSchema": {
+    "break": {
+      "allowedChildren": null,
+      "disposition": "structural-candidate",
+      "kind": "break",
+      "properties": {
+        "trailingComment": {
+          "disposition": "included-value",
+          "required": false,
+          "schemaKind": "string",
+          "values": null
+        }
+      },
+      "schemaStatus": "bound"
+    },
+    "continue": {
+      "allowedChildren": null,
+      "disposition": "structural-candidate",
+      "kind": "continue",
+      "properties": {
+        "trailingComment": {
+          "disposition": "included-value",
+          "required": false,
+          "schemaKind": "string",
+          "values": null
+        }
+      },
+      "schemaStatus": "bound"
+    }
+  }
+}

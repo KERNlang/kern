@@ -1,0 +1,22 @@
+{
+  "format": "kern.kir.reserved-link-labels.v1",
+  "labels": [
+    "KIR_ABRUPT_FINALLY_UNSUPPORTED",
+    "KIR_CATCH_AFTER_FINALLY",
+    "KIR_CATCH_WITHOUT_TRY",
+    "KIR_DUPLICATE_CATCH",
+    "KIR_DUPLICATE_FINALLY",
+    "KIR_LOOP_JUMP_CROSSES_TRY",
+    "KIR_TRY_REQUIRES_CATCH",
+    "KIR_TRY_REQUIRES_CATCH_OR_FINALLY"
+  ],
+  "spentBy": {
+    "KIR_ABRUPT_FINALLY_UNSUPPORTED": "kern-5-d",
+    "KIR_CATCH_AFTER_FINALLY": "kern-5-d",
+    "KIR_CATCH_WITHOUT_TRY": "kern-5-d",
+    "KIR_DUPLICATE_CATCH": "kern-5-d",
+    "KIR_DUPLICATE_FINALLY": "kern-5-d",
+    "KIR_LOOP_JUMP_CROSSES_TRY": "kern-5-d",
+    "KIR_TRY_REQUIRES_CATCH_OR_FINALLY": "kern-5-d"
+  }
+}

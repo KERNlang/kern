@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from './e0-loop-extraction-historical-transition.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -7,6 +8,7 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
+  reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
   C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION,
@@ -34,6 +36,14 @@ function compiledPaths(directory = DIST, output = []) {
   return output.sort();
 }
 
+// D.0 heads this stage with a new 354-to-357 transition (currentInventory here stays the
+// unedited 354-file predecessor pin), so the live dist must be peeled through it first.
+function cPy1CurrentPaths() {
+  return reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(
+    reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(compiledPaths()),
+  );
+}
+
 function cloneOwnDataTree(value) {
   if (value === null || typeof value !== 'object') return value;
   const copy = Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value));
@@ -52,7 +62,7 @@ function assertTypeError(callback, message) {
 test('C-PY-1 lowering authenticates the exact 354-to-346 inventory edge', () => {
   assert.equal(validateCPy1LoweringHistoricalTransition(), true);
   const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
-  const paths = compiledPaths();
+  const paths = cPy1CurrentPaths();
   assert.deepEqual({ count: paths.length, digest: digest(paths) }, transition.currentInventory);
   const predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual({ count: predecessor.length, digest: digest(predecessor) }, transition.predecessorInventory);
@@ -60,7 +70,7 @@ test('C-PY-1 lowering authenticates the exact 354-to-346 inventory edge', () => 
 });
 
 test('C-PY-1 lowering rejects tampered inventories before rebuilding R2', () => {
-  const paths = compiledPaths();
+  const paths = cPy1CurrentPaths();
   for (const candidate of [
     [...paths, 'unexpected.js'], paths.slice(1), paths.map((path, index) => index === 0 ? 'renamed.js' : path),
     [...paths, paths[0]], [...paths.slice(1), '../escape.js'], [...paths.slice(1), '/absolute.js'],
@@ -81,7 +91,7 @@ test('C-PY-1 lowering rejects tampered inventories before rebuilding R2', () => 
 
 test('C-PY-1 lowering preserves input and predecessor order', () => {
   const transition = C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION;
-  const reversed = compiledPaths().reverse();
+  const reversed = cPy1CurrentPaths().reverse();
   const before = [...reversed];
   const predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(reversed);
   assert.deepEqual(reversed, before);

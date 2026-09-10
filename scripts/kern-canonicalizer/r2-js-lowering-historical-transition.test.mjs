@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from './e0-loop-extraction-historical-transition.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -7,6 +8,7 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
+  reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import {
@@ -51,7 +53,9 @@ function assertTypeError(callback, message) {
 }
 
 function cPy1SuccessorPaths() {
-  return reconstructCPy1LoweringCompiledCoreJavaScriptPaths(compiledPaths());
+  return reconstructCPy1LoweringCompiledCoreJavaScriptPaths(reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(
+    reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(compiledPaths()),
+  ));
 }
 
 test('R2 JavaScript lowering authenticates the exact 346-to-332 inventory edge', () => {

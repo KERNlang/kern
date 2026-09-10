@@ -1,0 +1,498 @@
+{
+  "format": "kern.kern-5-e.probe-matrix.v1",
+  "rows": [
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-async-call",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0].value: KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)",
+      "name": "do-async-in-argument",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-bare",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-bare-twin",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-binary",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-identifier",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-in-each",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-in-for",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-in-try",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-in-while",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_JSON_INTRINSIC_UNSUPPORTED",
+      "name": "do-json-parse",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_JSON_INTRINSIC_UNSUPPORTED",
+      "name": "do-json-stringify",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-list-literal",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-literal",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-member",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_MEMBER_CALL_UNSUPPORTED",
+      "name": "do-member-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-record-literal",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-sync-call",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-sync-call-twin",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "do-text-call",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0]: KIR_DO_EXPRESSION_NOT_USER_CALL",
+      "name": "do-unary",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[0].value: KIR_VOID_HANDLER_NO_CALL_FORM",
+      "name": "do-void-call",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: KIR_ASSIGN_TO_EACH_BINDING i",
+      "name": "each-assign-index",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0]: KIR_ASSIGN_TO_EACH_BINDING x",
+      "name": "each-assign-item",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_AWAIT_UNSUPPORTED",
+      "name": "each-await",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-bool-item-condition",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-bool-item-cross-call",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-break",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body.children[0].body.children[0].then.children[0]: KIR_LOOP_JUMP_CROSSES_TRY",
+      "name": "each-break-crosses-finally",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-capability-body",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-continue",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-do-async-body",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1].body: branch block is empty",
+      "name": "each-empty-body",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_ENTRIES_UNSUPPORTED",
+      "name": "each-entries",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_ENTRY_MODE_UNSUPPORTED",
+      "name": "each-entry-key-only",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_ENTRY_MODE_UNSUPPORTED",
+      "name": "each-entry-mode",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_ENTRY_MODE_UNSUPPORTED",
+      "name": "each-entry-value-only",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-in-try",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-index",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-index-as-for-bound",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: duplicate binding x",
+      "name": "each-index-shadows-item",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-int-item-as-for-bound",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-int-item-sum",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-nested-each",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-nested-for-break",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-nested-while-continue",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_PAIR_MODE_UNSUPPORTED",
+      "name": "each-pair-key-only",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_PAIR_MODE_UNSUPPORTED",
+      "name": "each-pair-mode",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_PAIR_MODE_UNSUPPORTED",
+      "name": "each-pair-value-only",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-plain",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-plain-twin",
+      "projection": "projected",
+      "python": "admitted",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-print-body",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_RECORD_FIELD_UNSUPPORTED",
+      "name": "each-record-field",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[2]: duplicate binding x",
+      "name": "each-shadow-let",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: duplicate binding xs",
+      "name": "each-shadow-parameter",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "each-source-call",
+      "projection": "not-projected",
+      "python": "not-projected"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[2]: KIR_EACH_SOURCE_NOT_PARAMETER",
+      "name": "each-source-let-list",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "each-source-list-literal",
+      "projection": "not-projected",
+      "python": "not-projected"
+    },
+    {
+      "javascript": "handler-entry-unsupported",
+      "linkMessage": "entry.function.handler.children[1]: KIR_EACH_SOURCE_NOT_LIST",
+      "name": "each-source-scalar-parameter",
+      "projection": "projected",
+      "python": "handler-entry-unsupported",
+      "rt1": "handler-entry-unsupported"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-text-item-cross-call",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "admitted",
+      "linkMessage": null,
+      "name": "each-try-finally-in-body",
+      "projection": "projected",
+      "python": "KIR_PYTHON_LEG_DEFERRED",
+      "rt1": "admitted"
+    },
+    {
+      "javascript": "not-projected",
+      "linkMessage": null,
+      "name": "each-type-annotation",
+      "projection": "not-projected",
+      "python": "not-projected"
+    }
+  ]
+}
