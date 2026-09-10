@@ -257,19 +257,24 @@ export const LINK_SUPPORT_MARKERS = Object.freeze([
   'function branchScope(',
   'function bindName(',
   'function assignTargetName(',
+  // E.0 moves the async-position gate here so statements.ts and loop-statements.ts can both reach
+  // it without importing each other.
+  'const ASYNC_POSITION_LABEL =',
+  'function assertAsyncCallPosition(',
 ]);
 
 export const STATEMENTS_MARKERS = Object.freeze([
-  'const ASYNC_POSITION_LABEL =',
-  'function assertAsyncCallPosition(',
   'function compileStatement(',
   'function compileBranch(',
   'function compileIf(',
+  'function compileBlock(',
+]);
+
+export const LOOP_STATEMENTS_MARKERS = Object.freeze([
   'const LOOP_STEP_ONE:',
   'function loopBound(',
   'function compileFor(',
   'function compileWhile(',
-  'function compileBlock(',
 ]);
 
 export const LINK_RETAINED_MARKERS = Object.freeze([

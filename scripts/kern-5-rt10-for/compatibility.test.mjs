@@ -28,8 +28,8 @@ const F5_POLICY_SHA256 = '0f62f6c964af7265357ac0ef3f3a8a6aa15ffa2a2800e09ae5877b
 // type table. A statement-union addition is none of those. RT-9's own golden moved anyway, as a
 // correction: its `control-for` admission row and linkedStatementKinds scrape were stale against
 // the linker for admits, the same class of fix RT-2's golden received in this slice's own build.
-const RT3_GOLDEN_SHA256 = 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b';
-const RT9_GOLDEN_SHA256 = 'd8e561eeb4e5331424de77ee2f3b9e8abf6ea47ec90443a1b0a317400d0600be';
+const RT3_GOLDEN_SHA256 = '5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df';
+const RT9_GOLDEN_SHA256 = '355f4b05a28a86a5a348d1c537eec4c70dbf98ed7d26e09f3327c0d1f330bec9';
 const RT10PRE_GOLDEN_SHA256 = '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718';
 const RT10X_GOLDEN_SHA256 = '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf';
 
@@ -61,7 +61,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
 
 // The statement kinds this slice must leave outside the union. `for` is deliberately absent: it is
 // what the slice adds, and `walker-coverage.test.mjs` asserts it arrives.
-const STILL_OUTSIDE = Object.freeze(['each', 'set']);
+const STILL_OUTSIDE = Object.freeze(['set']);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');

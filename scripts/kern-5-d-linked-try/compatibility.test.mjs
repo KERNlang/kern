@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { TARGET_KERNEL_SHA256 as JAVASCRIPT_KERNEL } from '../../packages/core/dist/compiler/kir-js-esm/emitter.js';
 import { TARGET_KERNEL_SHA256 as PYTHON_KERNEL } from '../../packages/core/dist/compiler/kir-python/emitter.js';
+import { E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/e0-loop-extraction-historical-transition.mjs';
 import {
   ALPHA_RECEIPT_BINDING_COUNT,
   BASE_EXPRESSION_KIND_COUNT,
@@ -81,16 +82,20 @@ test('the Python compiler directory stays at exactly seven files, so the emitter
   );
 });
 
+// Slice E.0's extraction opened the next head stage, so the live inventory is no longer D's
+// successor. What D still owns is that D itself added no source file: strip E.0's three paths and
+// the count must come back to the attested 357.
 test('the compiled core inventory stays at the attested 357 paths, because D adds no source file', () => {
   const paths = [];
-  (function visit(url) {
+  (function visit(url, prefix) {
     for (const entry of readdirSync(url, { withFileTypes: true })) {
-      if (entry.isDirectory()) visit(new URL(`${entry.name}/`, url));
-      else if (entry.isFile() && entry.name.endsWith('.js')) paths.push(entry.name);
+      if (entry.isDirectory()) visit(new URL(`${entry.name}/`, url), `${prefix}${entry.name}/`);
+      else if (entry.isFile() && entry.name.endsWith('.js')) paths.push(`${prefix}${entry.name}`);
     }
-  })(new URL('packages/core/dist/', ROOT));
+  })(new URL('packages/core/dist/', ROOT), '');
+  const afterE0 = paths.filter((path) => !E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION.addedPaths.includes(path));
   assert.equal(
-    paths.length,
+    afterE0.length,
     COMPILED_CORE_COUNT,
     'D_INVENTORY_TRANSITION: D must open no head-stage transition; the QD-2 escape hatch was not taken',
   );
@@ -146,13 +151,29 @@ test('every source file D edits stays under its own line budget and the 500-line
 
 // QD-2's headroom row, separate from the ceiling so the two failures are distinguishable: a file
 // that lands between 470 and 500 has spent its slack and owes the pre-registered `try-walk.ts` cut.
+// Slice E.0 took the QD-2 cut, under a different name: the walk moved to statement-walker.ts byte
+// for byte. The headroom is therefore measured across the pair, and the growth row follows the arms
+// into the file that now holds them.
 test('the RT-1 evaluator finishes under its 470-line headroom, not merely under the ceiling', () => {
-  const measured = lineCount('packages/core/src/kir-runtime/expression.ts');
+  const evaluator = lineCount('packages/core/src/kir-runtime/expression.ts');
+  const walker = lineCount('packages/core/src/kir-runtime/statement-walker.ts');
+  for (const [path, measured] of [
+    ['packages/core/src/kir-runtime/expression.ts', evaluator],
+    ['packages/core/src/kir-runtime/statement-walker.ts', walker],
+  ]) {
+    assert.ok(
+      measured <= RT1_EVALUATOR_HEADROOM,
+      `D_HEADROOM_SPENT: ${path} is ${measured} lines against the ${RT1_EVALUATOR_HEADROOM} headroom; the QD-2 escape hatch is owed`,
+    );
+  }
   assert.ok(
-    measured <= RT1_EVALUATOR_HEADROOM,
-    `D_HEADROOM_SPENT: kir-runtime/expression.ts is ${measured} lines against the ${RT1_EVALUATOR_HEADROOM} headroom; the QD-2 escape hatch is owed`,
+    evaluator + walker > BASE_LINE_COUNTS['packages/core/src/kir-runtime/expression.ts'],
+    'D_ARMS_MISSING: the RT-1 walk has not grown, so the throw and try arms are absent',
   );
-  assert.ok(measured > BASE_LINE_COUNTS['packages/core/src/kir-runtime/expression.ts'], 'D_ARMS_MISSING: the RT-1 evaluator has not grown, so the throw and try arms are absent');
+  const arms = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
+  for (const marker of ["statement.kind === 'throw'", "statement.kind === 'try'"]) {
+    assert.ok(arms.includes(marker), `D_ARMS_MISSING: the walk must still carry ${marker}`);
+  }
 });
 
 test('every oracle file in this suite stays under the 500-line ceiling', () => {
@@ -190,17 +211,14 @@ for (const script of CONTRACT_WALL_SCRIPTS) {
 }
 
 // rt12 measured `STILL_OUTSIDE` as already `['each','set']` in all three neighbour suites: the try
-// family was never in them, so nothing shrinks and no edit is licensed. This row pins that, so a
-// later slice cannot claim D narrowed a list it never touched.
-test('the STILL_OUTSIDE lists are untouched, because the try family was never in them', () => {
+// family was never in them, so slice D shrinks nothing. Slice E admits `each` and takes it out, and
+// `set` is what is left -- so what this row still pins is that D licensed no edit of its own: the
+// list may only ever lose a kind the admitting slice names, never gain one.
+test('the STILL_OUTSIDE lists never gained a kind, and hold only what is still outside', () => {
   for (const suite of ['kern-5-rt10-for', 'kern-5-rt11-linked-while', 'kern-5-rt12-linked-jumps']) {
     const source = repositoryText(`scripts/${suite}/compatibility.test.mjs`);
     const list = source.slice(source.indexOf('STILL_OUTSIDE'), source.indexOf('STILL_OUTSIDE') + 120);
-    assert.match(
-      list,
-      /\['each', 'set'\]/u,
-      `D_SCOPE_CREEP: ${suite} STILL_OUTSIDE must stay exactly ['each','set']`,
-    );
+    assert.match(list, /\['set'\]/u, `D_SCOPE_CREEP: ${suite} STILL_OUTSIDE must stay exactly ['set']`);
   }
 });
 

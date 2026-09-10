@@ -16,6 +16,10 @@ import {
   RUNTIME_FAULT_SITE_DELTA,
   UNCAUGHT_THROW_CODE,
 } from '../kern-5-d-linked-try/pins.mjs';
+import {
+  JAVASCRIPT_FAULT_SITE_DELTA as E_JAVASCRIPT_FAULT_SITE_DELTA,
+  RUNTIME_FAULT_SITE_DELTA as E_RUNTIME_FAULT_SITE_DELTA,
+} from '../kern-5-e-linked-each-do/pins.mjs';
 import { KIR_RUNTIME_DIR, occurrences, readRepositoryText, sourceFilesUnder } from './support.mjs';
 
 function census(constructor) {
@@ -43,9 +47,11 @@ function total(sites) {
 // Slice D spends D.0's thirteenth diagnostic code and adds fault sites for it. The deltas and their
 // derivation live in D's own pins, so these rows move by importing them rather than by restating a
 // second copy of the arithmetic that could drift from the one the spender asserts.
-function withDelta(base, delta) {
+function withDelta(base, ...deltas) {
   const rows = { ...base };
-  for (const [path, added] of Object.entries(delta)) rows[path] = (rows[path] ?? 0) + added;
+  for (const delta of deltas) {
+    for (const [path, added] of Object.entries(delta)) rows[path] = (rows[path] ?? 0) + added;
+  }
   return rows;
 }
 
@@ -54,11 +60,11 @@ test('claim D0-F1 states the rule the census enforces', () => {
   assert.match(FAULT_MODEL_RULE, /consciously extend this census/u);
 });
 
-test('the JavaScript kernel constructs __Fault at exactly the pinned sites plus slice D delta', () => {
+test('the JavaScript kernel constructs __Fault at exactly the pinned sites plus the slice deltas', () => {
   assert.deepEqual(
     census('new __Fault('),
-    withDelta(JAVASCRIPT_FAULT_SITES, JAVASCRIPT_FAULT_SITE_DELTA),
-    'D0_FAULT_CENSUS: the new __Fault( construction sites moved beyond the declared slice D delta',
+    withDelta(JAVASCRIPT_FAULT_SITES, JAVASCRIPT_FAULT_SITE_DELTA, E_JAVASCRIPT_FAULT_SITE_DELTA),
+    'D0_FAULT_CENSUS: the new __Fault( construction sites moved beyond the declared slice deltas',
   );
   assert.equal(total(JAVASCRIPT_FAULT_SITES), FAULT_CENSUS_TOTALS.javascript);
 });
@@ -96,18 +102,22 @@ test('the Python kernel raises _Fault over exactly nine codes', () => {
   );
 });
 
-test('the TypeScript runtime constructs KernKirFault at the pinned ten files plus slice D delta', () => {
+// Eleven files, not ten: E.0's byte-preserving extraction moves the walk out of expression.ts into
+// statement-walker.ts, so the census names one more file while its total is unchanged.
+test('the TypeScript runtime constructs KernKirFault at the pinned eleven files plus the slice deltas', () => {
   assert.deepEqual(
     census('new KernKirFault('),
-    withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA),
-    'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved beyond the declared slice D delta',
+    withDelta(RUNTIME_FAULT_SITES, RUNTIME_FAULT_SITE_DELTA, E_RUNTIME_FAULT_SITE_DELTA),
+    'D0_FAULT_CENSUS: the new KernKirFault( construction sites moved beyond the declared slice deltas',
   );
   assert.equal(total(RUNTIME_FAULT_SITES), FAULT_CENSUS_TOTALS.runtime);
-  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 10);
+  assert.equal(Object.keys(RUNTIME_FAULT_SITES).length, 11);
   assert.deepEqual(
-    Object.keys(RUNTIME_FAULT_SITE_DELTA).filter((path) => !Object.hasOwn(RUNTIME_FAULT_SITES, path)),
+    [...Object.keys(RUNTIME_FAULT_SITE_DELTA), ...Object.keys(E_RUNTIME_FAULT_SITE_DELTA)].filter(
+      (path) => !Object.hasOwn(RUNTIME_FAULT_SITES, path),
+    ),
     [],
-    'D0_FAULT_CENSUS: slice D must add no new fault-bearing file, only sites in files the census names',
+    'D0_FAULT_CENSUS: a slice must add no new fault-bearing file, only sites in files the census names',
   );
 });
 
@@ -119,7 +129,10 @@ test('the split redistributes KernKirFault sites without changing their total', 
     5,
     'D0_FAULT_CENSUS: the linked-kir-program directory must keep exactly five KernKirFault sites',
   );
-  assert.equal(total(rows), FAULT_CENSUS_TOTALS.runtime + total(RUNTIME_FAULT_SITE_DELTA));
+  assert.equal(
+    total(rows),
+    FAULT_CENSUS_TOTALS.runtime + total(RUNTIME_FAULT_SITE_DELTA) + total(E_RUNTIME_FAULT_SITE_DELTA),
+  );
 });
 
 test('no class extends a kernel fault type', () => {

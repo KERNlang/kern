@@ -6,6 +6,7 @@ export const EXPECTED_LINKED_TS_NAMES = Object.freeze([
   'index.ts',
   'link.ts',
   'link-support.ts',
+  'loop-statements.ts',
   'statements.ts',
   'walkers.ts',
 ]);
@@ -21,9 +22,11 @@ export const LINE_BUDGETS = Object.freeze({
   'index.ts': 60,
   'link-support.ts': 200,
   'link.ts': 420,
-  // Raised by slice D, which lands compileThrow, compileTry, compileCatch, compileFinally, the
-  // payload gate and the clause partition here (kern-5-d spec, Blast Radius).
-  'statements.ts': 440,
+  // Slice E.0 moves compileFor/compileWhile/loopBound out to loop-statements.ts, which is where
+  // compileEach lands too; statements.ts drops to 325 and its budget follows the extraction down
+  // (kern-5-e spec, E-0 rows). Neither file may drift back above 450.
+  'loop-statements.ts': 220,
+  'statements.ts': 380,
   'walkers.ts': 220,
 });
 
@@ -51,13 +54,18 @@ export const FILE_LINE_CEILING = 500;
 // it (D0-TD7). link-support.ts also gained an edge to walkers.ts (D0-TD10): ModuleContext.closureWalk
 // imports LinkedKernKirClosureWalk as a type instead of re-declaring its shape inline; the scanner
 // matches the specifier regardless of the `import type` keyword, so the edge is real here too.
+// E.0 adds loop-statements.ts and two edges to it. `assertAsyncCallPosition` moves from
+// statements.ts to link-support.ts so both statement modules can reach it without statements.ts and
+// loop-statements.ts importing each other: the loop compilers take the block compiler as an
+// argument instead, which is what keeps this graph the DAG the row below and the cycle row pin.
 export const EXPECTED_IMPORT_EDGES = Object.freeze({
   'contracts.ts': Object.freeze([]),
   'expression.ts': Object.freeze(['contracts.js']),
   'index.ts': Object.freeze(['contracts.js', 'expression.js', 'link.js', 'walkers.js']),
-  'link-support.ts': Object.freeze(['contracts.js', 'walkers.js']),
+  'link-support.ts': Object.freeze(['contracts.js', 'expression.js', 'walkers.js']),
   'link.ts': Object.freeze(['contracts.js', 'link-support.js', 'statements.js', 'walkers.js']),
-  'statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js']),
+  'loop-statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js']),
+  'statements.ts': Object.freeze(['contracts.js', 'expression.js', 'link-support.js', 'loop-statements.js']),
   'walkers.ts': Object.freeze(['contracts.js']),
 });
 
@@ -233,8 +241,12 @@ export const BASE_KIR_TOKENS = Object.freeze([
   'KIR_WHILE_COND_NOT_BOOLEAN',
 ]);
 
+// E.0 moves the statement and block lowering out of emitter.ts into statement-source.ts; the two
+// rows below sum to the 24 emitter.ts alone used to carry, and slice D's +1 stays on emitter.ts
+// because the uncaught-throw conversion sits in the specialized handler, not in a statement arm.
 export const JAVASCRIPT_FAULT_SITES = Object.freeze({
-  'packages/core/src/compiler/kir-js-esm/emitter.ts': 24,
+  'packages/core/src/compiler/kir-js-esm/emitter.ts': 13,
+  'packages/core/src/compiler/kir-js-esm/statement-source.ts': 11,
   'packages/core/src/compiler/kir-js-esm/target-base.ts': 6,
   'packages/core/src/compiler/kir-js-esm/target-execution.ts': 4,
   'packages/core/src/compiler/kir-js-esm/target-json.ts': 5,
@@ -280,10 +292,12 @@ export const RUNTIME_FAULT_SITES = Object.freeze({
   'packages/core/src/kir-runtime/execute.ts': 11,
   // 22, not 20: `fix(kern5): fail closed when a jump has no enclosing loop frame` (e1d94060, an
   // ancestor of this tip landed after this pin was first authored) adds two `KIR_JUMP_WITHOUT_LOOP_FRAME`
-  // KernKirFault sites.
-  'packages/core/src/kir-runtime/expression.ts': 22,
+  // KernKirFault sites. E.0 splits those 22 across the evaluator and the walk it moves out;
+  // slice D's +1 stays on expression.ts because callHelper does.
+  'packages/core/src/kir-runtime/expression.ts': 10,
   'packages/core/src/kir-runtime/inspect.ts': 12,
   'packages/core/src/kir-runtime/json.ts': 3,
+  'packages/core/src/kir-runtime/statement-walker.ts': 12,
   'packages/core/src/kir-runtime/linked-kir-program/contracts.ts': 1,
   'packages/core/src/kir-runtime/linked-kir-program/expression.ts': 2,
   // link.ts's one direct site is the projection-authentication-error throw; the other of the two

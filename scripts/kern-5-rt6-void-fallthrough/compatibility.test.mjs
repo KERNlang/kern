@@ -23,8 +23,8 @@ const BUILD_GOLDEN_URL = new URL('./k0-build-golden.json', import.meta.url);
 const RT2_GOLDEN_URL = new URL('../kern-5-rt2-boolean-if/k0-golden.json', import.meta.url);
 const RT3_GOLDEN_URL = new URL('../kern-5-rt3-binary-expression/k0-golden.json', import.meta.url);
 
-const RT2_GOLDEN_SHA256 = 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b';
-const RT3_GOLDEN_SHA256 = 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b';
+const RT2_GOLDEN_SHA256 = '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8';
+const RT3_GOLDEN_SHA256 = '5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df';
 
 const BOOLEAN_FLAG = Object.freeze([Object.freeze({ name: 'flag', type: 'boolean' })]);
 const TEXT_INPUT = Object.freeze([Object.freeze({ name: 't', type: 'string' })]);

@@ -8,6 +8,7 @@ import {
   TARGET_STATEMENT_KINDS,
   USER_THROW_CLASS,
 } from './pins.mjs';
+import { STATEMENT_KINDS_AFTER_E } from '../kern-5-e-linked-each-do/pins.mjs';
 import {
   LIMITS,
   TRY_POSITIONS,
@@ -25,6 +26,12 @@ import {
 
 const CHILD_TIMEOUT_MS = 4000;
 
+// What the successor slice added on top of D's target, taken from its own pins rather than restated:
+// D's union rows stay exact-set rows without claiming the kinds kern-5-e admits are D's.
+const SUCCESSOR_STATEMENT_KINDS = Object.freeze(
+  STATEMENT_KINDS_AFTER_E.filter((kind) => !TARGET_STATEMENT_KINDS.includes(kind)),
+);
+
 function walkChild(script) {
   return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: new URL('../../', import.meta.url),
@@ -33,7 +40,7 @@ function walkChild(script) {
   });
 }
 
-test('the linked statement union carries throw and try and no other new kind', () => {
+test('the linked statement union carries throw and try and no kind beyond the successor slice', () => {
   const contracts = repositoryText('packages/core/src/kir-runtime/linked-kir-program/contracts.ts');
   const union = contracts.slice(
     contracts.indexOf('export type LinkedKernKirStatement ='),
@@ -42,10 +49,10 @@ test('the linked statement union carries throw and try and no other new kind', (
   assert.ok(union.length > 0, 'the statement union must be locatable');
   assert.deepEqual(
     [...union.matchAll(/readonly kind: '([a-z]+)'/gu)].map((match) => match[1]).sort(),
-    [...TARGET_STATEMENT_KINDS],
-    'D_UNION_DRIFT: the linked statement union must be exactly the ten base kinds plus throw and try',
+    [...TARGET_STATEMENT_KINDS, ...SUCCESSOR_STATEMENT_KINDS].sort(),
+    'D_UNION_DRIFT: the linked statement union must be the ten base kinds plus throw, try and the successor pair',
   );
-  for (const kind of ['each', 'set', 'with', 'do', 'catch', 'finally']) {
+  for (const kind of ['set', 'with', 'catch', 'finally']) {
     assert.equal(
       union.includes(`kind: '${kind}'`),
       false,
@@ -63,14 +70,19 @@ test('catch and finally are try clauses, not union members, so the union gains e
     contracts.indexOf('export function statementSubBlocks'),
   );
   const kinds = [...union.matchAll(/readonly kind: '([a-z]+)'/gu)].map((match) => match[1]);
-  assert.equal(kinds.length - (TARGET_STATEMENT_KINDS.length - NEW_STATEMENT_KINDS.length), 2);
+  assert.equal(
+    kinds.length - SUCCESSOR_STATEMENT_KINDS.length - (TARGET_STATEMENT_KINDS.length - NEW_STATEMENT_KINDS.length),
+    2,
+  );
   for (const field of ['catchBody', 'finallyBody']) {
     assert.ok(union.includes(field), `D_CLAUSE_MODEL: the try member must carry ${field} as a clause block`);
   }
 });
 
+// Slice E.0 moved the walk out of expression.ts into statement-walker.ts byte for byte, so the
+// three scans below follow the walk rather than the file name.
 test('StatementWalkResult gains a threw variant, so an uncaught throw is a completion not an exception', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   const result = source.slice(
     source.indexOf('export type StatementWalkResult ='),
     source.indexOf('export interface StatementWalkPolicy'),
@@ -84,7 +96,7 @@ test('StatementWalkResult gains a threw variant, so an uncaught throw is a compl
 });
 
 test('WalkFrame gains a trap field and TryTrap carries the binding and both clause bodies', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   const frame = source.slice(source.indexOf('interface WalkFrame'), source.indexOf('function loopContinues'));
   assert.ok(frame.length > 0, 'WalkFrame must be locatable');
   assert.ok(
@@ -179,7 +191,7 @@ test('the async driver converts an entry threw and fails closed on a helper thre
 // D-5b. GREEN at base and must stay GREEN: the whole-file count is pinned in two prior suites and D
 // adds no third observation point.
 test('the RT-1 evaluator still carries exactly two checkAbort sites, and the try family adds none', () => {
-  const source = repositoryText('packages/core/src/kir-runtime/expression.ts');
+  const source = repositoryText('packages/core/src/kir-runtime/statement-walker.ts');
   assert.equal(
     occurrencesOf(source, 'checkAbort()'),
     CHECK_ABORT_SITES,
@@ -232,14 +244,14 @@ test('containsReturn stays delegated to statementSubBlocks and re-learns no kind
   );
 });
 
-// The loudly-breaking prior-slice scrape, relocated by the same refactor: rt12 now pins
-// `statementSubBlocks` to exactly ['for','if','while'] and asserts it "must not learn a kind that
-// owns no block". `try` owns three, so that list -- not the containsReturn one the spec predicted --
-// is the assertion D moves.
+// The loudly-breaking prior-slice scrape, relocated by the same refactor: rt12 pins
+// `statementSubBlocks` and asserts it "must not learn a kind that owns no block". `try` owns three,
+// so that list -- not the containsReturn one the spec predicted -- is the assertion D moves;
+// kern-5-e appended `each` to the same list for the same reason.
 test('rt12 own statementSubBlocks pin gains try, which is the scrape the refactor relocated', () => {
   const rt12 = repositoryText('scripts/kern-5-rt12-linked-jumps/walker-coverage.test.mjs');
   assert.ok(
-    rt12.includes("['for', 'if', 'try', 'while']"),
+    rt12.includes("['each', 'for', 'if', 'try', 'while']"),
     'D_PRIOR_PIN_STALE: rt12 statementSubBlocks kind list must gain try, a genuinely block-owning kind',
   );
   assert.ok(

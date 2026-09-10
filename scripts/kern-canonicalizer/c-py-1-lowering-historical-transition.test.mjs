@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from './e0-loop-extraction-historical-transition.mjs';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -38,7 +39,9 @@ function compiledPaths(directory = DIST, output = []) {
 // D.0 heads this stage with a new 354-to-357 transition (currentInventory here stays the
 // unedited 354-file predecessor pin), so the live dist must be peeled through it first.
 function cPy1CurrentPaths() {
-  return reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(compiledPaths());
+  return reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(
+    reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(compiledPaths()),
+  );
 }
 
 function cloneOwnDataTree(value) {

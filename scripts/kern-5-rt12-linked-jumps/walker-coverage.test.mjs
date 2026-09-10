@@ -378,7 +378,7 @@ test('containsReturn keeps exactly its five block-owning arms and gains none for
   const subBlockKinds = [...subBlocks.matchAll(/statement\.kind === '([a-z]+)'/gu)].map((match) => match[1]);
   assert.deepEqual(
     [...new Set(subBlockKinds)].sort(),
-    ['for', 'if', 'try', 'while'],
+    ['each', 'for', 'if', 'try', 'while'],
     'RT12J_WALKER_CREEP: statementSubBlocks must not learn a kind that owns no block',
   );
 });

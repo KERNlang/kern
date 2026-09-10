@@ -70,7 +70,7 @@ const DIAGNOSTIC_CODES = Object.freeze([
 // The statement kinds this slice must leave outside the union. `break` and `continue` are
 // deliberately absent: they are what the slice adds, and `walker-coverage.test.mjs` asserts they
 // arrive with no field but `kind`.
-const STILL_OUTSIDE = Object.freeze(['each', 'set']);
+const STILL_OUTSIDE = Object.freeze(['set']);
 
 const RESERVED_LABEL = 'KIR_LOOP_JUMP_CROSSES_TRY';
 

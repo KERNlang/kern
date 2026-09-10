@@ -13,6 +13,8 @@ import {
   SUCCESSOR_INVENTORY_COUNT,
   TRANSITION_CLAIM,
 } from './pins.mjs';
+import { E0_ADDED_DIST_PATHS, E0_INVENTORY_COUNT } from '../kern-5-e-linked-each-do/pins.mjs';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from '../kern-canonicalizer/e0-loop-extraction-historical-transition.mjs';
 import {
   TRANSITION_PATH,
   TRANSITION_TEST_PATH,
@@ -55,15 +57,28 @@ function prerequisiteDigest() {
   return match[1];
 }
 
-test('the live compiled-core inventory is 357 paths and holds the three new modules', () => {
-  const paths = compiledCorePaths();
+// The live inventory is no longer D.0's successor: slice E.0's extraction sits on top of it, so the
+// 357-path inventory this slice authenticates is reached by running E.0's stage first. Both counts
+// are asserted here so a future stage cannot quietly absorb one into the other.
+function d0SuccessorPaths() {
+  return reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(compiledCorePaths());
+}
+
+test('the D.0 successor inventory is 357 paths and holds the three new modules', () => {
+  const live = compiledCorePaths();
+  assert.equal(
+    live.length,
+    E0_INVENTORY_COUNT,
+    'D0_INVENTORY_COUNT: the live compiled-core JavaScript inventory is not the E.0 count',
+  );
+  const paths = d0SuccessorPaths();
   assert.equal(
     paths.length,
     SUCCESSOR_INVENTORY_COUNT,
-    'D0_INVENTORY_COUNT: the live compiled-core JavaScript inventory is not 357 paths',
+    'D0_INVENTORY_COUNT: the reconstructed D.0 successor inventory is not 357 paths',
   );
   for (const added of ADDED_DIST_PATHS) {
-    assert.ok(paths.includes(added), `D0_INVENTORY_MEMBER: ${added} is not in the live inventory`);
+    assert.ok(paths.includes(added), `D0_INVENTORY_MEMBER: ${added} is not in the D.0 successor inventory`);
   }
 });
 
@@ -94,7 +109,7 @@ test('the new head-stage transition module carries the pinned frozen record', as
 
 test('the head reconstructor rebuilds the authenticated c-py-1 inventory', async () => {
   const module = await transition();
-  const predecessor = module[RECONSTRUCTOR](compiledCorePaths());
+  const predecessor = module[RECONSTRUCTOR](d0SuccessorPaths());
   assert.equal(
     predecessor.length,
     PREDECESSOR_INVENTORY.count,
@@ -129,7 +144,7 @@ test('the validator refuses a mutated record and a malformed inventory', async (
       'D0_TRANSITION_MUTABLE: the validator accepted a mutated record',
     );
   }
-  const live = compiledCorePaths();
+  const live = d0SuccessorPaths();
   for (const malformed of [
     [...live, 'kir-runtime/linked-kir-program/extra.js'],
     live.slice(1),
@@ -154,25 +169,31 @@ test('the transition module has its own immutability oracle', () => {
   }
 });
 
-test('coverage-dependencies wires the new head before the c-py-1 stage', () => {
+// E.0 pushed this stage off the head of the chain. What D.0 still owns is its ORDER: it must run on
+// the inventory E.0's stage hands back, and it must run before the c-py-1 stage.
+test('coverage-dependencies wires the D.0 stage after E.0 and before the c-py-1 stage', () => {
   const source = readRepositoryText(COVERAGE_DEPENDENCIES);
   assert.ok(
     source.includes(RECONSTRUCTOR),
-    'D0_WIRING_MISSING: coverage-dependencies does not import the new head reconstructor',
+    'D0_WIRING_MISSING: coverage-dependencies does not import the D.0 stage reconstructor',
   );
   const composite = source.indexOf('export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths');
   assert.ok(composite >= 0, 'D0_WIRING_ANCHOR: the composite chain entry point moved');
-  const head = source.indexOf(`${RECONSTRUCTOR}(paths)`, composite);
+  const e0 = source.indexOf('reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(paths)', composite);
+  const d0 = source.indexOf(`${RECONSTRUCTOR}(e0LoopExtractionPaths)`, composite);
   const cPy1 = source.indexOf('reconstructCPy1LoweringCompiledCoreJavaScriptPaths(', composite);
-  assert.ok(head > composite, 'D0_WIRING_MISSING: the new head is not called with the live paths');
-  assert.ok(
-    head < cPy1,
-    'D0_WIRING_ORDER: the new head must run before the c-py-1 stage, not after it',
-  );
+  assert.ok(e0 > composite, 'D0_WIRING_MISSING: the E.0 stage is not called with the live paths');
+  assert.ok(d0 > e0, 'D0_WIRING_ORDER: the D.0 stage must run on the inventory E.0 hands back');
+  assert.ok(d0 < cPy1, 'D0_WIRING_ORDER: the D.0 stage must run before the c-py-1 stage, not after it');
   assert.equal(
     source.includes('reconstructCPy1LoweringCompiledCoreJavaScriptPaths(paths)'),
     false,
     'D0_WIRING_ORDER: the c-py-1 stage must no longer receive the live paths directly',
+  );
+  assert.equal(
+    source.includes(`${RECONSTRUCTOR}(paths)`),
+    false,
+    'D0_WIRING_ORDER: the D.0 stage must no longer receive the live paths directly',
   );
 });
 
@@ -180,8 +201,8 @@ test('the coverage-integrity omitted list gains exactly the three new dist paths
   const omitted = omittedPathsInIntegrityTest();
   assert.deepEqual(
     omitted,
-    [...BASE_OMITTED_PATHS, ...ADDED_DIST_PATHS].sort(),
-    'D0_OMITTED_LIST: the omitted deepEqual literal is not the base list plus the three new paths',
+    [...BASE_OMITTED_PATHS, ...ADDED_DIST_PATHS, ...E0_ADDED_DIST_PATHS].sort(),
+    'D0_OMITTED_LIST: the omitted deepEqual literal is not the base list plus the D.0 and E.0 paths',
   );
   assert.deepEqual(omitted, [...omitted].sort(), 'D0_OMITTED_LIST: the literal must stay sorted');
 });
@@ -251,9 +272,10 @@ test('no fourth path leaks into the compiled core', () => {
     [
       'kir-runtime/linked-kir-program/contracts.js',
       'kir-runtime/linked-kir-program/expression.js',
+      'kir-runtime/linked-kir-program/loop-statements.js',
       ...ADDED_DIST_PATHS,
       'kir-runtime/linked-kir-program/link.js',
     ].sort(),
-    'D0_INVENTORY_LEAK: the linked-kir-program dist membership is not the pinned six modules',
+    'D0_INVENTORY_LEAK: the linked-kir-program dist membership is not the pinned seven modules',
   );
 });

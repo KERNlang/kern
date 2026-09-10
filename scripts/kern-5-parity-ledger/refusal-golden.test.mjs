@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   DEFERRAL_LABEL,
+  DO_ROW_POSITIONS,
+  EACH_ROW_POSITIONS,
   EXPRESSION_POSITIONS,
   JUMP_ROW_POSITIONS,
   STATEMENT_POSITIONS,
@@ -79,6 +81,8 @@ test('every ledger row refuses with the exact label and no Python artifact', asy
   for (const row of ledgerRows()) {
     assert.equal(table[row.surface][row.nodeKind], 'deferred', `${row.nodeKind}: the row must be deferred`);
     const statementPositions = {
+      do: DO_ROW_POSITIONS,
+      each: EACH_ROW_POSITIONS,
       throw: THROW_ROW_POSITIONS,
       try: TRY_ROW_POSITIONS,
       while: WHILE_ROW_POSITIONS,

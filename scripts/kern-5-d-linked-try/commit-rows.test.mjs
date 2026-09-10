@@ -16,6 +16,8 @@ const SKIP_REASON = 'set D_MEASURE_ROWS=1 to run the D-7f self-drive';
 
 const SUITE_DIRECTORY = 'scripts/kern-5-d-linked-try';
 
+const SUCCESSOR_LEAVES = Object.freeze(['test:kern-5-e-linked-each-do']);
+
 function oracleFiles() {
   return readdirSync(new URL('./', import.meta.url))
     .filter((name) => name.endsWith('.test.mjs'))
@@ -175,10 +177,13 @@ test('the evidence leaf is wired into the aggregate exactly once, after the D.0 
     1,
     `D_LEAF_UNWIRED: the aggregate must run ${EVIDENCE_LEAF} exactly once`,
   );
-  assert.equal(
-    segments.at(-1),
-    `pnpm ${EVIDENCE_LEAF}`,
-    `D_LEAF_UNWIRED: ${EVIDENCE_LEAF} must be the last segment, so it runs after ${PREDECESSOR_LEAF}`,
+  // Not "last" any more: slice E appends its own leaf after this one, exactly as D appended after
+  // D.0's. The invariant was always "after every prior slice", and E is the first legitimate
+  // successor, so only a declared successor may follow.
+  assert.deepEqual(
+    segments.slice(segments.indexOf(`pnpm ${EVIDENCE_LEAF}`) + 1),
+    SUCCESSOR_LEAVES.map((leaf) => `pnpm ${leaf}`),
+    `D_LEAF_UNWIRED: only a declared successor may follow ${EVIDENCE_LEAF} in the aggregate`,
   );
   assert.ok(
     segments.indexOf(`pnpm ${PREDECESSOR_LEAF}`) < segments.indexOf(`pnpm ${EVIDENCE_LEAF}`),

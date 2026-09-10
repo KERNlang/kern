@@ -328,6 +328,14 @@ export const WHILE_POSITIONS = Object.freeze({
       ],
       { parameters: Object.freeze([Object.freeze({ name: 'xs', type: 'integer[]' })]) },
     ),
+  'neg-while-each-source-in-body': () =>
+    whileProgram([
+      'let name=acc value="0"',
+      'while cond="false"',
+      '  each name=x in="acc"',
+      '    assign target="acc" value="acc + 1"',
+      'return value="acc"',
+    ]),
   'neg-while-empty-body': () =>
     whileProgram(['let name=acc value="0"', 'while cond="false"', 'return value="acc"']),
   'neg-while-let-escapes': () =>

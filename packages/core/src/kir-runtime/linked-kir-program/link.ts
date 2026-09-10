@@ -185,6 +185,7 @@ function compileHandler(
   const returnType = handlerReturnType(properties.get('returns'), `${label}.returns`, meter);
   const children = nodeChildren(fn, label);
   const parameters: { readonly name: string; readonly type: LinkedKernKirParameterType }[] = [];
+  const parameterTypes = new Map<string, LinkedKernKirParameterType>();
   let handler: StructuralKirNode | undefined;
   const scope: LinkScope = {
     assignable: new Set<string>(),
@@ -192,9 +193,11 @@ function compileHandler(
     calls: callScope(context),
     counters: new Set<string>(),
     crossCallTypes: new Map<string, LinkedKernKirCrossCallType>(),
+    eachBindings: new Set<string>(),
     finallyDepth: 0,
     loopDepth: 0,
     loopFinallyDepth: 0,
+    parameters: parameterTypes,
     payloads: new Set<string>(),
     tryFamily: requireExport,
     types: new Map<string, LinkedKernKirStaticType>(),
@@ -217,6 +220,7 @@ function compileHandler(
         linkedKirCrossCallType(type),
       );
       parameters.push(Object.freeze({ name, type }));
+      parameterTypes.set(name, type);
       meter.collection(parameters.length, `${label}.parameters`);
     } else if (kind === 'handler' && handler === undefined) handler = child;
     else fault('handler-entry-unsupported', `${childLabel}: expected parameters followed by one handler`);

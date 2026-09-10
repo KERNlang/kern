@@ -108,6 +108,10 @@
       "diagnostics": [],
       "status": "projected"
     },
+    "neg-while-each-source-in-body": {
+      "diagnostics": [],
+      "status": "projected"
+    },
     "neg-while-empty-body": {
       "diagnostics": [],
       "status": "projected"

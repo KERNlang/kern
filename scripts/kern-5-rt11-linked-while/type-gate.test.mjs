@@ -121,11 +121,14 @@ test('an async helper call is admitted as a body statement value but refused in 
   }
 });
 
-// `each` shares the leaf refusal with an unrouted `while`, so the message alone cannot tell the two
-// apart: at base the outer while is what fires it. The label path is the discriminator — a refusal
-// attributed to the loop's body proves the loop itself was compiled.
-test('each inside a while body is refused as a body child, attributed to the body', async () => {
-  const message = await assertLinkLabel(WHILE_POSITIONS['neg-while-each-in-body'](), 'statement must be a leaf');
+// Slice E admits `each`, so the nesting itself is the positive and a live `each` refusal carries the
+// label path instead: a refusal attributed to the loop's body proves the loop itself was compiled.
+test('each inside a while body links, and its own refusal there is attributed to the body', async () => {
+  await assertWhileAdmitted('neg-while-each-in-body', WHILE_POSITIONS['neg-while-each-in-body']());
+  const message = await assertLinkLabel(
+    WHILE_POSITIONS['neg-while-each-source-in-body'](),
+    'KIR_EACH_SOURCE_NOT_PARAMETER',
+  );
   assert.match(
     message,
     /\.body\.children\[/u,

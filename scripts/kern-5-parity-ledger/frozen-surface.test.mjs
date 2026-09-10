@@ -6,6 +6,7 @@ import { TARGET_KERNEL_SHA256 as JAVASCRIPT_KERNEL } from '../../packages/core/d
 import { TARGET_KERNEL_SHA256 as PYTHON_KERNEL } from '../../packages/core/dist/compiler/kir-python/emitter.js';
 import { C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/c-py-1-lowering-historical-transition.mjs';
 import { D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/d0-contracts-split-historical-transition.mjs';
+import { E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION } from '../kern-canonicalizer/e0-loop-extraction-historical-transition.mjs';
 
 import {
   EXPRESSION_POSITIONS,
@@ -29,6 +30,7 @@ const FACADE_SHA256 = 'eade928a03649637cad48115a6e4023898765963739e27ca73aa5eca4
 const JAVASCRIPT_KERNEL_SHA256 = 'b53251fd8a09f58226881b8f32547183e4b8300bab462d1373039426d3b057e6';
 const PYTHON_KERNEL_SHA256 = 'f79a39633f58475124eafdec3c62a9fd042ffa50b1de637509d0f66e0f0cd18e';
 const COMPILED_CORE_COUNT = 357;
+const E0_LOOP_EXTRACTION_COUNT = 360;
 const PY_LOWERING_PREDECESSOR_COUNT = 354;
 
 const KIR_PYTHON_FILES = Object.freeze([
@@ -41,17 +43,18 @@ const KIR_PYTHON_FILES = Object.freeze([
   'target-json.ts',
 ]);
 
-// rt2, rt3 and rt9 carry the kern-5-rt11-linked-while licensed golden cascade (a while row added to
-// `linkedStatementKinds`, rt3's carried `rt2GoldenSha256`, rt9's `control-while` admission), so
-// their pins move with it; rt10-cross-call-integer, rt10-pre-linked-arithmetic and rt6-void-
-// fallthrough scrape no statement surface the cascade touches and stay frozen.
+// rt2, rt3 and rt9 carry the same licensed golden cascade every union-widening slice opens (rows
+// added to `linkedStatementKinds`, rt3's carried `rt2GoldenSha256`, rt9's control admission), most
+// recently kern-5-e's `do` and `each`, so their pins move with it; rt10-cross-call-integer,
+// rt10-pre-linked-arithmetic and rt6-void-fallthrough scrape no statement surface the cascade
+// touches and stay frozen.
 const NEIGHBOUR_GOLDENS = Object.freeze({
   'kern-5-rt10-cross-call-integer': '6deab8ccfd16aacc79543fad945b62e62a71027bc1c2673b764125fa9158f4cf',
   'kern-5-rt10-pre-linked-arithmetic': '87efee4df8ce4fbde5d954d74e859f3e4f889598e0f35fedca8d56705515f718',
-  'kern-5-rt2-boolean-if': 'a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b',
-  'kern-5-rt3-binary-expression': 'f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b',
+  'kern-5-rt2-boolean-if': '43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8',
+  'kern-5-rt3-binary-expression': '5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df',
   'kern-5-rt6-void-fallthrough': '429de5ebbb5e606acfd48764b506d38b6abc4c5c6270bca883b34aa027306e81',
-  'kern-5-rt9-linked-assign': 'd8e561eeb4e5331424de77ee2f3b9e8abf6ea47ec90443a1b0a317400d0600be',
+  'kern-5-rt9-linked-assign': '355f4b05a28a86a5a348d1c537eec4c70dbf98ed7d26e09f3327c0d1f330bec9',
 });
 
 function distJavaScriptCount(directory) {
@@ -84,14 +87,17 @@ test('both target kernels are unchanged', () => {
   assert.equal(PYTHON_KERNEL, PYTHON_KERNEL_SHA256, 'PARITY_LEDGER_KERNEL_TOUCH: the Python kernel moved');
 });
 
-test('the compiled-core inventory stays at the attested 357 files', () => {
-  // D.0's split heads the c-py-1 stage (unedited, still the 354-file predecessor) with a new
-  // 357-file stage; this suite predates D.0 and must follow the live head, not the frozen one.
+test('the compiled-core inventory stays at the attested head-stage count', () => {
+  // D.0's split heads the c-py-1 stage (unedited, still the 354-file predecessor) with a 357-file
+  // stage, and slice E.0's extraction heads D.0 with a 360-file stage. This suite predates both and
+  // must follow the LIVE head, not a frozen one; what it still owns is that the ledger and the
+  // admission pass add no file of their own.
   assert.equal(C_PY_1_LOWERING_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, PY_LOWERING_PREDECESSOR_COUNT);
   assert.equal(D0_CONTRACTS_SPLIT_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, COMPILED_CORE_COUNT);
+  assert.equal(E0_LOOP_EXTRACTION_COMPILED_SUCCESSOR_TRANSITION.currentInventory.count, E0_LOOP_EXTRACTION_COUNT);
   assert.equal(
     distJavaScriptCount(CORE_DIST),
-    COMPILED_CORE_COUNT,
+    E0_LOOP_EXTRACTION_COUNT,
     'PARITY_LEDGER_INVENTORY: the ledger and the admission pass must add no file under packages/core/src',
   );
 });

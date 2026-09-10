@@ -134,6 +134,6 @@
       "rt1": "handler-entry-unsupported"
     }
   },
-  "rt2GoldenSha256": "a307cf76a61f19d6a9849952f18df9a6dc75e41d16112aec0fc3e73abef3182b",
-  "rt3GoldenSha256": "f51c89cc9779f0890e50e385f4035f756c15e1a96a634f472562f1b618cbd05b"
+  "rt2GoldenSha256": "43df94c1e608ea3147c2eca63abf8321db688fbf4469c598c9289ef8e67a96e8",
+  "rt3GoldenSha256": "5b0156435c6542abffe219ef1d8ac80bf507de73aca32d8839a0bc42de7651df"
 }

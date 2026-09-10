@@ -29,12 +29,12 @@ const {
 
 const HELPER_REFUSAL_LABEL = 'KIR_TRY_FAMILY_IN_HELPER';
 
-test('the ledger carries exactly five rows, sorted by nodeKind', () => {
+test('the ledger carries exactly the pinned rows, sorted by nodeKind', () => {
   const rows = ledgerRows();
   assert.deepEqual(
     rows.map((row) => row.nodeKind),
     [...LEDGER_NODE_KINDS],
-    'D_LEDGER_ROWS: the ledger must carry break, continue, throw, try and while, in that order',
+    'D_LEDGER_ROWS: the ledger must carry exactly LEDGER_NODE_KINDS, in that order',
   );
   for (const row of rows) {
     assert.deepEqual(Object.keys(row).sort(), [...ROW_KEYS].sort(), `D_LEDGER_SHAPE: ${row.nodeKind} row shape drifted`);
@@ -69,7 +69,7 @@ test('the ledger document validates and its digest equals the checked-in hash', 
   );
 });
 
-test('the Python statement lowering marks exactly the five ledger kinds as deferred', async () => {
+test('the Python statement lowering marks exactly the ledger kinds as deferred', async () => {
   const statements = await statementLowering();
   const deferred = Object.entries(statements)
     .filter(([, state]) => state === 'deferred')
@@ -169,8 +169,8 @@ test('the exhaustiveness scrape names both new kinds, so the surface pin cannot 
     );
   }
   assert.ok(
-    exhaustiveness.includes("['break', 'continue', 'throw', 'try', 'while']"),
-    'D_SURFACE_DRIFT: the deferred deepEqual must become the five-kind list',
+    exhaustiveness.includes("['break', 'continue', 'do', 'each', 'throw', 'try', 'while']"),
+    'D_SURFACE_DRIFT: the deferred deepEqual must be the whole ledger kind list',
   );
 });
 

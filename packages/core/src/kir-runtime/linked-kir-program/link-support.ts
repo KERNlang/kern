@@ -6,11 +6,14 @@ import {
   type LinkedKernKirCallPolicy,
   type LinkedKernKirCallScope,
   type LinkedKernKirCrossCallType,
+  type LinkedKernKirExpression,
   type LinkedKernKirHandler,
+  type LinkedKernKirParameterType,
   type LinkedKernKirStatement,
   type LinkedKernKirStaticType,
   statementSubBlocks,
 } from './contracts.js';
+import { containsAsyncCall } from './expression.js';
 import type { LinkedKernKirClosureWalk } from './walkers.js';
 export function fault(code: KernKirDiagnosticCode, message: string): never {
   throw new KernKirFault(code, 'link', message);
@@ -79,9 +82,11 @@ export interface LinkScope {
   readonly calls: LinkedKernKirCallScope | undefined;
   readonly counters: Set<string>;
   readonly crossCallTypes: Map<string, LinkedKernKirCrossCallType>;
+  readonly eachBindings: Set<string>;
   readonly finallyDepth: number;
   readonly loopDepth: number;
   readonly loopFinallyDepth: number;
+  readonly parameters: ReadonlyMap<string, LinkedKernKirParameterType>;
   readonly payloads: Set<string>;
   readonly tryFamily: boolean;
   readonly types: Map<string, LinkedKernKirStaticType>;
@@ -104,9 +109,11 @@ export function branchScope(scope: LinkScope): LinkScope {
     calls: scope.calls,
     counters: new Set(scope.counters),
     crossCallTypes: new Map(scope.crossCallTypes),
+    eachBindings: new Set(scope.eachBindings),
     finallyDepth: scope.finallyDepth,
     loopDepth: scope.loopDepth,
     loopFinallyDepth: scope.loopFinallyDepth,
+    parameters: scope.parameters,
     payloads: new Set(scope.payloads),
     tryFamily: scope.tryFamily,
     types: new Map(scope.types),
@@ -136,4 +143,22 @@ export function assignTargetName(value: CanonicalValue | undefined, label: strin
   if (fields === undefined) fault('handler-entry-unsupported', `${label}.fields: missing record`);
   const named = canonicalRecord(fields, ['name'], `${label}.fields`);
   return propertyText(named, 'name', `${label}.fields`, meter);
+}
+
+// RT-4 rejected a capability anywhere in the reachable callee closure at every call position. RT-5
+// narrows that to a callee reached from a position with no statement-value continuation, so the
+// retained KIR_CALL_CALLEE_CAPABILITY label still names why the position gate refused.
+const ASYNC_POSITION_LABEL = 'KIR_ASYNC_CALL_EXPRESSION_POSITION (KIR_CALL_CALLEE_CAPABILITY)';
+
+export function assertAsyncCallPosition(
+  value: LinkedKernKirExpression,
+  scope: LinkScope,
+  label: string,
+  statementValue: boolean,
+): void {
+  const misplaced =
+    statementValue && value.kind === 'user-call'
+      ? value.arguments.some((argument) => containsAsyncCall(argument, scope))
+      : containsAsyncCall(value, scope);
+  if (misplaced) fault('handler-entry-unsupported', `${label}: ${ASYNC_POSITION_LABEL}`);
 }

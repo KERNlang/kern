@@ -12,6 +12,7 @@ import {
   TARGET_KIR_TOKENS_WITHOUT_FINALLY,
   UNSPENT_AFTER_FINALLY,
 } from './pins.mjs';
+import { DO_LABELS, EACH_LABELS } from '../kern-5-e-linked-each-do/pins.mjs';
 import { repositoryText } from './k0-support.mjs';
 
 const LABEL_PATTERN = /KIR_[A-Z_0-9]+/gu;
@@ -157,7 +158,8 @@ test('the four new emitted labels are raised and are not registry members', () =
 
 test('the emitted KIR token set under kir-runtime equals the recounted list exactly', () => {
   const value = registry();
-  const expected = finallyLanded(value) ? TARGET_KIR_TOKENS_WITH_FINALLY : TARGET_KIR_TOKENS_WITHOUT_FINALLY;
+  const target = finallyLanded(value) ? TARGET_KIR_TOKENS_WITH_FINALLY : TARGET_KIR_TOKENS_WITHOUT_FINALLY;
+  const expected = [...target, ...DO_LABELS, ...EACH_LABELS].sort();
   const emitted = emittedTokens();
   const missing = expected.filter((token) => !emitted.includes(token));
   const extra = emitted.filter((token) => !expected.includes(token));

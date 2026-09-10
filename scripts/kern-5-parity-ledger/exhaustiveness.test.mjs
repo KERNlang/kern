@@ -8,6 +8,8 @@ const STATEMENT_KINDS = Object.freeze([
   'break',
   'capability',
   'continue',
+  'do',
+  'each',
   'for',
   'if',
   'let',
@@ -91,7 +93,7 @@ test('the deferred node kinds are exactly the ones the parity ledger carries', a
   ].map(([kind]) => kind);
   assert.deepEqual(
     deferred,
-    ['break', 'continue', 'throw', 'try', 'while'],
+    ['break', 'continue', 'do', 'each', 'throw', 'try', 'while'],
     'PARITY_LEDGER_MAPPING_DRIFT: the deferred set and the ledger disagree',
   );
 });

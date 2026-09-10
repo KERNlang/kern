@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from './e0-loop-extraction-historical-transition.mjs';
 import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -37,7 +38,9 @@ function pathDigest(paths) {
 
 function r1SuccessorPaths() {
   const cPy1Predecessor = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(
-    reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(compiledPaths()),
+    reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(
+    reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(compiledPaths()),
+  ),
   );
   return reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1Predecessor);
 }

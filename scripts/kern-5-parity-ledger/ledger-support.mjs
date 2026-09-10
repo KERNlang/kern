@@ -37,7 +37,7 @@ export {
 export const LEDGER_URL = new URL('./parity-ledger.json', import.meta.url);
 export const LEDGER_FORMAT = PARITY_LEDGER_FORMAT;
 export const DEFERRAL_LABEL = KIR_PYTHON_LEG_DEFERRED;
-export const LEDGER_SHA256 = '2329d569c6d4fa65b0e5f7b6562bb26d1aa59c8052391e0ec77d5ba203f1bf73';
+export const LEDGER_SHA256 = 'c9b1419482ba8820f56f62127c0027e8fc4c4134170f81b99778cff68ab9d8c9';
 
 export const LEDGER_KEYS = Object.freeze(['format', 'label', 'rows']);
 export const ROW_KEYS = Object.freeze(['blockedBy', 'label', 'nodeKind', 'since', 'spec', 'surface']);
@@ -281,6 +281,57 @@ export const WHILE_ROW_POSITIONS = Object.freeze({
     ]),
   'if-then': () => entryProgram([ACC, 'if cond="true"', ...WHILE_LOOP.map((line) => `  ${line}`), RETURN_ACC]),
 });
+
+// `do` and `each` need their own vehicles for the same reason `while` does: the generic catalogue
+// is `for`-shaped and carries neither node, so a row falling through to it makes the Python compile
+// SUCCEED. `each` additionally needs a `list<text>` handler parameter as its iteration source, which
+// is why its vehicle carries `parameters` where the others do not.
+function slicePositions(lines, helper, helperCall, { helpers = [], parameters = [] } = {}) {
+  const indented = lines.map((line) => `  ${line}`);
+  const options = Object.freeze({ helpers, parameters });
+  return Object.freeze({
+    'for-body': () =>
+      entryProgram([ACC, 'for name=o from="0" to="2"', ...indented, RETURN_ACC], options),
+    'handler-top-level': () => entryProgram([ACC, ...lines, RETURN_ACC], options),
+    'helper-body': () =>
+      entryProgram([`return value="${helperCall}"`], { helpers: [...helpers, helper], parameters }),
+    'if-else': () =>
+      entryProgram(
+        [ACC, 'if cond="false"', '  assign target="acc" value="1"', 'else', ...indented, RETURN_ACC],
+        options,
+      ),
+    'if-then': () => entryProgram([ACC, 'if cond="true"', ...indented, RETURN_ACC], options),
+  });
+}
+
+const DO_CALL = 'do value="idp(1)"';
+
+export const DO_ROW_POSITIONS = slicePositions(
+  [DO_CALL],
+  Object.freeze({
+    body: Object.freeze([ACC, DO_CALL, RETURN_ACC]),
+    name: 'dosum',
+    parameters: Object.freeze([]),
+    returns: 'integer',
+  }),
+  'dosum()',
+  { helpers: [IDENTITY_HELPER] },
+);
+
+const TEXT_LIST_PARAMETER = Object.freeze([Object.freeze({ name: 'xs', type: 'string[]' })]);
+const EACH_BODY = 'assign target="acc" value="acc + 1"';
+
+export const EACH_ROW_POSITIONS = slicePositions(
+  ['each name=x in="xs"', `  ${EACH_BODY}`],
+  Object.freeze({
+    body: Object.freeze([ACC, 'each name=y in="ys"', `  ${EACH_BODY}`, RETURN_ACC]),
+    name: 'eachsum',
+    parameters: Object.freeze([Object.freeze({ name: 'ys', type: 'string[]' })]),
+    returns: 'integer',
+  }),
+  'eachsum(xs)',
+  { parameters: TEXT_LIST_PARAMETER },
+);
 
 function jumpRowPositions(kind) {
   const loop = Object.freeze(['for name=i from="0" to="3"', `  ${kind}`]);

@@ -44,6 +44,7 @@ import {
 import { reconstructFrontendProjectionCompiledCoreJavaScriptPaths } from './frontend-projection-historical-transition.mjs';
 import { reconstructCPy1LoweringCompiledCoreJavaScriptPaths } from './c-py-1-lowering-historical-transition.mjs';
 import { reconstructD0ContractsSplitCompiledCoreJavaScriptPaths } from './d0-contracts-split-historical-transition.mjs';
+import { reconstructE0LoopExtractionCompiledCoreJavaScriptPaths } from './e0-loop-extraction-historical-transition.mjs';
 import { reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths } from './r2-js-lowering-historical-transition.mjs';
 import { reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths } from './r1-runtime-owner-historical-transition.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
@@ -331,12 +332,14 @@ export {
   reconstructFrontendProjectionCompiledCoreJavaScriptPaths,
   reconstructCPy1LoweringCompiledCoreJavaScriptPaths,
   reconstructD0ContractsSplitCompiledCoreJavaScriptPaths,
+  reconstructE0LoopExtractionCompiledCoreJavaScriptPaths,
   reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths,
   reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths,
 };
 
 export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths) {
-  const d0ContractsSplitPaths = reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(paths);
+  const e0LoopExtractionPaths = reconstructE0LoopExtractionCompiledCoreJavaScriptPaths(paths);
+  const d0ContractsSplitPaths = reconstructD0ContractsSplitCompiledCoreJavaScriptPaths(e0LoopExtractionPaths);
   const cPy1LoweringPaths = reconstructCPy1LoweringCompiledCoreJavaScriptPaths(d0ContractsSplitPaths);
   const r2JavaScriptLoweringPaths = reconstructR2JavaScriptLoweringCompiledCoreJavaScriptPaths(cPy1LoweringPaths);
   const r1RuntimeOwnerPaths = reconstructR1RuntimeOwnerCompiledCoreJavaScriptPaths(r2JavaScriptLoweringPaths);
