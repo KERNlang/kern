@@ -169,10 +169,10 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.11",
-    "@types/node": "^26.4.1",
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^26.6.2",
     "express": "^5.2.1",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   }
 }
