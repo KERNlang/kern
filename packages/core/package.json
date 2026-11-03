@@ -108,14 +108,7 @@
     "test": "pnpm run build && node ../../scripts/run-node-tests.mjs \"tests/**/*.test.ts\""
   },
   "dependencies": {
-    "decimal.js": "^10.6.0"
-  },
-  "peerDependencies": {
+    "decimal.js": "^10.6.0",
     "typescript": "^6.0.0"
-  },
-  "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    }
   }
 }
